@@ -44,6 +44,11 @@ final class TaskAssistantScheduleContextBuilder
     {
         $extracted = $this->constraintsExtractor->extract($userMessage);
         $normalized = $this->buildScheduleContext($userMessage, $extracted);
+        $defaultAsapMode = $this->shouldUseDefaultAsapMode($userMessage, $extracted);
+        $normalized['default_asap_mode'] = $defaultAsapMode;
+        if ($defaultAsapMode) {
+            $normalized['schedule_intent_reason_codes'] = ['intent_default_asap_mode'];
+        }
 
         $timezone = (string) ($snapshot['timezone'] ?? config('app.timezone', 'Asia/Manila'));
         $todayStr = (string) ($snapshot['today'] ?? now($timezone)->format('Y-m-d'));
@@ -72,6 +77,7 @@ final class TaskAssistantScheduleContextBuilder
             (string) ($normalized['time_constraint'] ?? 'none'),
             $intentReasonCodes,
             $timezone,
+            $defaultAsapMode,
         );
 
         $explicitOverrideRaw = is_string($snapshot['refinement_explicit_day_override'] ?? null)
@@ -127,6 +133,15 @@ final class TaskAssistantScheduleContextBuilder
             ? $intent['intent_flags']
             : [];
         $normalized['schedule_intent_reason_codes'] = $intent['reason_codes'] ?? [];
+        if ($defaultAsapMode) {
+            $reasonCodes = is_array($normalized['schedule_intent_reason_codes'] ?? null)
+                ? $normalized['schedule_intent_reason_codes']
+                : [];
+            if (! in_array('intent_default_asap_mode', $reasonCodes, true)) {
+                $reasonCodes[] = 'intent_default_asap_mode';
+            }
+            $normalized['schedule_intent_reason_codes'] = $reasonCodes;
+        }
 
         Log::info('task-assistant.schedule_context_deterministic', [
             'layer' => 'structured_generation',
@@ -202,6 +217,7 @@ final class TaskAssistantScheduleContextBuilder
         string $timeConstraint,
         array $intentReasonCodes,
         string $timezone,
+        bool $defaultAsapMode = false,
     ): array {
         $label = (string) ($horizon['label'] ?? '');
         if ($this->isExplicitDateLikeHorizonLabel($label)) {
@@ -209,6 +225,9 @@ final class TaskAssistantScheduleContextBuilder
         }
 
         if (($horizon['label'] ?? '') !== 'default_today') {
+            return $this->normalizeHorizonShape($horizon);
+        }
+        if ($defaultAsapMode) {
             return $this->normalizeHorizonShape($horizon);
         }
         if ($timeConstraint !== 'none') {
@@ -323,5 +342,39 @@ final class TaskAssistantScheduleContextBuilder
             'start' => $start !== '' ? $start : null,
             'end' => $end !== '' ? $end : null,
         ], static fn (mixed $value): bool => $value !== null);
+    }
+
+    /**
+     * @param  array<string, mixed>  $extracted
+     */
+    private function shouldUseDefaultAsapMode(string $userMessage, array $extracted): bool
+    {
+        $lower = mb_strtolower(trim($userMessage));
+        if ($lower === '') {
+            return false;
+        }
+
+        $hasExplicitDateLike = preg_match(
+            '/\b(today|tomorrow|tonight|this\s+week|next\s+week|this\s+weekend|next\s+weekend|monday|tuesday|wednesday|thursday|friday|saturday|sunday|\d{4}-\d{2}-\d{2}|\d{1,2}\/\d{1,2})\b/u',
+            $lower
+        ) === 1;
+        if ($hasExplicitDateLike) {
+            return false;
+        }
+
+        $hasClockOrDaypart = preg_match(
+            '/\b(\d{1,2}(:\d{2})?\s*(am|pm)|morning|afternoon|evening|night|later|onward(s)?|after\s+(lunch|dinner|class|school|work|office|home|gym|breakfast))\b/u',
+            $lower
+        ) === 1;
+        if ($hasClockOrDaypart) {
+            return false;
+        }
+
+        $timeConstraintRaw = (string) ($extracted['time_constraint'] ?? 'none');
+        if ($timeConstraintRaw !== 'none') {
+            return false;
+        }
+
+        return true;
     }
 }

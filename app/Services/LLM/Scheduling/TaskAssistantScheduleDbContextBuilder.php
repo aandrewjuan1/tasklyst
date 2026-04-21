@@ -67,7 +67,9 @@ final class TaskAssistantScheduleDbContextBuilder
         $windowEnd = $this->resolveHorizonEnd($horizon, $windowStart, $timezone);
 
         $taskLimit = max(1, (int) ($options['task_limit'] ?? 200));
-        $eventsLimit = max(1, (int) ($options['event_limit'] ?? 80));
+        $horizonDays = max(1, (int) $windowStart->diffInDays($windowEnd) + 1);
+        $defaultEventsLimit = min(1000, max(80, $horizonDays * 120));
+        $eventsLimit = max(1, (int) ($options['event_limit'] ?? $defaultEventsLimit));
         $projectsLimit = max(1, (int) ($options['project_limit'] ?? 20));
 
         $tasks = $this->queryTasksForSchedule($user, $now, $taskLimit);
@@ -218,6 +220,7 @@ final class TaskAssistantScheduleDbContextBuilder
                     'status' => $task->status?->value,
                     'priority' => $task->priority?->value,
                     'complexity' => $task->complexity?->value,
+                    'starts_at' => $task->start_datetime?->toIso8601String(),
                     'ends_at' => $task->end_datetime?->toIso8601String(),
                     'project_id' => $task->project_id,
                     'event_id' => $task->event_id,
@@ -366,6 +369,7 @@ final class TaskAssistantScheduleDbContextBuilder
                 'status' => $task->status?->value,
                 'priority' => $task->priority?->value,
                 'complexity' => $task->complexity?->value,
+                'starts_at' => $task->start_datetime?->toIso8601String(),
                 'ends_at' => $task->end_datetime?->toIso8601String(),
                 'project_id' => $task->project_id,
                 'event_id' => $task->event_id,

@@ -15,7 +15,8 @@ final class TaskAssistantWindowPlacementService
         int $requiredMinutes,
         array $unit,
         array $snapshot,
-        ?\DateTimeImmutable $minStartAt = null
+        ?\DateTimeImmutable $minStartAt = null,
+        bool $defaultAsapMode = false
     ): ?array {
         $best = null;
         foreach ($windows as $index => $window) {
@@ -29,7 +30,7 @@ final class TaskAssistantWindowPlacementService
                 continue;
             }
 
-            $score = $this->scoreCandidateStart($start, $unit, $snapshot);
+            $score = $this->scoreCandidateStart($start, $unit, $snapshot, $minStartAt, $defaultAsapMode);
             if ($best === null || $score > $best['score']) {
                 $best = [
                     'index' => $index,
@@ -50,8 +51,13 @@ final class TaskAssistantWindowPlacementService
      * @param  array<string, mixed>  $unit
      * @param  array<string, mixed>  $snapshot
      */
-    private function scoreCandidateStart(\DateTimeImmutable $startAt, array $unit, array $snapshot): float
-    {
+    private function scoreCandidateStart(
+        \DateTimeImmutable $startAt,
+        array $unit,
+        array $snapshot,
+        ?\DateTimeImmutable $minStartAt = null,
+        bool $defaultAsapMode = false
+    ): float {
         $weights = is_array(config('task-assistant.schedule.window_scoring.weights'))
             ? config('task-assistant.schedule.window_scoring.weights')
             : [];
@@ -63,8 +69,28 @@ final class TaskAssistantWindowPlacementService
         $score += $this->complexityFitScore($hour, $unit) * (float) ($weights['complexity_fit_multiplier'] ?? 1.0);
         $score += $this->classAdjacencyScore($startAt, $snapshot, $unit) * (float) ($weights['class_adjacency_multiplier'] ?? 1.0);
         $score += $this->energyBiasScore($hour, $snapshot) * (float) ($weights['energy_bias_multiplier'] ?? 1.0);
+        $score += $this->dayProximityScore($startAt, $minStartAt, $defaultAsapMode);
 
         return $score;
+    }
+
+    private function dayProximityScore(
+        \DateTimeImmutable $startAt,
+        ?\DateTimeImmutable $minStartAt,
+        bool $defaultAsapMode
+    ): float {
+        if (! $defaultAsapMode || ! $minStartAt instanceof \DateTimeImmutable) {
+            return 0.0;
+        }
+
+        $reference = $minStartAt;
+        $dayDistance = (int) floor(
+            max(0, ($startAt->setTime(0, 0)->getTimestamp() - $reference->setTime(0, 0)->getTimestamp()) / 86400)
+        );
+        $minuteDistance = (int) floor(max(0, ($startAt->getTimestamp() - $reference->getTimestamp()) / 60));
+
+        // Strong day-first and then minute-first preference for true ASAP mode.
+        return -($dayDistance * 10000.0) - ($minuteDistance * 0.5);
     }
 
     /**

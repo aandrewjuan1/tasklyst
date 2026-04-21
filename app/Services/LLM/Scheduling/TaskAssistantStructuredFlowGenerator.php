@@ -813,6 +813,7 @@ final class TaskAssistantStructuredFlowGenerator
         $window = is_array($snapshot['time_window'] ?? null) ? $snapshot['time_window'] : null;
         $windowStart = is_string($window['start'] ?? null) ? $window['start'] : '00:00';
         $windowEnd = is_string($window['end'] ?? null) ? $window['end'] : '23:59:59';
+        $defaultAsapMode = (bool) ($context['default_asap_mode'] ?? false);
 
         $todayStr = is_string($snapshot['today'] ?? null) ? trim((string) $snapshot['today']) : '';
         $nowStr = is_string($snapshot['now'] ?? null) ? trim((string) $snapshot['now']) : '';
@@ -895,6 +896,7 @@ final class TaskAssistantStructuredFlowGenerator
                 'end_date' => is_string($horizon['end_date'] ?? null) ? $horizon['end_date'] : null,
                 'label' => is_string($horizon['label'] ?? null) ? $horizon['label'] : null,
             ],
+            'default_asap_mode' => $defaultAsapMode,
         ];
         $strictRequestedDay = $this->resolveStrictRequestedDayFromSnapshot($snapshot);
         if ($strictRequestedDay !== null) {
@@ -917,9 +919,13 @@ final class TaskAssistantStructuredFlowGenerator
 
         $anchorDay = $placementDates[0] ?? (string) ($snapshot['today'] ?? now($timezone)->format('Y-m-d'));
         $anchorStart = new \DateTimeImmutable($anchorDay.' '.$windowStart, $timezone);
+        $selectionAnchor = $lastPlacedStartAt instanceof \DateTimeImmutable
+            ? $lastPlacedStartAt
+            : ($nowInstant instanceof \DateTimeImmutable ? $nowInstant : $anchorStart);
 
         $skipMorning = (bool) ($context['_refinement_skip_morning_shortcut'] ?? false)
-            || $this->shouldSkipMorningShortcutForSnapshot($snapshot);
+            || $this->shouldSkipMorningShortcutForSnapshot($snapshot)
+            || $defaultAsapMode;
         if (! $skipMorning && $units !== [] && count($proposals) < $countLimit) {
             $topUnit = $units[0];
             if (($topUnit['entity_type'] ?? '') === 'task') {
@@ -995,7 +1001,8 @@ final class TaskAssistantStructuredFlowGenerator
                     requiredMinutes: $requiredMinutes,
                     unit: $unit,
                     snapshot: $snapshot,
-                    minStartAt: $lastPlacedStartAt,
+                    minStartAt: $lastPlacedStartAt instanceof \DateTimeImmutable ? $lastPlacedStartAt : $selectionAnchor,
+                    defaultAsapMode: $defaultAsapMode,
                 );
                 if ($fitted === null) {
                     continue;
@@ -2278,6 +2285,32 @@ final class TaskAssistantStructuredFlowGenerator
             ];
         }
 
+        $taskSource = is_array($snapshot['tasks'] ?? null) ? $snapshot['tasks'] : [];
+        foreach ($taskSource as $task) {
+            if (! is_array($task)) {
+                continue;
+            }
+
+            $taskStart = $this->safeDateTime($task['starts_at'] ?? null, $timezone);
+            if (! $taskStart instanceof \DateTimeImmutable) {
+                continue;
+            }
+
+            $taskEnd = $this->resolveTaskBusyEnd($task, $taskStart, $timezone);
+            if (! $taskEnd instanceof \DateTimeImmutable || $taskEnd <= $taskStart) {
+                continue;
+            }
+
+            if ($taskEnd <= $dayStart || $taskStart >= $dayEnd) {
+                continue;
+            }
+
+            $ranges[] = [
+                'start' => $taskStart < $dayStart ? $dayStart : $taskStart,
+                'end' => $taskEnd > $dayEnd ? $dayEnd : $taskEnd,
+            ];
+        }
+
         usort($ranges, fn (array $a, array $b): int => $a['start'] <=> $b['start']);
 
         return $ranges;
@@ -2520,6 +2553,27 @@ final class TaskAssistantStructuredFlowGenerator
         $fallbackMinutes = max(15, (int) config('task-assistant.schedule.event_fallback_duration_minutes', 60));
 
         return $start->modify("+{$fallbackMinutes} minutes");
+    }
+
+    /**
+     * @param  array<string, mixed>  $task
+     */
+    private function resolveTaskBusyEnd(
+        array $task,
+        \DateTimeImmutable $taskStart,
+        \DateTimeZone $timezone
+    ): ?\DateTimeImmutable {
+        $explicitEnd = $this->safeDateTime($task['ends_at'] ?? null, $timezone);
+        if ($explicitEnd instanceof \DateTimeImmutable) {
+            return $explicitEnd;
+        }
+
+        $durationMinutes = max(0, (int) ($task['duration_minutes'] ?? 0));
+        if ($durationMinutes > 0) {
+            return $taskStart->modify("+{$durationMinutes} minutes");
+        }
+
+        return null;
     }
 
     /**

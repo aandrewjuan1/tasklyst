@@ -12,6 +12,9 @@ use Illuminate\Support\Collection;
 
 /**
  * Builds the unified workspace list: overdue strip first, then day items, deduped and ordered by calendar time.
+ *
+ * Day strip ordering: school classes first; tasks/events and projects that start or end on the list anchor day
+ * follow by time; other projects (long-running / undated for that anchor) sort last.
  */
 final class WorkspaceListAggregator
 {
@@ -21,6 +24,7 @@ final class WorkspaceListAggregator
      * @param  Collection<int, Event>  $events
      * @param  Collection<int, Task>  $tasks
      * @param  Collection<int, SchoolClass>  $schoolClasses
+     * @param  string|null  $listAnchorDate  Workspace selected day (Y-m-d, app timezone). When null, project "tail" grouping is disabled.
      * @return Collection<int, array{kind: string, item: Model, isOverdue: bool}>
      */
     public static function mergeOrderAndDedupe(
@@ -29,6 +33,7 @@ final class WorkspaceListAggregator
         Collection $events,
         Collection $tasks,
         Collection $schoolClasses,
+        ?string $listAnchorDate = null,
     ): Collection {
         $overdueItems = $overdue->map(fn (array $entry): array => array_merge($entry, ['isOverdue' => true]));
 
@@ -80,7 +85,9 @@ final class WorkspaceListAggregator
         }
 
         usort($overdueStrip, [self::class, 'compareOverdueEntries']);
-        usort($dayStrip, [self::class, 'compareDayEntries']);
+        usort($dayStrip, static function (array $a, array $b) use ($listAnchorDate): int {
+            return self::compareDayEntries($a, $b, $listAnchorDate);
+        });
 
         return collect([...$overdueStrip, ...$dayStrip])->values();
     }
@@ -113,6 +120,12 @@ final class WorkspaceListAggregator
      */
     private static function compareOverdueEntries(array $a, array $b): int
     {
+        $ra = self::overdueStripKindRank($a);
+        $rb = self::overdueStripKindRank($b);
+        if ($ra !== $rb) {
+            return $ra <=> $rb;
+        }
+
         $ea = self::effectiveEndForWorkspaceList($a['item'])?->getTimestamp() ?? PHP_INT_MAX;
         $eb = self::effectiveEndForWorkspaceList($b['item'])?->getTimestamp() ?? PHP_INT_MAX;
 
@@ -124,13 +137,27 @@ final class WorkspaceListAggregator
     }
 
     /**
+     * @param  array{kind: string, item: Model, isOverdue: bool}  $entry
+     */
+    private static function overdueStripKindRank(array $entry): int
+    {
+        return $entry['kind'] === 'schoolClass' ? 0 : 1;
+    }
+
+    /**
      * @param  array{kind: string, item: Model, isOverdue: bool}  $a
      * @param  array{kind: string, item: Model, isOverdue: bool}  $b
      */
-    private static function compareDayEntries(array $a, array $b): int
+    private static function compareDayEntries(array $a, array $b, ?string $listAnchorDate): int
     {
-        $ta = self::daySortTimestamp($a);
-        $tb = self::daySortTimestamp($b);
+        $sa = self::dayStripSortTier($a, $listAnchorDate);
+        $sb = self::dayStripSortTier($b, $listAnchorDate);
+        if ($sa !== $sb) {
+            return $sa <=> $sb;
+        }
+
+        $ta = self::daySortTimestamp($a, $listAnchorDate);
+        $tb = self::daySortTimestamp($b, $listAnchorDate);
 
         if ($ta !== $tb) {
             return $ta <=> $tb;
@@ -148,17 +175,79 @@ final class WorkspaceListAggregator
     /**
      * @param  array{kind: string, item: Model, isOverdue: bool}  $entry
      */
-    private static function daySortTimestamp(array $entry): int
+    private static function dayStripSortTier(array $entry, ?string $listAnchorDate): int
+    {
+        if ($entry['kind'] === 'schoolClass') {
+            return 0;
+        }
+
+        if ($entry['kind'] === 'project' && $entry['item'] instanceof Project) {
+            if ($listAnchorDate === null || $listAnchorDate === '') {
+                return 1;
+            }
+
+            return self::projectStartOrEndOnAnchorDay($entry['item'], $listAnchorDate) ? 1 : 2;
+        }
+
+        return 1;
+    }
+
+    private static function projectStartOrEndOnAnchorDay(Project $project, string $anchorDateYmd): bool
+    {
+        $tz = (string) config('app.timezone', 'UTC');
+
+        foreach ([$project->end_datetime, $project->start_datetime] as $dt) {
+            if ($dt === null) {
+                continue;
+            }
+
+            if ($dt->copy()->timezone($tz)->toDateString() === $anchorDateYmd) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param  array{kind: string, item: Model, isOverdue: bool}  $entry
+     */
+    private static function daySortTimestamp(array $entry, ?string $listAnchorDate): int
     {
         $item = $entry['item'];
 
         return match ($entry['kind']) {
             'task' => self::taskDaySortTimestamp($item),
             'event' => self::eventDaySortTimestamp($item),
-            'project' => self::projectDaySortTimestamp($item),
+            'project' => self::projectDayStripSortTimestamp($entry, $listAnchorDate),
             'schoolClass' => self::schoolClassDaySortTimestamp($item),
             default => PHP_INT_MAX,
         };
+    }
+
+    /**
+     * @param  array{kind: string, item: Model, isOverdue: bool}  $entry
+     */
+    private static function projectDayStripSortTimestamp(array $entry, ?string $listAnchorDate): int
+    {
+        $item = $entry['item'];
+        if (! $item instanceof Project) {
+            return PHP_INT_MAX;
+        }
+
+        if ($listAnchorDate !== null && $listAnchorDate !== '' && self::projectStartOrEndOnAnchorDay($item, $listAnchorDate)) {
+            $tz = (string) config('app.timezone', 'UTC');
+            $end = $item->end_datetime;
+            if ($end !== null && $end->copy()->timezone($tz)->toDateString() === $listAnchorDate) {
+                return $end->getTimestamp();
+            }
+            $start = $item->start_datetime;
+            if ($start !== null && $start->copy()->timezone($tz)->toDateString() === $listAnchorDate) {
+                return $start->getTimestamp();
+            }
+        }
+
+        return self::projectDaySortTimestamp($item);
     }
 
     private static function taskDaySortTimestamp(Model $item): int

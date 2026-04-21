@@ -26,7 +26,6 @@ use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Cache;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
@@ -40,12 +39,20 @@ class extends Component
     use HandlesCalendarFeeds;
     use HandlesWorkspaceCalendar;
 
+    /*
+     * At-a-glance panels (KPIs, lists, project health, focus throughput, insights charts)
+     * load from the database on each request so workspace edits show on the next visit.
+     * Livewire Computed still memoizes within a single request.
+     */
     private const ANALYTICS_PRESETS = ['daily', 'weekly', 'monthly'];
 
     private const AT_A_GLANCE_LIMIT = 7;
 
+    /** Visible rows in compact list cards before “See all” (Doing, Recurring, No-date, Classes). */
+    private const DASHBOARD_LIST_CARD_ROW_LIMIT = 3;
+
     /** Maximum rows shown in the Urgent Now panel before “See all”. */
-    private const URGENT_NOW_DISPLAY_LIMIT = 3;
+    private const URGENT_NOW_DISPLAY_LIMIT = self::DASHBOARD_LIST_CARD_ROW_LIMIT;
 
     /** Ranked items loaded; one past display limit signals additional items exist. */
     private const URGENT_NOW_PREVIEW_LIMIT = 4;
@@ -61,13 +68,13 @@ class extends Component
     private const FEED_HEALTH_LIMIT = 5;
 
     /** Rows shown in the No-date Backlog panel before “See all”. */
-    private const NO_DATE_BACKLOG_DISPLAY_LIMIT = 3;
+    private const NO_DATE_BACKLOG_DISPLAY_LIMIT = self::DASHBOARD_LIST_CARD_ROW_LIMIT;
 
-    private const RECURRING_DUE_DISPLAY_LIMIT = 3;
+    private const RECURRING_DUE_DISPLAY_LIMIT = self::DASHBOARD_LIST_CARD_ROW_LIMIT;
 
     private const LLM_RECENT_THREADS_LIMIT = 5;
 
-    private const TODAY_SCHOOL_CLASSES_DISPLAY_LIMIT = 3;
+    private const TODAY_SCHOOL_CLASSES_DISPLAY_LIMIT = self::DASHBOARD_LIST_CARD_ROW_LIMIT;
 
     #[Url(as: 'date')]
     public ?string $selectedDate = null;
@@ -161,25 +168,11 @@ class extends Component
             return null;
         }
 
-        $cacheKey = sprintf(
-            'dashboard:trend-analytics:%d:%s:%s',
-            $user->id,
-            $this->trendPreset,
-            now()->format('YmdHi')
+        return $this->userAnalyticsService->dashboardOverview(
+            user: $user,
+            preset: $this->trendPreset,
+            anchor: $this->analyticsAnchor(),
         );
-
-        /** @var DashboardAnalyticsOverview $overview */
-        $overview = Cache::remember(
-            $cacheKey,
-            now()->addSeconds(60),
-            fn (): DashboardAnalyticsOverview => $this->userAnalyticsService->dashboardOverview(
-                user: $user,
-                preset: $this->trendPreset,
-                anchor: $this->analyticsAnchor(),
-            )
-        );
-
-        return $overview;
     }
 
     private function analyticsAnchor(): CarbonInterface
@@ -211,52 +204,42 @@ class extends Component
             ];
         }
 
-        $selectedDate = $this->getParsedSelectedDate()->toDateString();
-        // Use a short, deterministic time bucket to avoid a per-request "max(updated_at)" query.
-        $cacheWindowBucket = now()->format('YmdHi');
+        $now = now();
+        $startOfDay = $this->getParsedSelectedDate()->copy()->startOfDay();
+        $endOfDay = $this->getParsedSelectedDate()->copy()->endOfDay();
+
+        $baseCounts = Task::query()
+            ->forUser($userId)
+            ->selectRaw('COUNT(*) as total')
+            ->selectRaw('SUM(CASE WHEN completed_at IS NOT NULL THEN 1 ELSE 0 END) as completed')
+            ->selectRaw('SUM(CASE WHEN completed_at IS NULL THEN 1 ELSE 0 END) as incomplete')
+            ->selectRaw('SUM(CASE WHEN completed_at IS NULL AND status = ? THEN 1 ELSE 0 END) as todo', [TaskStatus::ToDo->value])
+            ->first();
+
+        $overdueCount = Task::query()
+            ->forUser($userId)
+            ->incomplete()
+            ->overdue($now)
+            ->whereDoesntHave('recurringTask')
+            ->count();
+
+        $dueTodayCount = Task::query()
+            ->forUser($userId)
+            ->incomplete()
+            ->whereNotNull('end_datetime')
+            ->whereBetween('end_datetime', [$startOfDay, $endOfDay])
+            ->whereDoesntHave('recurringTask')
+            ->count();
 
         /** @var array{incomplete:int,todo:int,total:int,completed:int,overdue:int,due_today:int} $counts */
-        $counts = $this->rememberMetric(
-            key: sprintf('task-counts:%d:%s:%s', $userId, $selectedDate, $cacheWindowBucket),
-            ttlSeconds: 60,
-            callback: function () use ($userId): array {
-                $now = now();
-                $startOfDay = $this->getParsedSelectedDate()->copy()->startOfDay();
-                $endOfDay = $this->getParsedSelectedDate()->copy()->endOfDay();
-
-                $baseCounts = Task::query()
-                    ->forUser($userId)
-                    ->selectRaw('COUNT(*) as total')
-                    ->selectRaw('SUM(CASE WHEN completed_at IS NOT NULL THEN 1 ELSE 0 END) as completed')
-                    ->selectRaw('SUM(CASE WHEN completed_at IS NULL THEN 1 ELSE 0 END) as incomplete')
-                    ->selectRaw('SUM(CASE WHEN completed_at IS NULL AND status = ? THEN 1 ELSE 0 END) as todo', [TaskStatus::ToDo->value])
-                    ->first();
-
-                $overdueCount = Task::query()
-                    ->forUser($userId)
-                    ->incomplete()
-                    ->overdue($now)
-                    ->whereDoesntHave('recurringTask')
-                    ->count();
-
-                $dueTodayCount = Task::query()
-                    ->forUser($userId)
-                    ->incomplete()
-                    ->whereNotNull('end_datetime')
-                    ->whereBetween('end_datetime', [$startOfDay, $endOfDay])
-                    ->whereDoesntHave('recurringTask')
-                    ->count();
-
-                return [
-                    'incomplete' => (int) ($baseCounts?->incomplete ?? 0),
-                    'todo' => (int) ($baseCounts?->todo ?? 0),
-                    'total' => (int) ($baseCounts?->total ?? 0),
-                    'completed' => (int) ($baseCounts?->completed ?? 0),
-                    'overdue' => $overdueCount,
-                    'due_today' => $dueTodayCount,
-                ];
-            }
-        );
+        $counts = [
+            'incomplete' => (int) ($baseCounts?->incomplete ?? 0),
+            'todo' => (int) ($baseCounts?->todo ?? 0),
+            'total' => (int) ($baseCounts?->total ?? 0),
+            'completed' => (int) ($baseCounts?->completed ?? 0),
+            'overdue' => $overdueCount,
+            'due_today' => $dueTodayCount,
+        ];
 
         return $counts;
     }
@@ -441,7 +424,53 @@ class extends Component
         }
 
         $selectedDate = $this->getParsedSelectedDate()->copy();
-        $cacheWindowBucket = now()->format('YmdHi');
+        $startOfDay = $selectedDate->copy()->startOfDay();
+        $endOfDay = $selectedDate->copy()->endOfDay();
+
+        $allClasses = SchoolClass::query()
+            ->forUser($userId)
+            ->notArchived()
+            ->with(['teacher', 'recurringSchoolClass'])
+            ->orderBy('start_time')
+            ->orderBy('subject_name')
+            ->get();
+
+        $classesForDay = $this->schoolClassService->filterSchoolClassesForCalendarDay($allClasses, $startOfDay, $endOfDay);
+        $now = now();
+
+        $rows = $classesForDay
+            ->map(function (SchoolClass $class) use ($selectedDate, $now): array {
+                [$startsAt, $endsAt] = $this->resolveDashboardSchoolClassDateWindow($class, $selectedDate);
+                $state = 'later';
+
+                if ($startsAt !== null && $endsAt !== null && $now->between($startsAt, $endsAt)) {
+                    $state = 'now';
+                }
+
+                return [
+                    'id' => $class->id,
+                    'subject_name' => (string) $class->subject_name,
+                    'teacher_name' => $class->teacher?->name,
+                    'starts_at_iso' => $startsAt?->toIso8601String(),
+                    'ends_at_iso' => $endsAt?->toIso8601String(),
+                    'time_label' => $this->formatDashboardSchoolClassTimeLabel($startsAt, $endsAt),
+                    'state' => $state,
+                    'workspace_url' => $this->workspaceRouteForAgendaStyleFocus(
+                        $selectedDate->toDateString(),
+                        'school_class',
+                        $class->id
+                    ),
+                ];
+            })
+            ->sortBy(fn (array $row): int => $row['starts_at_iso'] !== null
+                ? \Carbon\Carbon::parse($row['starts_at_iso'])->getTimestamp()
+                : PHP_INT_MAX)
+            ->values();
+
+        $firstUpcomingClassId = $rows
+            ->first(fn (array $row): bool => $row['state'] !== 'now'
+                && $row['starts_at_iso'] !== null
+                && \Carbon\Carbon::parse($row['starts_at_iso'])->isFuture())['id'] ?? null;
 
         /** @var array<int, array{
          *   id:int,
@@ -452,74 +481,20 @@ class extends Component
          *   time_label:string,
          *   state:'now'|'next'|'later',
          *   workspace_url:string
-         * }> $rows */
-        $rows = $this->rememberMetric(
-            key: sprintf('today-school-classes:%d:%s:%s', $userId, $selectedDate->toDateString(), $cacheWindowBucket),
-            ttlSeconds: 60,
-            callback: function () use ($userId, $selectedDate): array {
-                $startOfDay = $selectedDate->copy()->startOfDay();
-                $endOfDay = $selectedDate->copy()->endOfDay();
+         * }> $rowList */
+        $rowList = $rows
+            ->map(function (array $row) use ($firstUpcomingClassId): array {
+                if ($row['state'] === 'later' && $firstUpcomingClassId !== null && $row['id'] === $firstUpcomingClassId) {
+                    $row['state'] = 'next';
+                }
 
-                $allClasses = SchoolClass::query()
-                    ->forUser($userId)
-                    ->notArchived()
-                    ->with(['teacher', 'recurringSchoolClass'])
-                    ->orderBy('start_time')
-                    ->orderBy('subject_name')
-                    ->get();
+                return $row;
+            })
+            ->take(self::TODAY_SCHOOL_CLASSES_DISPLAY_LIMIT)
+            ->values()
+            ->all();
 
-                $classesForDay = $this->schoolClassService->filterSchoolClassesForCalendarDay($allClasses, $startOfDay, $endOfDay);
-                $now = now();
-
-                $rows = $classesForDay
-                    ->map(function (SchoolClass $class) use ($selectedDate, $now): array {
-                        [$startsAt, $endsAt] = $this->resolveDashboardSchoolClassDateWindow($class, $selectedDate);
-                        $state = 'later';
-
-                        if ($startsAt !== null && $endsAt !== null && $now->between($startsAt, $endsAt)) {
-                            $state = 'now';
-                        }
-
-                        return [
-                            'id' => $class->id,
-                            'subject_name' => (string) $class->subject_name,
-                            'teacher_name' => $class->teacher?->name,
-                            'starts_at_iso' => $startsAt?->toIso8601String(),
-                            'ends_at_iso' => $endsAt?->toIso8601String(),
-                            'time_label' => $this->formatDashboardSchoolClassTimeLabel($startsAt, $endsAt),
-                            'state' => $state,
-                            'workspace_url' => $this->workspaceRouteForAgendaStyleFocus(
-                                $selectedDate->toDateString(),
-                                'school_class',
-                                $class->id
-                            ),
-                        ];
-                    })
-                    ->sortBy(fn (array $row): int => $row['starts_at_iso'] !== null
-                        ? \Carbon\Carbon::parse($row['starts_at_iso'])->getTimestamp()
-                        : PHP_INT_MAX)
-                    ->values();
-
-                $firstUpcomingClassId = $rows
-                    ->first(fn (array $row): bool => $row['state'] !== 'now'
-                        && $row['starts_at_iso'] !== null
-                        && \Carbon\Carbon::parse($row['starts_at_iso'])->isFuture())['id'] ?? null;
-
-                return $rows
-                    ->map(function (array $row) use ($firstUpcomingClassId): array {
-                        if ($row['state'] === 'later' && $firstUpcomingClassId !== null && $row['id'] === $firstUpcomingClassId) {
-                            $row['state'] = 'next';
-                        }
-
-                        return $row;
-                    })
-                    ->take(self::TODAY_SCHOOL_CLASSES_DISPLAY_LIMIT)
-                    ->values()
-                    ->all();
-            }
-        );
-
-        return collect($rows);
+        return collect($rowList);
     }
 
     #[Computed]
@@ -531,26 +506,18 @@ class extends Component
         }
 
         $selectedDate = $this->getParsedSelectedDate()->copy();
-        $cacheWindowBucket = now()->format('YmdHi');
+        $startOfDay = $selectedDate->copy()->startOfDay();
+        $endOfDay = $selectedDate->copy()->endOfDay();
 
-        return $this->rememberMetric(
-            key: sprintf('today-school-classes-count:%d:%s:%s', $userId, $selectedDate->toDateString(), $cacheWindowBucket),
-            ttlSeconds: 60,
-            callback: function () use ($userId, $selectedDate): int {
-                $startOfDay = $selectedDate->copy()->startOfDay();
-                $endOfDay = $selectedDate->copy()->endOfDay();
+        $allClasses = SchoolClass::query()
+            ->forUser($userId)
+            ->notArchived()
+            ->with(['recurringSchoolClass'])
+            ->orderBy('start_time')
+            ->orderBy('subject_name')
+            ->get();
 
-                $allClasses = SchoolClass::query()
-                    ->forUser($userId)
-                    ->notArchived()
-                    ->with(['recurringSchoolClass'])
-                    ->orderBy('start_time')
-                    ->orderBy('subject_name')
-                    ->get();
-
-                return $this->schoolClassService->countSchoolClassesOnCalendarDay($allClasses, $startOfDay, $endOfDay);
-            }
-        );
+        return $this->schoolClassService->countSchoolClassesOnCalendarDay($allClasses, $startOfDay, $endOfDay);
     }
 
     #[Computed]
@@ -723,9 +690,10 @@ class extends Component
         return $streakDays;
     }
 
-    public function noDateBacklogDisplayLimit(): int
+    /** Visible rows per compact list card (Doing, Recurring, No-date, Classes). */
+    public function dashboardListCardRowLimit(): int
     {
-        return self::NO_DATE_BACKLOG_DISPLAY_LIMIT;
+        return self::DASHBOARD_LIST_CARD_ROW_LIMIT;
     }
 
     /**
@@ -845,11 +813,11 @@ class extends Component
             eventLimit: 12,
             projectLimit: 12,
         );
-        $ranked = Cache::remember(
-            'dashboard:urgent-now:'.$user->id,
-            now()->addSeconds(45),
-            fn () => $this->taskPrioritizationService->prioritizeFocus($snapshot, [])
-        );
+
+        // Do not cache ranked output: a stale cache ignored fresh snapshots and hid
+        // workspace updates (priority/due date) until TTL expired. prioritizeFocus is deterministic PHP.
+        $ranked = $this->taskPrioritizationService->prioritizeFocus($snapshot, []);
+
         return collect($ranked)
             ->filter(fn (array $row): bool => ($row['type'] ?? null) === 'task')
             ->filter(function (array $item): bool {
@@ -1077,77 +1045,71 @@ class extends Component
             return collect();
         }
 
-        $rows = $this->rememberMetric(
-            key: sprintf('project-health:%d:%s', $userId, $this->getParsedSelectedDate()->toDateString()),
-            ttlSeconds: 60,
-            callback: function () use ($userId): array {
-                $now = now();
-                $soonThreshold = $now->copy()->addDays(3);
+        $now = now();
+        $soonThreshold = $now->copy()->addDays(3);
 
-                return Project::query()
-                    ->forUser($userId)
-                    ->notArchived()
-                    ->withCount('tasks')
-                    ->withCount([
-                        'tasks as incomplete_tasks_count' => fn ($query) => $query->incomplete(),
-                        'tasks as overdue_tasks_count' => fn ($query) => $query->incomplete()->overdue($now),
-                    ])
-                    ->withMin([
-                        'tasks as nearest_deadline' => fn ($query) => $query
-                            ->incomplete()
-                            ->whereNotNull('end_datetime'),
-                    ], 'end_datetime')
-                    ->orderByDesc('overdue_tasks_count')
-                    ->orderBy('nearest_deadline')
-                    ->limit(self::PROJECT_HEALTH_LIMIT)
-                    ->get()
-                    ->map(function (Project $project) use ($soonThreshold): array {
-                        $totalTasks = (int) ($project->tasks_count ?? 0);
-                        $incompleteTasks = (int) ($project->incomplete_tasks_count ?? 0);
-                        $overdueTasks = (int) ($project->overdue_tasks_count ?? 0);
-                        $completedTasks = max(0, $totalTasks - $incompleteTasks);
-                        $completionRate = $totalTasks > 0 ? (int) round(($completedTasks / $totalTasks) * 100) : 0;
-                        $nearestDeadline = $project->nearest_deadline;
-                        $nearestDeadlineDate = $nearestDeadline ? \Carbon\Carbon::parse($nearestDeadline) : null;
-                        $daysToDeadline = $nearestDeadlineDate !== null ? max(0, now()->startOfDay()->diffInDays($nearestDeadlineDate->startOfDay(), false)) : null;
+        $rows = Project::query()
+            ->forUser($userId)
+            ->notArchived()
+            ->withCount('tasks')
+            ->withCount([
+                'tasks as incomplete_tasks_count' => fn ($query) => $query->incomplete(),
+                'tasks as overdue_tasks_count' => fn ($query) => $query->incomplete()->overdue($now),
+            ])
+            ->withMin([
+                'tasks as nearest_deadline' => fn ($query) => $query
+                    ->incomplete()
+                    ->whereNotNull('end_datetime'),
+            ], 'end_datetime')
+            ->orderByDesc('overdue_tasks_count')
+            ->orderBy('nearest_deadline')
+            ->limit(self::PROJECT_HEALTH_LIMIT)
+            ->get()
+            ->map(function (Project $project) use ($soonThreshold): array {
+                $totalTasks = (int) ($project->tasks_count ?? 0);
+                $incompleteTasks = (int) ($project->incomplete_tasks_count ?? 0);
+                $overdueTasks = (int) ($project->overdue_tasks_count ?? 0);
+                $completedTasks = max(0, $totalTasks - $incompleteTasks);
+                $completionRate = $totalTasks > 0 ? (int) round(($completedTasks / $totalTasks) * 100) : 0;
+                $nearestDeadline = $project->nearest_deadline;
+                $nearestDeadlineDate = $nearestDeadline ? \Carbon\Carbon::parse($nearestDeadline) : null;
+                $daysToDeadline = $nearestDeadlineDate !== null ? max(0, now()->startOfDay()->diffInDays($nearestDeadlineDate->startOfDay(), false)) : null;
 
-                        $risk = 'On Track';
-                        $riskReason = __('Healthy progress and no immediate blockers.');
-                        if ($overdueTasks > 0) {
-                            $risk = 'Critical';
-                            $riskReason = __('Has overdue tasks that need immediate action.');
-                        } elseif ($incompleteTasks >= 6 && $completionRate < 35) {
-                            $risk = 'Critical';
-                            $riskReason = __('Large backlog with low completion velocity.');
-                        } elseif ($nearestDeadlineDate !== null && $nearestDeadlineDate->lte($soonThreshold) && $completionRate < 60) {
-                            $risk = 'At Risk';
-                            $riskReason = __('Deadline is close and completion is below target.');
-                        } elseif ($daysToDeadline !== null && $daysToDeadline <= 7 && $incompleteTasks >= 3) {
-                            $risk = 'At Risk';
-                            $riskReason = __('Upcoming deadline with several tasks still open.');
-                        }
+                $risk = 'On Track';
+                $riskReason = __('Healthy progress and no immediate blockers.');
+                if ($overdueTasks > 0) {
+                    $risk = 'Critical';
+                    $riskReason = __('Has overdue tasks that need immediate action.');
+                } elseif ($incompleteTasks >= 6 && $completionRate < 35) {
+                    $risk = 'Critical';
+                    $riskReason = __('Large backlog with low completion velocity.');
+                } elseif ($nearestDeadlineDate !== null && $nearestDeadlineDate->lte($soonThreshold) && $completionRate < 60) {
+                    $risk = 'At Risk';
+                    $riskReason = __('Deadline is close and completion is below target.');
+                } elseif ($daysToDeadline !== null && $daysToDeadline <= 7 && $incompleteTasks >= 3) {
+                    $risk = 'At Risk';
+                    $riskReason = __('Upcoming deadline with several tasks still open.');
+                }
 
-                        return [
-                            'id' => $project->id,
-                            'name' => (string) $project->name,
-                            'total_tasks' => $totalTasks,
-                            'incomplete_tasks' => $incompleteTasks,
-                            'overdue_tasks' => $overdueTasks,
-                            'completion_rate' => $completionRate,
-                            'nearest_deadline' => $nearestDeadlineDate?->toIso8601String(),
-                            'risk' => $risk,
-                            'risk_reason' => $riskReason,
-                            'workspace_url' => $this->workspaceRouteForAgendaStyleFocus(
-                                $this->getParsedSelectedDate()->toDateString(),
-                                'project',
-                                $project->id
-                            ),
-                        ];
-                    })
-                    ->values()
-                    ->all();
-            }
-        );
+                return [
+                    'id' => $project->id,
+                    'name' => (string) $project->name,
+                    'total_tasks' => $totalTasks,
+                    'incomplete_tasks' => $incompleteTasks,
+                    'overdue_tasks' => $overdueTasks,
+                    'completion_rate' => $completionRate,
+                    'nearest_deadline' => $nearestDeadlineDate?->toIso8601String(),
+                    'risk' => $risk,
+                    'risk_reason' => $riskReason,
+                    'workspace_url' => $this->workspaceRouteForAgendaStyleFocus(
+                        $this->getParsedSelectedDate()->toDateString(),
+                        'project',
+                        $project->id
+                    ),
+                ];
+            })
+            ->values()
+            ->all();
 
         return collect($rows);
     }
@@ -1173,49 +1135,43 @@ class extends Component
             ];
         }
 
-        return $this->rememberMetric(
-            key: sprintf('focus-throughput:%d:%s', $userId, $this->getParsedSelectedDate()->toDateString()),
-            ttlSeconds: 60,
-            callback: function () use ($userId): array {
-                $selectedDate = $this->getParsedSelectedDate()->copy();
-                $dayStart = $selectedDate->copy()->startOfDay();
-                $dayEnd = $selectedDate->copy()->endOfDay();
-                $weekStart = $selectedDate->copy()->startOfWeek();
-                $weekEnd = $selectedDate->copy()->endOfWeek();
+        $selectedDate = $this->getParsedSelectedDate()->copy();
+        $dayStart = $selectedDate->copy()->startOfDay();
+        $dayEnd = $selectedDate->copy()->endOfDay();
+        $weekStart = $selectedDate->copy()->startOfWeek();
+        $weekEnd = $selectedDate->copy()->endOfWeek();
 
-                $dailyWorkSeconds = FocusSession::query()
-                    ->forUser($userId)
-                    ->work()
-                    ->completed()
-                    ->whereBetween('started_at', [$dayStart, $dayEnd])
-                    ->selectRaw('COALESCE(SUM(duration_seconds), 0) as aggregate')
-                    ->value('aggregate');
+        $dailyWorkSeconds = FocusSession::query()
+            ->forUser($userId)
+            ->work()
+            ->completed()
+            ->whereBetween('started_at', [$dayStart, $dayEnd])
+            ->selectRaw('COALESCE(SUM(duration_seconds), 0) as aggregate')
+            ->value('aggregate');
 
-                $weeklyWorkSeconds = FocusSession::query()
-                    ->forUser($userId)
-                    ->work()
-                    ->completed()
-                    ->whereBetween('started_at', [$weekStart, $weekEnd])
-                    ->selectRaw('COALESCE(SUM(duration_seconds), 0) as aggregate')
-                    ->value('aggregate');
+        $weeklyWorkSeconds = FocusSession::query()
+            ->forUser($userId)
+            ->work()
+            ->completed()
+            ->whereBetween('started_at', [$weekStart, $weekEnd])
+            ->selectRaw('COALESCE(SUM(duration_seconds), 0) as aggregate')
+            ->value('aggregate');
 
-                $completedToday = Task::query()
-                    ->forUser($userId)
-                    ->whereNotNull('completed_at')
-                    ->whereBetween('completed_at', [$dayStart, $dayEnd])
-                    ->count();
+        $completedToday = Task::query()
+            ->forUser($userId)
+            ->whereNotNull('completed_at')
+            ->whereBetween('completed_at', [$dayStart, $dayEnd])
+            ->count();
 
-                $dailyMinutes = (int) floor(((int) $dailyWorkSeconds) / 60);
-                $weeklyMinutes = (int) floor(((int) $weeklyWorkSeconds) / 60);
+        $dailyMinutes = (int) floor(((int) $dailyWorkSeconds) / 60);
+        $weeklyMinutes = (int) floor(((int) $weeklyWorkSeconds) / 60);
 
-                return [
-                    'daily_focus_minutes' => $dailyMinutes,
-                    'weekly_focus_minutes' => $weeklyMinutes,
-                    'completed_today' => $completedToday,
-                    'focus_per_completed_minutes' => $completedToday > 0 ? (int) floor($dailyMinutes / $completedToday) : 0,
-                ];
-            }
-        );
+        return [
+            'daily_focus_minutes' => $dailyMinutes,
+            'weekly_focus_minutes' => $weeklyMinutes,
+            'completed_today' => $completedToday,
+            'focus_per_completed_minutes' => $completedToday > 0 ? (int) floor($dailyMinutes / $completedToday) : 0,
+        ];
     }
 
     /**
@@ -1575,21 +1531,6 @@ class extends Component
             'fresh' => 4,
             default => 5,
         };
-    }
-
-    /**
-     * @template T
-     *
-     * @param  callable():T  $callback
-     * @return T
-     */
-    private function rememberMetric(string $key, int $ttlSeconds, callable $callback): mixed
-    {
-        return Cache::remember(
-            'dashboard:metric:'.$key,
-            now()->addSeconds($ttlSeconds),
-            $callback
-        );
     }
 
     protected function requireAuth(string $message): ?User

@@ -254,7 +254,7 @@ final class NotificationBellState
      *   read_at: string|null,
      *   created_at_human: string,
      *   click_opens_workspace: bool,
-     *   click_behavior: 'calendar_feed_sync_completed'|null,
+     *   click_behavior: 'assistant_response_ready'|'calendar_feed_sync_completed'|null,
      *   workspace_focus_kind?: 'task'|'event'|'project'|'schoolClass'|null,
      *   workspace_focus_id?: int|null,
      *   collaboration_invite?: array<string, mixed>
@@ -268,9 +268,12 @@ final class NotificationBellState
         $route = trim((string) ($data['route'] ?? ''));
         $params = is_array($data['params'] ?? null) ? $data['params'] : [];
 
-        $clickBehavior = ($data['type'] ?? '') === 'calendar_feed_sync_completed'
-            ? 'calendar_feed_sync_completed'
-            : null;
+        $type = (string) ($data['type'] ?? '');
+        $clickBehavior = match ($type) {
+            'assistant_response_ready' => 'assistant_response_ready',
+            'calendar_feed_sync_completed' => 'calendar_feed_sync_completed',
+            default => null,
+        };
 
         $base = [
             'id' => (string) $notification->id,

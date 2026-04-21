@@ -718,6 +718,7 @@ class extends Component
             $this->events,
             $this->tasks,
             $this->schoolClassesForWorkspaceList,
+            $this->selectedDate,
         );
     }
 

@@ -189,6 +189,13 @@ new class extends Component
         $this->refreshMessages();
     }
 
+    #[On('assistant-chat-open-requested')]
+    public function onAssistantChatOpenRequested(): void
+    {
+        $this->ensureThread();
+        $this->refreshMessages(true);
+    }
+
     public function checkStreamingTimeout(): void
     {
         if (! $this->isStreaming || ! $this->streamingMessageId || ! $this->thread) {
@@ -367,26 +374,7 @@ new class extends Component
      */
     public function filterContinueStyleQuickChips(array $chips): array
     {
-        return array_values(array_filter(
-            $chips,
-            static function (string $chip): bool {
-                $t = mb_strtolower(trim($chip));
-                if ($t === '') {
-                    return false;
-                }
-                if (preg_match('/^continue\\b/u', $t) === 1) {
-                    return false;
-                }
-                if (preg_match('/\\bcontinue\\b.*\\b(draft|pending\\s+schedule)\\b/u', $t) === 1) {
-                    return false;
-                }
-                if (str_contains($t, 'continue with this draft')) {
-                    return false;
-                }
-
-                return true;
-            }
-        ));
+        return app(TaskAssistantQuickChipResolver::class)->filterContinueStyleQuickChips($chips);
     }
 
     public function requestStopStreaming(): void

@@ -6,6 +6,7 @@ use App\Models\CollaborationInvitation;
 use App\Models\DatabaseNotification;
 use App\Models\Task;
 use App\Models\User;
+use App\Notifications\AssistantResponseReadyNotification;
 use App\Notifications\CollaborationInvitationReceivedNotification;
 use App\Support\NotificationBellState;
 use App\Support\WorkspaceAgendaFocusUrl;
@@ -324,6 +325,66 @@ test('assistant schedule accept success notification opens workspace row from be
 
     $target = NotificationBellState::workspaceFocusTargetFromNotificationData($data);
     expect($target)->toMatchArray(['kind' => 'task', 'id' => 123]);
+});
+
+test('assistant response ready notification exposes assistant click behavior', function (): void {
+    $user = $this->user;
+
+    $notification = DatabaseNotification::query()->create([
+        'id' => (string) \Illuminate\Support\Str::uuid(),
+        'type' => AssistantResponseReadyNotification::class,
+        'notifiable_type' => User::class,
+        'notifiable_id' => $user->id,
+        'data' => [
+            'type' => 'assistant_response_ready',
+            'title' => 'Assistant response ready',
+            'message' => 'Your task assistant response is ready to review.',
+            'route' => 'dashboard',
+            'params' => [],
+            'meta' => [
+                'thread_id' => 10,
+                'assistant_message_id' => 20,
+            ],
+        ],
+        'read_at' => null,
+    ]);
+
+    $component = Livewire::actingAs($user)->test('notifications.bell-dropdown');
+    $first = $component->get('notifications')[0] ?? null;
+
+    expect($first)->toBeArray()
+        ->and($first['id'] ?? null)->toBe((string) $notification->id)
+        ->and($first['click_behavior'] ?? null)->toBe('assistant_response_ready');
+});
+
+test('open assistant response ready notification marks read and dispatches flyout open event', function (): void {
+    $user = $this->user;
+
+    $notification = DatabaseNotification::query()->create([
+        'id' => (string) \Illuminate\Support\Str::uuid(),
+        'type' => AssistantResponseReadyNotification::class,
+        'notifiable_type' => User::class,
+        'notifiable_id' => $user->id,
+        'data' => [
+            'type' => 'assistant_response_ready',
+            'title' => 'Assistant response ready',
+            'message' => 'Your task assistant response is ready to review.',
+            'route' => 'dashboard',
+            'params' => [],
+            'meta' => [
+                'thread_id' => 10,
+                'assistant_message_id' => 20,
+            ],
+        ],
+        'read_at' => null,
+    ]);
+
+    Livewire::actingAs($user)
+        ->test('notifications.bell-dropdown')
+        ->call('openAssistantResponseReadyNotification', (string) $notification->id)
+        ->assertDispatched('assistant-chat-open-requested');
+
+    expect($notification->fresh()->read_at)->not->toBeNull();
 });
 
 test('school class notifications open workspace row from bell', function (): void {

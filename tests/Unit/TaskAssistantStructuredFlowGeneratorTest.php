@@ -363,6 +363,145 @@ it('places work on later days within range horizon when first day has no room', 
     expect(is_array($digest['days_used'] ?? null) ? $digest['days_used'] : [])->toContain('2026-04-03');
 });
 
+it('default asap mode prefers same-day feasible slot over tomorrow morning', function (): void {
+    $generator = app(TaskAssistantStructuredFlowGenerator::class);
+    $method = new ReflectionMethod(TaskAssistantStructuredFlowGenerator::class, 'generateProposalsChunkedSpill');
+    $method->setAccessible(true);
+
+    $snapshot = [
+        'timezone' => 'UTC',
+        'today' => '2026-04-12',
+        'now' => '2026-04-12T16:30:00+00:00',
+        'time_window' => ['start' => '08:00', 'end' => '22:00:00'],
+        'schedule_horizon' => [
+            'mode' => 'range',
+            'start_date' => '2026-04-12',
+            'end_date' => '2026-04-13',
+            'label' => 'smart_default_spread',
+        ],
+        'tasks' => [[
+            'id' => 42,
+            'title' => 'Most important task',
+            'priority' => 'urgent',
+            'duration_minutes' => 60,
+            'ends_at' => null,
+            'is_recurring' => false,
+            'complexity' => 'high',
+        ]],
+        'events' => [],
+        'events_for_busy' => [],
+        'projects' => [],
+    ];
+
+    $context = [
+        'schedule_horizon' => $snapshot['schedule_horizon'],
+        'default_asap_mode' => true,
+    ];
+
+    [$proposals] = $method->invoke($generator, $snapshot, $context, 1);
+
+    expect($proposals)->toHaveCount(1);
+    expect(str_starts_with((string) ($proposals[0]['start_datetime'] ?? ''), '2026-04-12T'))->toBeTrue();
+});
+
+it('default asap mode falls back to tomorrow when today has no feasible window', function (): void {
+    $generator = app(TaskAssistantStructuredFlowGenerator::class);
+    $method = new ReflectionMethod(TaskAssistantStructuredFlowGenerator::class, 'generateProposalsChunkedSpill');
+    $method->setAccessible(true);
+
+    $snapshot = [
+        'timezone' => 'UTC',
+        'today' => '2026-04-12',
+        'now' => '2026-04-12T16:30:00+00:00',
+        'time_window' => ['start' => '08:00', 'end' => '22:00:00'],
+        'schedule_horizon' => [
+            'mode' => 'range',
+            'start_date' => '2026-04-12',
+            'end_date' => '2026-04-13',
+            'label' => 'smart_default_spread',
+        ],
+        'tasks' => [[
+            'id' => 52,
+            'title' => 'Most important task',
+            'priority' => 'urgent',
+            'duration_minutes' => 60,
+            'ends_at' => null,
+            'is_recurring' => false,
+            'complexity' => 'high',
+        ]],
+        'events' => [],
+        'events_for_busy' => [[
+            'id' => 801,
+            'title' => 'Today fully blocked',
+            'starts_at' => '2026-04-12T08:00:00+00:00',
+            'ends_at' => '2026-04-12T22:00:00+00:00',
+        ]],
+        'projects' => [],
+    ];
+
+    $context = [
+        'schedule_horizon' => $snapshot['schedule_horizon'],
+        'default_asap_mode' => true,
+    ];
+
+    [$proposals] = $method->invoke($generator, $snapshot, $context, 1);
+
+    expect($proposals)->toHaveCount(1);
+    expect(str_starts_with((string) ($proposals[0]['start_datetime'] ?? ''), '2026-04-13T'))->toBeTrue();
+});
+
+it('does not place new proposals over already scheduled task windows', function (): void {
+    $generator = app(TaskAssistantStructuredFlowGenerator::class);
+    $method = new ReflectionMethod(TaskAssistantStructuredFlowGenerator::class, 'generateProposalsChunkedSpill');
+    $method->setAccessible(true);
+
+    $snapshot = [
+        'timezone' => 'UTC',
+        'today' => '2026-04-12',
+        'time_window' => ['start' => '08:00', 'end' => '18:00:00'],
+        'schedule_horizon' => [
+            'mode' => 'single_day',
+            'start_date' => '2026-04-12',
+            'end_date' => '2026-04-12',
+            'label' => 'default_today',
+        ],
+        'tasks' => [
+            [
+                'id' => 1,
+                'title' => 'Already scheduled',
+                'priority' => 'high',
+                'duration_minutes' => 60,
+                'starts_at' => '2026-04-12T10:00:00+00:00',
+                'ends_at' => '2026-04-12T11:00:00+00:00',
+                'is_recurring' => false,
+            ],
+            [
+                'id' => 2,
+                'title' => 'New task',
+                'priority' => 'urgent',
+                'duration_minutes' => 60,
+                'starts_at' => null,
+                'ends_at' => null,
+                'is_recurring' => false,
+            ],
+        ],
+        'events' => [],
+        'events_for_busy' => [],
+        'projects' => [],
+    ];
+
+    $context = ['schedule_horizon' => $snapshot['schedule_horizon']];
+    [$proposals] = $method->invoke($generator, $snapshot, $context, 1);
+
+    expect($proposals)->toHaveCount(1);
+    $start = new DateTimeImmutable((string) ($proposals[0]['start_datetime'] ?? ''));
+    $end = new DateTimeImmutable((string) ($proposals[0]['end_datetime'] ?? ''));
+    $blockedStart = new DateTimeImmutable('2026-04-12T10:00:00+00:00');
+    $blockedEnd = new DateTimeImmutable('2026-04-12T11:00:00+00:00');
+    $overlap = $start < $blockedEnd && $end > $blockedStart;
+    expect($overlap)->toBeFalse();
+});
+
 it('uses adaptive tomorrow fallback when narrow non-strict window cannot place any unit', function (): void {
     config([
         'task-assistant.schedule.max_horizon_days' => 2,

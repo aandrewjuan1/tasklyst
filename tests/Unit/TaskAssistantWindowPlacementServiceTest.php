@@ -77,3 +77,46 @@ it('rewards near deadline placement for due-soon tasks', function (): void {
     expect($selected)->not->toBeNull();
     expect($selected[1]->format('H:i'))->toBe('14:00');
 });
+
+it('prefers same-day later slot over tomorrow morning in default asap mode', function (): void {
+    $service = app(TaskAssistantWindowPlacementService::class);
+    $timezone = new DateTimeZone('UTC');
+
+    $windows = [
+        [
+            'start' => new DateTimeImmutable('2026-04-12 17:00:00', $timezone),
+            'end' => new DateTimeImmutable('2026-04-12 19:00:00', $timezone),
+        ],
+        [
+            'start' => new DateTimeImmutable('2026-04-13 08:00:00', $timezone),
+            'end' => new DateTimeImmutable('2026-04-13 10:00:00', $timezone),
+        ],
+    ];
+
+    $unit = [
+        'entity_type' => 'task',
+        'entity_id' => 100,
+        'complexity' => 'high',
+    ];
+    $snapshot = [
+        'schedule_preferences' => [
+            'energy_bias' => 'morning',
+        ],
+        'tasks' => [
+            ['id' => 100, 'ends_at' => null],
+        ],
+        'school_class_busy_intervals' => [],
+    ];
+
+    $selected = $service->selectBestFittingWindow(
+        $windows,
+        60,
+        $unit,
+        $snapshot,
+        new DateTimeImmutable('2026-04-12 16:30:00', $timezone),
+        true
+    );
+
+    expect($selected)->not->toBeNull();
+    expect($selected[1]->format('Y-m-d H:i'))->toBe('2026-04-12 17:00');
+});

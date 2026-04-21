@@ -541,6 +541,33 @@ final class TaskAssistantHybridNarrativeService
             blocks: $parsedBlocks,
             fallback: $confirmationFallback
         );
+        $framing = $this->sanitizeScheduleDaypartAndDayClaims(
+            text: $framing,
+            blocks: $parsedBlocks,
+            promptData: $promptData,
+            placementDigestData: $placementDigestData,
+            fallback: $this->scheduleFramingFallbackString(
+                $parsedBlocks,
+                $promptData,
+                $userMessageContent,
+                $schedulableProposalCount,
+                'daypart_grounding_framing|'.$threadId
+            )
+        );
+        $reasoning = $this->sanitizeScheduleDaypartAndDayClaims(
+            text: $reasoning,
+            blocks: $parsedBlocks,
+            promptData: $promptData,
+            placementDigestData: $placementDigestData,
+            fallback: TaskAssistantPrioritizeOutputDefaults::clampPrioritizeReasoning($deterministicReasoning)
+        );
+        $confirmation = $this->sanitizeScheduleDaypartAndDayClaims(
+            text: $confirmation,
+            blocks: $parsedBlocks,
+            promptData: $promptData,
+            placementDigestData: $placementDigestData,
+            fallback: $confirmationFallback
+        );
         $confirmation = $this->sanitizeScheduleConfirmation($confirmation, $parsedBlocks);
 
         $framing = TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy($framing);
@@ -552,6 +579,91 @@ final class TaskAssistantHybridNarrativeService
             'reasoning' => $reasoning,
             'confirmation' => $confirmation,
         ];
+    }
+
+    /**
+     * @param  list<array{start_time?:string,end_time?:string,label?:string}>  $blocks
+     * @param  array<string, mixed>  $promptData
+     * @param  array<string, mixed>|null  $placementDigestData
+     */
+    private function sanitizeScheduleDaypartAndDayClaims(
+        string $text,
+        array $blocks,
+        array $promptData,
+        ?array $placementDigestData,
+        string $fallback
+    ): string {
+        $normalized = trim($text);
+        if ($normalized === '' || $blocks === []) {
+            return $normalized !== '' ? $normalized : $fallback;
+        }
+
+        [$todayYmd] = $this->resolveScheduleStudentTodayAndTimezone($promptData);
+        $placementDay = $this->resolveFirstPlacementDayYmd($placementDigestData);
+        if ($placementDay === null) {
+            $placementDay = trim((string) data_get($promptData, 'schedule_horizon.start_date', ''));
+        }
+
+        $targetDayRef = 'unknown';
+        if ($todayYmd !== '' && $placementDay !== '') {
+            try {
+                $today = CarbonImmutable::parse($todayYmd)->startOfDay();
+                $target = CarbonImmutable::parse($placementDay)->startOfDay();
+                $targetDayRef = $target->equalTo($today)
+                    ? 'today'
+                    : ($target->equalTo($today->addDay()) ? 'tomorrow' : 'future');
+            } catch (\Throwable) {
+                $targetDayRef = 'unknown';
+            }
+        }
+
+        $firstStart = trim((string) ($blocks[0]['start_time'] ?? ''));
+        $targetDaypart = $this->resolveDaypartFromStartTime($firstStart);
+        if ($targetDaypart === null) {
+            return $normalized;
+        }
+
+        $lower = mb_strtolower($normalized);
+        $contradiction = false;
+        if ($targetDayRef === 'today' && preg_match('/\b(tomorrow|tomorrow morning|tomorrow afternoon|tomorrow evening)\b/iu', $lower) === 1) {
+            $contradiction = true;
+        }
+        if ($targetDayRef === 'tomorrow' && preg_match('/\b(today|this morning|this afternoon|this evening|tonight|later today)\b/iu', $lower) === 1) {
+            $contradiction = true;
+        }
+
+        if ($targetDaypart === 'morning' && preg_match('/\b(this evening|tonight|this afternoon|tomorrow evening|tomorrow afternoon)\b/iu', $lower) === 1) {
+            $contradiction = true;
+        }
+        if ($targetDaypart === 'afternoon' && preg_match('/\b(this morning|tomorrow morning|tonight|this evening|tomorrow evening)\b/iu', $lower) === 1) {
+            $contradiction = true;
+        }
+        if ($targetDaypart === 'evening' && preg_match('/\b(this morning|this afternoon|tomorrow morning|tomorrow afternoon)\b/iu', $lower) === 1) {
+            $contradiction = true;
+        }
+
+        if (! $contradiction) {
+            return $normalized;
+        }
+
+        return trim($fallback) !== '' ? trim($fallback) : $normalized;
+    }
+
+    private function resolveDaypartFromStartTime(string $hhmm): ?string
+    {
+        if ($hhmm === '' || preg_match('/^\d{2}:\d{2}$/', $hhmm) !== 1) {
+            return null;
+        }
+
+        $hour = (int) substr($hhmm, 0, 2);
+        if ($hour < 12) {
+            return 'morning';
+        }
+        if ($hour < 18) {
+            return 'afternoon';
+        }
+
+        return 'evening';
     }
 
     /**

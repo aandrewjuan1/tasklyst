@@ -145,6 +145,26 @@ test('chat flyout quick prompt chip does nothing while streaming', function (): 
         ->assertSet('newMessage', 'Existing text');
 });
 
+test('chat flyout refreshes messages when assistant chat open is requested', function (): void {
+    $user = User::factory()->create();
+    assert($user instanceof User);
+    $this->actingAs($user);
+
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+    session(['task_assistant.current_thread_id' => $thread->id]);
+
+    $thread->messages()->create([
+        'role' => \App\Enums\MessageRole::User,
+        'content' => 'Hello assistant',
+    ]);
+
+    Livewire::test('assistant.chat-flyout')
+        ->assertCount('chatMessages', 1)
+        ->dispatch('assistant-chat-open-requested')
+        ->assertCount('chatMessages', 1)
+        ->assertSet('isStreaming', false);
+});
+
 test('chat flyout renders four dynamic empty-state quick chips in morning', function (): void {
     $timezone = (string) config('app.timezone', 'UTC');
     CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-04-20 08:30:00', $timezone));

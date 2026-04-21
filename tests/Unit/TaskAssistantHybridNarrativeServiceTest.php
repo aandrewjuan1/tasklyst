@@ -955,6 +955,66 @@ test('daily_schedule narrative framing falls back when claiming top task starts 
     expect(mb_strtolower((string) $result['framing']))->not->toContain('first thing tomorrow morning');
 });
 
+test('daily_schedule narrative removes this-evening claim when first block is tomorrow morning', function (): void {
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => 'I queued this for this evening so you can finish it quickly.',
+                'reasoning' => 'Starting this evening keeps momentum.',
+                'confirmation' => 'Does this evening timing work?',
+            ])
+            ->withUsage(new Usage(1, 1)),
+    ]);
+
+    $service = new TaskAssistantHybridNarrativeService;
+
+    $blocksJson = json_encode([
+        [
+            'start_time' => '08:00',
+            'end_time' => '09:30',
+            'label' => 'Important task',
+            'note' => 'Planned by strict scheduler.',
+        ],
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+    $promptData = [
+        'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'Asia/Manila', 'date_format' => 'Y-m-d H:i'],
+        'snapshot' => [
+            'today' => '2026-04-01',
+            'timezone' => 'Asia/Manila',
+            'tasks' => [],
+            'events' => [],
+            'projects' => [],
+        ],
+        'schedule_horizon' => [
+            'mode' => 'single_day',
+            'start_date' => '2026-04-02',
+            'end_date' => '2026-04-02',
+            'label' => 'tomorrow',
+        ],
+    ];
+
+    $result = $service->refineDailySchedule(
+        historyMessages: new Collection,
+        promptData: $promptData,
+        userMessageContent: 'schedule my most important task',
+        blocksJson: (string) $blocksJson,
+        deterministicSummary: 'A focused schedule with clear blocks',
+        threadId: 1,
+        userId: 1,
+        isEmptyPlacement: false,
+        schedulableProposalCount: 1,
+        placementDigestJson: json_encode([
+            'days_used' => ['2026-04-02'],
+            'placement_dates' => ['2026-04-02'],
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+    );
+
+    expect(mb_strtolower((string) $result['framing']))->not->toContain('this evening');
+    expect(mb_strtolower((string) $result['reasoning']))->not->toContain('this evening');
+    expect(mb_strtolower((string) $result['confirmation']))->not->toContain('this evening');
+});
+
 test('daily_schedule narrative strips internal placement jargon from model output', function (): void {
     Prism::fake([
         StructuredResponseFake::make()

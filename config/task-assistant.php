@@ -411,6 +411,75 @@ TXT,
 
     /*
     |--------------------------------------------------------------------------
+    | Deterministic closing detection
+    |--------------------------------------------------------------------------
+    |
+    | Matches thanks/goodbye/short acknowledgements so we can reply warmly and
+    | avoid accidentally triggering planning flows.
+    |
+    */
+    'closing' => [
+        'default_min_confidence' => (float) env('TASK_ASSISTANT_CLOSING_DEFAULT_MIN_CONFIDENCE', 0.88),
+        'context_weighted_min_confidence' => (float) env('TASK_ASSISTANT_CLOSING_CONTEXT_MIN_CONFIDENCE', 0.70),
+        'thanks_patterns' => [
+            '/^(ok(?:ay)?\s+)?(thanks|thank\s*you|thankyou|thx|ty|salamat)(\s+so\s+much)?[!. ]*$/iu',
+            '/^(ok(?:ay)?\s+)?(thanks|thank\s*u|thankyou|thx|ty|tysm|salamat)(\s+(for\s+your\s+help|so\s+much|a\s+lot))?[!. ]*$/iu',
+            '/^(got\s*it|gotcha|copy|noted)[,\s]+(thanks|thank\s*you|thank\s*u|thx|ty)[!. ]*$/iu',
+            '/^(ok(?:ay)?\s+)?(thanks|thank\s*you|thank\s*u|thx|ty|tysm|salamat)\b.*$/iu',
+            '/\b(maraming\s+salamat)\b/iu',
+        ],
+        'goodbye_patterns' => [
+            '/^(ok(?:ay)?\s+)?(bye|goodbye|see\s*ya|see\s+you|cya|later|good\s*night|take\s*care)[!. ]*$/iu',
+            '/^(ok(?:ay)?\s+)?(bye\s*bye|see\s+you\s+later|see\s*ya\s+later|catch\s+you\s+later)[!. ]*$/iu',
+            '/^(ok(?:ay)?\s+)?(thanks|thank\s*you|thank\s*u|thx|ty)\s+(bye|goodbye|see\s*ya|see\s+you|later)[!. ]*$/iu',
+        ],
+        'short_ack_patterns' => [
+            '/^(ok|okay|got\s*it|noted|nice|alright|all\s*right|copy|understood|sige|ige)[!. ]*$/iu',
+            '/^(kk|k|aight|gotcha|cool|sounds\s+good|all\s+good)[!. ]*$/iu',
+        ],
+        'actionable_guard_patterns' => [
+            '/\b(schedule|reschedule|priorit(?:ize|y)|move|shift|swap|plan|block|set|remind|tomorrow|today|tonight|later|morning|afternoon|evening|next\s+week|at\s+\d{1,2}(:\d{2})?\s*(am|pm)?)\b/iu',
+        ],
+        'response' => [
+            'acknowledgement' => 'You are welcome.',
+            'goodbye_acknowledgement' => 'Take care, and great job today.',
+            'message' => 'Nice work staying consistent today. You are building momentum one step at a time.',
+            'message_after_planning' => 'You have a clear plan now. Keep going one block at a time and you will make steady progress.',
+            'next_options' => 'If you want, I can help again anytime to prioritize your next tasks or block time for them.',
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Deterministic greeting-only detection
+    |--------------------------------------------------------------------------
+    */
+    'greeting' => [
+        'allow_name_mentions' => (bool) env('TASK_ASSISTANT_GREETING_ALLOW_NAME_MENTIONS', true),
+        'patterns' => [
+            '/^(hi|hii|hello|helloo|hey|yow|yo|hiya|kumusta|kamusta|good\s+morning|good\s+afternoon|good\s+evening)(\s+(bro|bruh|boss|tasklyst|andrew))?[!?. ]*$/iu',
+            '/^(hi|hii|hello|helloo|hey|yo|hiya)(\s+(there|bro|bruh|boss|man|tasklyst|andrew|yo))?[!?. ]*$/iu',
+        ],
+        'allowed_name_patterns' => [
+            '/\b(tasklyst|andrew)\b/iu',
+        ],
+        'actionable_guard_patterns' => [
+            '/\b(help|priorit(?:ize|y)|schedule|reschedule|what\s+should\s+i\s+do|plan|task|tasks|move|shift|later|today|tomorrow)\b/iu',
+        ],
+        'response' => [
+            'acknowledgement' => "Hi, I'm TaskLyst—your task assistant.",
+            'message' => 'Great to have you here. Small focused steps today can build strong momentum.',
+            'next_options' => 'If you want, we can rank what to do first, schedule your tasks, or do both in one pass.',
+            'next_options_chip_texts' => [
+                'What should I do first',
+                'Schedule my tasks',
+                'Prioritize then schedule my tasks',
+            ],
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | General guidance (structured flow)
     |--------------------------------------------------------------------------
     |

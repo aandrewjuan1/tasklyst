@@ -112,6 +112,31 @@ final class TaskAssistantQuickChipResolver
     }
 
     /**
+     * @param  array<int, string>  $chips
+     * @return array<int, string>
+     */
+    public function filterContinueStyleQuickChips(array $chips): array
+    {
+        return array_values(array_filter(
+            $chips,
+            static function (string $chip): bool {
+                $t = mb_strtolower(trim($chip));
+                if ($t === '') {
+                    return false;
+                }
+                if (preg_match('/^continue\\b/u', $t) === 1) {
+                    return false;
+                }
+                if (preg_match('/\\bcontinue\\b.*\\b(draft|pending\\s+schedule)\\b/u', $t) === 1) {
+                    return false;
+                }
+
+                return ! str_contains($t, 'continue with this draft');
+            }
+        ));
+    }
+
+    /**
      * @param  array{intent?: string, label?: string, score?: int}  $candidate
      */
     private function resolveCandidateLabel(array $candidate): string

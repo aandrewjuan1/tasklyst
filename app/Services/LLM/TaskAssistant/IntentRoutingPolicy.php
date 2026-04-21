@@ -7,6 +7,7 @@ use App\Services\LLM\Intent\TaskAssistantIntentHybridCue;
 use App\Services\LLM\Intent\TaskAssistantIntentInferenceService;
 use App\Services\LLM\Intent\TaskAssistantIntentResolutionService;
 use App\Services\LLM\Intent\TaskAssistantIntentSignalExtractor;
+use App\Support\LLM\TaskAssistantReasonCodes;
 use App\Support\LLM\TaskAssistantWhatToDoFirstIntent;
 use Illuminate\Support\Facades\Log;
 
@@ -18,6 +19,8 @@ final class IntentRoutingPolicy
         private readonly TaskAssistantIntentResolutionService $resolution,
         private readonly TaskAssistantConversationStateService $conversationState,
         private readonly TaskAssistantListingReferenceResolver $listingReferenceResolver,
+        private readonly TaskAssistantClosingIntentClassifier $closingIntentClassifier,
+        private readonly TaskAssistantGreetingIntentClassifier $greetingIntentClassifier,
     ) {}
 
     public function decide(TaskAssistantThread $thread, string $content): IntentRoutingDecision
@@ -36,7 +39,35 @@ final class IntentRoutingPolicy
             return new IntentRoutingDecision(
                 flow: 'general_guidance',
                 confidence: 1.0,
-                reasonCodes: ['empty_message'],
+                reasonCodes: [TaskAssistantReasonCodes::EMPTY_MESSAGE],
+                constraints: [],
+                clarificationNeeded: false,
+                clarificationQuestion: null,
+            );
+        }
+
+        $greetingDecision = $this->greetingIntentClassifier->classify($thread, $content);
+        if (($greetingDecision['is_greeting_only'] ?? false) === true) {
+            $reasonCodes = is_array($greetingDecision['reason_codes'] ?? null)
+                ? array_values(array_map(static fn (mixed $code): string => (string) $code, $greetingDecision['reason_codes']))
+                : [];
+            $reasonCodes[] = TaskAssistantReasonCodes::GENERAL_GUIDANCE_GREETING_ONLY_DETERMINISTIC;
+            $reasonCodes = array_values(array_unique($reasonCodes));
+
+            Log::info('task-assistant.intent.policy', [
+                'layer' => 'intent_policy',
+                'run_id' => app()->bound('task_assistant.run_id') ? app('task_assistant.run_id') : null,
+                'thread_id' => $thread->id,
+                'assistant_message_id' => app()->bound('task_assistant.message_id') ? app('task_assistant.message_id') : null,
+                'outcome' => 'greeting_only_deterministic_shortcircuit',
+                'flow' => 'general_guidance',
+                'confidence' => (float) ($greetingDecision['confidence'] ?? 1.0),
+            ]);
+
+            return new IntentRoutingDecision(
+                flow: 'general_guidance',
+                confidence: max(0.0, min(1.0, (float) ($greetingDecision['confidence'] ?? 1.0))),
+                reasonCodes: $reasonCodes,
                 constraints: [],
                 clarificationNeeded: false,
                 clarificationQuestion: null,
@@ -56,7 +87,11 @@ final class IntentRoutingPolicy
             return new IntentRoutingDecision(
                 flow: 'general_guidance',
                 confidence: 1.0,
-                reasonCodes: ['greeting_shortcircuit_general_guidance', 'general_guidance_greeting_only'],
+                reasonCodes: [
+                    TaskAssistantReasonCodes::GREETING_SHORTCIRCUIT_GENERAL_GUIDANCE,
+                    TaskAssistantReasonCodes::GENERAL_GUIDANCE_GREETING_ONLY,
+                    TaskAssistantReasonCodes::GENERAL_GUIDANCE_GREETING_ONLY_DETERMINISTIC,
+                ],
                 constraints: [],
                 clarificationNeeded: false,
                 clarificationQuestion: null,
@@ -77,6 +112,36 @@ final class IntentRoutingPolicy
                 flow: 'general_guidance',
                 confidence: 1.0,
                 reasonCodes: ['gibberish_shortcircuit_general_guidance', 'general_guidance_noisy_unclear'],
+                constraints: [],
+                clarificationNeeded: false,
+                clarificationQuestion: null,
+            );
+        }
+
+        $closingDecision = $this->closingIntentClassifier->classify($thread, $content);
+        if (($closingDecision['is_closing'] ?? false) === true) {
+            $reasonCodes = is_array($closingDecision['reason_codes'] ?? null)
+                ? array_values(array_map(static fn (mixed $code): string => (string) $code, $closingDecision['reason_codes']))
+                : [];
+            $reasonCodes[] = TaskAssistantReasonCodes::GENERAL_GUIDANCE_CLOSING_ONLY;
+            $reasonCodes = array_values(array_unique($reasonCodes));
+
+            Log::info('task-assistant.intent.policy', [
+                'layer' => 'intent_policy',
+                'run_id' => app()->bound('task_assistant.run_id') ? app('task_assistant.run_id') : null,
+                'thread_id' => $thread->id,
+                'assistant_message_id' => app()->bound('task_assistant.message_id') ? app('task_assistant.message_id') : null,
+                'outcome' => 'closing_shortcircuit_general_guidance',
+                'flow' => 'general_guidance',
+                'closing_kind' => $closingDecision['kind'] ?? null,
+                'closing_confidence' => $closingDecision['confidence'] ?? null,
+                'context_weighted' => (bool) ($closingDecision['context_weighted'] ?? false),
+            ]);
+
+            return new IntentRoutingDecision(
+                flow: 'general_guidance',
+                confidence: max(0.0, min(1.0, (float) ($closingDecision['confidence'] ?? 1.0))),
+                reasonCodes: $reasonCodes,
                 constraints: [],
                 clarificationNeeded: false,
                 clarificationQuestion: null,

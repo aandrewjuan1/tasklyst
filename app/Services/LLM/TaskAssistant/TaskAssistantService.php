@@ -63,6 +63,7 @@ final class TaskAssistantService
         private readonly AssistantCandidateProvider $candidateProvider,
         private readonly TaskAssistantConversationStateService $conversationState,
         private readonly TaskAssistantGeneralGuidanceService $generalGuidanceService,
+        private readonly TaskAssistantQuickChipResolver $quickChipResolver,
         private readonly IntentRoutingPolicy $routingPolicy,
         private readonly TaskAssistantHybridNarrativeService $hybridNarrative,
         private readonly ScheduleDraftMutationService $scheduleDraftMutationService,
@@ -1898,6 +1899,65 @@ final class TaskAssistantService
             'assistant_message_id' => $assistantMessage->id,
         ]);
 
+        if (
+            in_array(TaskAssistantReasonCodes::GENERAL_GUIDANCE_GREETING_ONLY_DETERMINISTIC, $plan->reasonCodes, true)
+            || in_array(TaskAssistantReasonCodes::GENERAL_GUIDANCE_GREETING_ONLY, $plan->reasonCodes, true)
+        ) {
+            $greetingPayload = $this->buildDeterministicGreetingGuidancePayload($thread);
+            $generationResult = [
+                'valid' => true,
+                'data' => $greetingPayload,
+                'errors' => [],
+            ];
+
+            $execution = $this->flowExecutionEngine->executeStructuredFlow(
+                flow: 'general_guidance',
+                metadataKey: 'general_guidance',
+                thread: $thread,
+                assistantMessage: $assistantMessage,
+                generationResult: $generationResult,
+                assistantFallbackContent: (string) ($greetingPayload['message'] ?? "Hi, I'm TaskLyst. We can start with one clear step today."),
+            );
+
+            $this->conversationState->clearPendingGeneralGuidance($thread);
+            $this->streamFlowEnvelope(
+                thread: $thread,
+                assistantMessage: $assistantMessage,
+                flow: 'general_guidance',
+                execution: $execution
+            );
+
+            return;
+        }
+
+        if (in_array(TaskAssistantReasonCodes::GENERAL_GUIDANCE_CLOSING_ONLY, $plan->reasonCodes, true)) {
+            $closingPayload = $this->buildDeterministicClosingGuidancePayload($thread, $userMessage);
+            $generationResult = [
+                'valid' => true,
+                'data' => $closingPayload,
+                'errors' => [],
+            ];
+
+            $execution = $this->flowExecutionEngine->executeStructuredFlow(
+                flow: 'general_guidance',
+                metadataKey: 'general_guidance',
+                thread: $thread,
+                assistantMessage: $assistantMessage,
+                generationResult: $generationResult,
+                assistantFallbackContent: (string) ($closingPayload['message'] ?? 'You are doing great. I can help again whenever you are ready.'),
+            );
+
+            $this->conversationState->clearPendingGeneralGuidance($thread);
+            $this->streamFlowEnvelope(
+                thread: $thread,
+                assistantMessage: $assistantMessage,
+                flow: 'general_guidance',
+                execution: $execution
+            );
+
+            return;
+        }
+
         if (in_array(TaskAssistantReasonCodes::INTENT_OFF_TOPIC, $plan->reasonCodes, true)) {
             // Strong guardrail to keep Hermes in the task assistant domain even
             // when users ask unrelated questions (relationships, politics, product
@@ -1996,6 +2056,114 @@ final class TaskAssistantService
             flow: 'general_guidance',
             execution: $execution
         );
+    }
+
+    /**
+     * @return array{
+     *   intent: string,
+     *   acknowledgement: string,
+     *   message: string,
+     *   suggested_next_actions: list<string>,
+     *   next_options: string,
+     *   next_options_chip_texts: list<string>,
+     *   subtype: string
+     * }
+     */
+    private function buildDeterministicClosingGuidancePayload(TaskAssistantThread $thread, string $userMessage): array
+    {
+        $normalized = mb_strtolower(trim($userMessage));
+        $state = $this->conversationState->get($thread);
+        $lastFlow = trim((string) ($state['last_flow'] ?? ''));
+
+        $acknowledgement = (string) config(
+            'task-assistant.closing.response.acknowledgement',
+            'You are welcome.'
+        );
+        $message = (string) config(
+            'task-assistant.closing.response.message',
+            'Nice work staying consistent today. You are building momentum one step at a time.'
+        );
+        $nextOptions = (string) config(
+            'task-assistant.closing.response.next_options',
+            'If you want, I can help again anytime to prioritize your next tasks or block time for them.'
+        );
+
+        if (preg_match('/\b(bye|goodbye|see\s+you|see\s+ya|later|good\s*night|take\s*care)\b/u', $normalized) === 1) {
+            $acknowledgement = (string) config(
+                'task-assistant.closing.response.goodbye_acknowledgement',
+                'Take care, and great job today.'
+            );
+        }
+
+        if (in_array($lastFlow, ['prioritize', 'prioritize_schedule', 'schedule'], true)) {
+            $message = (string) config(
+                'task-assistant.closing.response.message_after_planning',
+                'You have a clear plan now. Keep going one block at a time and you will make steady progress.'
+            );
+        }
+
+        return [
+            'intent' => 'task',
+            'acknowledgement' => trim($acknowledgement),
+            'message' => trim($message),
+            'suggested_next_actions' => [
+                'Prioritize my next tasks.',
+                'Schedule time blocks for my next tasks.',
+            ],
+            'next_options' => trim($nextOptions),
+            'next_options_chip_texts' => [
+                'What should I do first',
+                'Schedule my most important task',
+            ],
+            'subtype' => 'closing',
+        ];
+    }
+
+    /**
+     * @return array{
+     *   intent: string,
+     *   acknowledgement: string,
+     *   message: string,
+     *   suggested_next_actions: list<string>,
+     *   next_options: string,
+     *   next_options_chip_texts: list<string>,
+     *   subtype: string
+     * }
+     */
+    private function buildDeterministicGreetingGuidancePayload(TaskAssistantThread $thread): array
+    {
+        $dynamicChips = $this->quickChipResolver->resolveForEmptyState(
+            user: $thread->user,
+            thread: $thread,
+            limit: 4,
+        );
+        $dynamicChips = $this->quickChipResolver->filterContinueStyleQuickChips($dynamicChips);
+        $dynamicChips = array_values(array_slice($dynamicChips, 0, 3));
+        if ($dynamicChips === []) {
+            $dynamicChips = ['What should I do first', 'Schedule my tasks', 'Prioritize then schedule my tasks'];
+        }
+
+        return [
+            'intent' => 'task',
+            'acknowledgement' => (string) config(
+                'task-assistant.greeting.response.acknowledgement',
+                "Hi, I'm TaskLyst—your task assistant."
+            ),
+            'message' => (string) config(
+                'task-assistant.greeting.response.message',
+                'Great to have you here. Small focused steps today can build strong momentum.'
+            ),
+            'suggested_next_actions' => [
+                'Prioritize my tasks.',
+                'Schedule time blocks for my tasks.',
+            ],
+            'next_options' => (string) config(
+                'task-assistant.greeting.response.next_options',
+                'If you want, we can rank what to do first, schedule your tasks, or do both in one pass.'
+            ),
+            'next_options_chip_texts' => $dynamicChips,
+            'subtype' => 'greeting',
+        ];
     }
 
     /**

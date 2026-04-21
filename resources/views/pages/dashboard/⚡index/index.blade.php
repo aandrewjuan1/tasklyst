@@ -76,7 +76,7 @@
 
         return (int) min(100, max(0, round(($spentSeconds / $targetSeconds) * 100)));
     };
-    $doingDisplayLimit = 3;
+    $doingDisplayLimit = $this->dashboardListCardRowLimit();
     $doingTasksForDisplay = $this->dashboardDoingTasks
         ->map(function (\App\Models\Task $task) use ($taskFocusProgressPercent): array {
             return [
@@ -88,7 +88,7 @@
         ->take($doingDisplayLimit)
         ->values();
     $doingTasksHasMore = $this->dashboardDoingTasksCount > $doingDisplayLimit;
-    $noDateBacklogDisplayLimit = $this->noDateBacklogDisplayLimit();
+    $noDateBacklogDisplayLimit = $this->dashboardListCardRowLimit();
     $noDateBacklogHasMore = $this->dashboardNoDateBacklogCount > $noDateBacklogDisplayLimit;
     $dashboardPanelShell = [
         'default' => 'rounded-xl border border-border/70 bg-background shadow-sm ring-1 ring-black/5 dark:border-zinc-800 dark:bg-zinc-900/50 dark:ring-white/5',

@@ -4,6 +4,7 @@ use App\Models\TaskAssistantThread;
 use App\Models\User;
 use App\Services\LLM\TaskAssistant\ExecutionPlan;
 use App\Services\LLM\TaskAssistant\IntentRoutingPolicy;
+use App\Support\LLM\TaskAssistantReasonCodes;
 use Prism\Prism\Facades\Prism;
 use Prism\Prism\Testing\StructuredResponseFake;
 use Prism\Prism\ValueObjects\Usage;
@@ -15,7 +16,22 @@ test('empty message routes to general guidance with empty_message reason', funct
     $decision = app(IntentRoutingPolicy::class)->decide($thread, '   ');
 
     expect($decision->flow)->toBe('general_guidance');
-    expect($decision->reasonCodes)->toContain('empty_message');
+    expect($decision->reasonCodes)->toContain(TaskAssistantReasonCodes::EMPTY_MESSAGE);
+});
+
+test('pure greeting fallback carries deterministic greeting reason code', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+    config()->set('task-assistant.greeting.patterns', ['/^(hi)$/iu']);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'hello there');
+
+    expect($decision->flow)->toBe('general_guidance');
+    expect($decision->reasonCodes)->toContain(
+        TaskAssistantReasonCodes::GENERAL_GUIDANCE_GREETING_ONLY_DETERMINISTIC
+    );
 });
 
 test('LLM intent prioritization maps to prioritize flow', function (): void {

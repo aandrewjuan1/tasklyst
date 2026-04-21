@@ -129,7 +129,7 @@ final class TaskAssistantResponseProcessor
             'suggested_next_actions' => ['required', 'array', 'min:2', 'max:3'],
             'suggested_next_actions.*' => ['required', 'string', 'min:2', 'max:140'],
             'next_options' => ['required', 'string', 'min:5', 'max:'.$maxNextOptions],
-            'next_options_chip_texts' => ['present', 'array', 'size:2'],
+            'next_options_chip_texts' => ['present', 'array', 'min:2', 'max:3'],
             'next_options_chip_texts.*' => ['required', 'string', 'min:2', 'max:120'],
         ];
 

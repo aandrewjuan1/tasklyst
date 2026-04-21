@@ -5,6 +5,9 @@ namespace App\Services\LLM\TaskAssistant;
 use App\Events\TaskAssistantJsonDelta;
 use App\Events\TaskAssistantStreamEnd;
 use App\Models\TaskAssistantMessage;
+use App\Models\User;
+use App\Notifications\AssistantResponseReadyNotification;
+use App\Services\UserNotificationBroadcastService;
 use Illuminate\Support\Facades\Log;
 
 final class TaskAssistantStreamingBroadcaster
@@ -44,6 +47,9 @@ final class TaskAssistantStreamingBroadcaster
                 'streamed' => true,
             ]),
         ]);
+        $assistantMessage->refresh();
+
+        $this->notifyAssistantResponseReady($userId, $assistantMessage);
 
         $content = $assistantMessage->content ?? '';
         $chunkCount = 0;
@@ -113,6 +119,36 @@ final class TaskAssistantStreamingBroadcaster
 
         $this->markStreamPhase($assistantMessage, 'stream_end');
         broadcast(new TaskAssistantStreamEnd($userId, $assistantMessage->id));
+    }
+
+    private function notifyAssistantResponseReady(int $userId, TaskAssistantMessage $assistantMessage): void
+    {
+        $metadata = is_array($assistantMessage->metadata ?? null) ? $assistantMessage->metadata : [];
+        if (is_string(data_get($metadata, 'notifications.assistant_response_ready_at'))) {
+            return;
+        }
+
+        /** @var User|null $user */
+        $user = User::query()->find($userId);
+        if ($user === null) {
+            return;
+        }
+
+        $threadId = (int) $assistantMessage->thread_id;
+        if ($threadId <= 0) {
+            return;
+        }
+
+        $user->notify(new AssistantResponseReadyNotification(
+            threadId: $threadId,
+            assistantMessageId: (int) $assistantMessage->id,
+        ));
+        app(UserNotificationBroadcastService::class)->broadcastInboxUpdated($user);
+
+        data_set($metadata, 'notifications.assistant_response_ready_at', now()->toIso8601String());
+        $assistantMessage->update([
+            'metadata' => $metadata,
+        ]);
     }
 
     private function isCancellationRequested(TaskAssistantMessage $assistantMessage): bool
