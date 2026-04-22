@@ -108,6 +108,31 @@ test('notification created event payload updates unread count without full list 
     expect($component->get('notifications'))->toHaveCount(2);
 });
 
+test('notification bell fallback polling refreshes unread state from database without realtime events', function (): void {
+    $user = $this->user;
+
+    $component = Livewire::actingAs($user)->test('notifications.bell-dropdown');
+    expect($component->get('unreadCount'))->toBe(0);
+
+    DatabaseNotification::query()->create([
+        'id' => (string) \Illuminate\Support\Str::uuid(),
+        'type' => 'App\\Notifications\\TestNotification',
+        'notifiable_type' => User::class,
+        'notifiable_id' => $user->id,
+        'data' => [
+            'title' => 'Fallback notification',
+            'message' => 'DB-polled message',
+            'route' => 'dashboard',
+            'params' => [],
+        ],
+        'read_at' => null,
+    ]);
+
+    $component
+        ->call('pollNotificationFallback')
+        ->assertSet('unreadCount', 1);
+});
+
 test('close panel action closes the notification popover', function (): void {
     $user = $this->user;
 

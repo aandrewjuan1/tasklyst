@@ -828,6 +828,53 @@ test('chat flyout marks timeout when stream health window is exceeded', function
         ->assertSet('streamingTimedOutAt', fn ($value): bool => is_string($value) && $value !== '');
 });
 
+test('chat flyout fallback polling completes stream when final content is persisted without echo events', function (): void {
+    $user = User::factory()->create();
+    assert($user instanceof User);
+    $this->actingAs($user);
+
+    $thread = TaskAssistantThread::factory()->create([
+        'user_id' => $user->id,
+        'metadata' => [
+            'stream' => [
+                'processing' => [
+                    'active' => true,
+                    'assistant_message_id' => 0,
+                    'started_at' => now()->toIso8601String(),
+                ],
+            ],
+        ],
+    ]);
+    session(['task_assistant.current_thread_id' => $thread->id]);
+
+    $assistant = $thread->messages()->create([
+        'role' => \App\Enums\MessageRole::Assistant,
+        'content' => '',
+        'metadata' => [],
+    ]);
+
+    $metadata = $thread->metadata ?? [];
+    data_set($metadata, 'stream.processing.assistant_message_id', $assistant->id);
+    $thread->update(['metadata' => $metadata]);
+
+    $component = Livewire::test('assistant.chat-flyout')
+        ->assertSet('isStreaming', true);
+
+    $assistant->refresh();
+    $assistant->update([
+        'content' => 'Final answer persisted.',
+        'metadata' => array_merge(is_array($assistant->metadata) ? $assistant->metadata : [], [
+            'streamed' => true,
+        ]),
+    ]);
+
+    $component
+        ->call('pollStreamingFallback')
+        ->assertSet('isStreaming', false)
+        ->assertSet('streamingMessageId', null)
+        ->assertSee('Final answer persisted.');
+});
+
 test('chat flyout stops previous active assistant run when sending a new prompt', function () {
     Bus::fake();
     $user = User::factory()->create();

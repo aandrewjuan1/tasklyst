@@ -24,13 +24,13 @@ final class TaskAssistantStreamingBroadcaster
     public function streamFinalAssistantJson(int $userId, TaskAssistantMessage $assistantMessage, array $envelope, ?int $chunkSize = null): void
     {
         if ($this->alreadyStreamed($assistantMessage)) {
-            broadcast(new TaskAssistantStreamEnd($userId, $assistantMessage->id));
+            $this->dispatchBroadcastEvent(new TaskAssistantStreamEnd($userId, $assistantMessage->id));
 
             return;
         }
 
         if ($this->isMessageStopped($assistantMessage)) {
-            broadcast(new TaskAssistantStreamEnd($userId, $assistantMessage->id));
+            $this->dispatchBroadcastEvent(new TaskAssistantStreamEnd($userId, $assistantMessage->id));
 
             return;
         }
@@ -83,7 +83,7 @@ final class TaskAssistantStreamingBroadcaster
                 $firstDeltaMarked = true;
                 $this->markStreamPhase($assistantMessage, 'first_delta');
             }
-            broadcast(new TaskAssistantJsonDelta($userId, $assistantMessage->id, $chunk));
+            $this->dispatchBroadcastEvent(new TaskAssistantJsonDelta($userId, $assistantMessage->id, $chunk));
 
             if (! $enableTypingEffect || $interChunkDelayMs <= 0) {
                 continue;
@@ -137,7 +137,20 @@ final class TaskAssistantStreamingBroadcaster
         ]);
 
         $this->markStreamPhase($assistantMessage, 'stream_end');
-        broadcast(new TaskAssistantStreamEnd($userId, $assistantMessage->id));
+        $this->dispatchBroadcastEvent(new TaskAssistantStreamEnd($userId, $assistantMessage->id));
+    }
+
+    private function dispatchBroadcastEvent(object $event): void
+    {
+        try {
+            broadcast($event);
+        } catch (\Throwable $exception) {
+            Log::warning('task-assistant.broadcast.dispatch_failed', [
+                'layer' => 'broadcast',
+                'event' => $event::class,
+                'error' => $exception->getMessage(),
+            ]);
+        }
     }
 
     private function notifyAssistantResponseReady(int $userId, TaskAssistantMessage $assistantMessage): void

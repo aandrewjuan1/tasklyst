@@ -70,6 +70,11 @@ new class extends Component
         }
     }
 
+    public function pollNotificationFallback(): void
+    {
+        $this->syncNotificationStateFromDatabase();
+    }
+
     public function togglePanel(): void
     {
         $this->panelOpen = ! $this->panelOpen;

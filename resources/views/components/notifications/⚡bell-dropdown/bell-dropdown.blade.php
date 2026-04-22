@@ -11,7 +11,35 @@
 
 <div
     class="relative inline-flex {{ $panelOpen ? 'z-[60]' : 'z-20' }}"
-    x-data
+    x-data="{
+        fallbackPollTimer: null,
+        noRealtimeBroadcast: false,
+        detectRealtimeBroadcastAvailability() {
+            this.noRealtimeBroadcast = typeof window.Echo === 'undefined' || !window.Echo;
+        },
+        startFallbackPolling() {
+            if (!this.noRealtimeBroadcast || this.fallbackPollTimer) {
+                return;
+            }
+
+            this.fallbackPollTimer = setInterval(() => {
+                this.$wire.pollNotificationFallback();
+            }, 5000);
+        },
+        stopFallbackPolling() {
+            if (this.fallbackPollTimer) {
+                clearInterval(this.fallbackPollTimer);
+                this.fallbackPollTimer = null;
+            }
+        },
+        init() {
+            this.detectRealtimeBroadcastAvailability();
+            this.startFallbackPolling();
+        },
+        destroy() {
+            this.stopFallbackPolling();
+        },
+    }"
     @keydown.escape.window="$wire.set('panelOpen', false)"
     @click.outside="$wire.set('panelOpen', false)"
 >

@@ -10,11 +10,13 @@
         loadingPhraseIndex: 0,
         loadingTimer: null,
         streamingTimeoutPollTimer: null,
+        streamingFallbackPollTimer: null,
         scrollQueued: false,
         pendingScrollBehavior: 'smooth',
         wasStreaming: false,
         scrollStateRaf: null,
         allowAutoScrollOnStreamEnd: true,
+        noRealtimeBroadcast: false,
         currentLoadingPhrase() {
             return this.loadingPhrases[this.loadingPhraseIndex] ?? this.loadingPhrases[0];
         },
@@ -55,6 +57,30 @@
             if (this.streamingTimeoutPollTimer) {
                 clearInterval(this.streamingTimeoutPollTimer);
                 this.streamingTimeoutPollTimer = null;
+            }
+        },
+        detectRealtimeBroadcastAvailability() {
+            this.noRealtimeBroadcast = typeof window.Echo === 'undefined' || !window.Echo;
+        },
+        startStreamingFallbackPolling() {
+            if (!this.noRealtimeBroadcast || this.streamingFallbackPollTimer) {
+                return;
+            }
+
+            this.streamingFallbackPollTimer = setInterval(() => {
+                if (!this.$wire.isStreaming) {
+                    this.stopStreamingFallbackPolling();
+
+                    return;
+                }
+
+                this.$wire.pollStreamingFallback();
+            }, 1500);
+        },
+        stopStreamingFallbackPolling() {
+            if (this.streamingFallbackPollTimer) {
+                clearInterval(this.streamingFallbackPollTimer);
+                this.streamingFallbackPollTimer = null;
             }
         },
         isNearBottom(thresholdPx = 80) {
@@ -102,6 +128,7 @@
             });
         },
         init() {
+            this.detectRealtimeBroadcastAvailability();
             this.$nextTick(() => this.queueScrollToBottom('auto'));
             this.wasStreaming = !! this.$wire.isStreaming;
             this.allowAutoScrollOnStreamEnd = this.isNearBottom(180);
@@ -124,9 +151,11 @@
                     this.allowAutoScrollOnStreamEnd = this.isNearBottom(180);
                     this.startLoadingPhraseRotation();
                     this.startStreamingTimeoutPolling();
+                    this.startStreamingFallbackPolling();
                 } else {
                     this.stopLoadingPhraseRotation();
                     this.stopStreamingTimeoutPolling();
+                    this.stopStreamingFallbackPolling();
 
                     // Stream just finished; only snap if user did not scroll away while waiting.
                     if (wasStreaming && this.allowAutoScrollOnStreamEnd) {
@@ -138,11 +167,13 @@
             if (this.$wire.isStreaming) {
                 this.startLoadingPhraseRotation();
                 this.startStreamingTimeoutPolling();
+                this.startStreamingFallbackPolling();
             }
         },
         destroy() {
             this.stopLoadingPhraseRotation();
             this.stopStreamingTimeoutPolling();
+            this.stopStreamingFallbackPolling();
             if (this.scrollStateRaf) {
                 cancelAnimationFrame(this.scrollStateRaf);
                 this.scrollStateRaf = null;

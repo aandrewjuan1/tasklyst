@@ -192,6 +192,32 @@ new class extends Component
         $this->refreshMessages();
     }
 
+    public function pollStreamingFallback(): void
+    {
+        if (! $this->isStreaming || ! $this->streamingMessageId || ! $this->thread) {
+            return;
+        }
+
+        $assistant = $this->thread->messages()
+            ->whereKey($this->streamingMessageId)
+            ->where('role', MessageRole::Assistant)
+            ->first();
+
+        if (! $assistant) {
+            $this->refreshMessages();
+
+            return;
+        }
+
+        $isStopped = data_get($assistant->metadata, 'stream.status') === 'stopped';
+        $isStreamed = (bool) data_get($assistant->metadata, 'streamed', false);
+        $hasFinalContent = trim((string) ($assistant->content ?? '')) !== '';
+
+        if ($isStopped || $isStreamed || $hasFinalContent) {
+            $this->refreshMessages();
+        }
+    }
+
     #[On('assistant-chat-open-requested')]
     public function onAssistantChatOpenRequested(): void
     {
