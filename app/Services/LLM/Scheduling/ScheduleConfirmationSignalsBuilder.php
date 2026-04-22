@@ -613,6 +613,7 @@ final class ScheduleConfirmationSignalsBuilder
         return [
             'date' => $day->format('Y-m-d'),
             'date_label' => $dayLabel,
+            'chip_label' => $day->format('M j'),
             'daypart' => $daypart,
             'start_time' => $start->format('H:i'),
             'end_time' => $end->format('H:i'),

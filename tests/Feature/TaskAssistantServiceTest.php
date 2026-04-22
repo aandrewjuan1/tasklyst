@@ -1799,6 +1799,67 @@ test('system default schedule count does not require confirmation when all avail
     CarbonImmutable::setTestNow();
 });
 
+test('generic top tasks schedule auto-spills to next days and does not require confirmation', function (): void {
+    config([
+        'task-assistant.intent.use_llm' => false,
+        'task-assistant.schedule.smart_default_spread_days' => 7,
+    ]);
+
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => 'I scheduled your top tasks in the nearest available blocks.',
+                'reasoning' => 'Today has no remaining window, so I used the next open day.',
+                'confirmation' => 'If you want, I can adjust the times.',
+            ])
+            ->withUsage(new Usage(5, 10)),
+    ]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+    $timezone = (string) config('app.timezone', 'UTC');
+    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-04-19 23:40:00', $timezone));
+
+    Task::factory()->for($user)->create([
+        'title' => 'Prepare calculus worksheet',
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::High,
+        'duration' => 60,
+        'start_datetime' => null,
+        'end_datetime' => CarbonImmutable::parse('2026-04-22 10:00:00', $timezone),
+    ]);
+
+    $userMessage = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'Schedule my top tasks',
+    ]);
+    $assistantMessage = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
+
+    $assistantMessage->refresh();
+    $thread->refresh();
+
+    $proposals = $assistantMessage->metadata['schedule']['proposals'] ?? [];
+    expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('prioritize_schedule');
+    expect($assistantMessage->metadata['schedule']['confirmation_required'] ?? null)->toBeFalse();
+    expect($assistantMessage->metadata['schedule']['awaiting_user_decision'] ?? null)->toBeFalse();
+    expect($thread->metadata['conversation_state']['pending_schedule_fallback'] ?? null)->toBeNull();
+    expect($proposals)->toBeArray()->not->toBeEmpty();
+    expect($assistantMessage->metadata['schedule']['placement_digest']['default_asap_mode'] ?? null)->toBeTrue();
+    expect($assistantMessage->metadata['schedule']['placement_digest']['attempted_horizon']['label'] ?? null)->toBe('default_asap_spread');
+
+    $firstStartRaw = (string) (($proposals[0]['start_datetime'] ?? ''));
+    expect($firstStartRaw)->not->toBe('');
+    $firstStart = CarbonImmutable::parse($firstStartRaw, $timezone);
+    expect($firstStart->toDateString())->toBe('2026-04-20');
+
+    CarbonImmutable::setTestNow();
+});
+
 test('explicit requested date no-fit requires confirmation instead of silent day widening', function (): void {
     config([
         'task-assistant.schedule.top_n_shortfall_policy' => 'confirm_if_shortfall',
@@ -1971,6 +2032,7 @@ test('fallback confirmation keeps horizon wording for implicit tomorrow requests
                 'nearest_available_window' => [
                     'date' => '2026-04-24',
                     'date_label' => 'Apr 24, 2026',
+                    'chip_label' => 'Apr 24',
                     'daypart' => 'afternoon',
                     'start_time' => '13:00',
                     'end_time' => '16:00',
@@ -1990,7 +2052,7 @@ test('fallback confirmation keeps horizon wording for implicit tomorrow requests
     expect((string) ($converted['confirmation_context']['reason_message'] ?? ''))->not->toContain('8:00 AM');
     expect((string) ($converted['confirmation_context']['reason_message'] ?? ''))->not->toContain('22 hours');
     expect((string) ($converted['confirmation_context']['requested_horizon_label'] ?? ''))->toBe('tomorrow');
-    expect((string) ($converted['confirmation_context']['option_actions'][0]['label'] ?? ''))->toContain('Apr 24, 2026');
+    expect((string) ($converted['confirmation_context']['option_actions'][0]['label'] ?? ''))->toBe('Schedule for Apr 24');
 });
 
 test('pending schedule fallback proceeds on affirmative follow-up', function (): void {

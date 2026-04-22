@@ -255,7 +255,7 @@ class TaskAssistantScheduleContextBuilderTest extends TestCase
     public function test_it_uses_default_asap_mode_for_vague_schedule_message_without_explicit_time_or_day(): void
     {
         config([
-            'task-assistant.schedule.smart_default_spread_days' => 3,
+            'task-assistant.schedule.smart_default_spread_days' => 7,
             'task-assistant.schedule.max_horizon_days' => 14,
         ]);
 
@@ -270,10 +270,11 @@ class TaskAssistantScheduleContextBuilderTest extends TestCase
 
         $this->assertTrue((bool) ($analysis['default_asap_mode'] ?? false));
         $this->assertContains('intent_default_asap_mode', $analysis['schedule_intent_reason_codes'] ?? []);
-        $this->assertSame('single_day', $analysis['schedule_horizon']['mode'] ?? null);
+        $this->assertContains('intent_default_asap_horizon_spread', $analysis['schedule_intent_reason_codes'] ?? []);
+        $this->assertSame('range', $analysis['schedule_horizon']['mode'] ?? null);
         $this->assertSame('2026-04-04', $analysis['schedule_horizon']['start_date'] ?? null);
-        $this->assertSame('2026-04-04', $analysis['schedule_horizon']['end_date'] ?? null);
-        $this->assertSame('default_today', $analysis['schedule_horizon']['label'] ?? null);
+        $this->assertSame('2026-04-10', $analysis['schedule_horizon']['end_date'] ?? null);
+        $this->assertSame('default_asap_spread', $analysis['schedule_horizon']['label'] ?? null);
     }
 
     public function test_it_does_not_widen_when_user_names_tomorrow(): void

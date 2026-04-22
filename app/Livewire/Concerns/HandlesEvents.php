@@ -160,8 +160,6 @@ trait HandlesEvents
             $this->queueWorkspaceCalendarRefresh();
         }
 
-        $this->dispatch('assistant-schedule-plan-updated');
-
         return true;
     }
 
@@ -475,8 +473,6 @@ trait HandlesEvents
         if ($property === 'recurrence') {
             $event->load('recurringEvent');
 
-            $this->dispatch('assistant-schedule-plan-updated');
-
             return ['success' => true, 'recurringEventId' => $event->recurringEvent?->id];
         }
 
@@ -492,8 +488,6 @@ trait HandlesEvents
                 }
             }
         }
-
-        $this->dispatch('assistant-schedule-plan-updated');
 
         return true;
     }

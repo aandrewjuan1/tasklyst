@@ -11,6 +11,10 @@ final class ScheduleFallbackPolicy
      */
     public function shouldRequireConfirmation(ExecutionPlan $plan, array $scheduleData): bool
     {
+        if ($this->shouldAutoAcceptDefaultAsapSpill($scheduleData)) {
+            return false;
+        }
+
         $digest = is_array($scheduleData['placement_digest'] ?? null) ? $scheduleData['placement_digest'] : [];
         $signals = $digest['confirmation_signals'] ?? null;
 
@@ -54,6 +58,31 @@ final class ScheduleFallbackPolicy
         }
 
         return false;
+    }
+
+    /**
+     * Default no-time/no-date schedule requests should auto-propose if we found at least one slot
+     * inside the auto-spill horizon.
+     *
+     * @param  array<string, mixed>  $scheduleData
+     */
+    private function shouldAutoAcceptDefaultAsapSpill(array $scheduleData): bool
+    {
+        $digest = is_array($scheduleData['placement_digest'] ?? null) ? $scheduleData['placement_digest'] : [];
+        $defaultAsapMode = (bool) ($digest['default_asap_mode'] ?? false);
+        if (! $defaultAsapMode) {
+            return false;
+        }
+
+        $attemptedHorizon = is_array($digest['attempted_horizon'] ?? null) ? $digest['attempted_horizon'] : [];
+        $horizonLabel = trim((string) ($attemptedHorizon['label'] ?? ''));
+        if ($horizonLabel !== 'default_asap_spread') {
+            return false;
+        }
+
+        $proposals = is_array($scheduleData['proposals'] ?? null) ? $scheduleData['proposals'] : [];
+
+        return count($proposals) > 0;
     }
 
     public function classifyPendingDecision(string $content): string

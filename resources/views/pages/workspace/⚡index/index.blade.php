@@ -190,8 +190,6 @@
                             :filters="$this->getFilters()"
                             :active-focus-session="$this->activeFocusSession"
                             :pomodoro-settings="$this->pomodoroSettings"
-                            :scheduled-focus-plan-groups="$this->scheduledFocusPlanGroups"
-                            :scheduled-focus-plan-total-count="$this->scheduledFocusPlanTotalCount"
                             :has-more-items="($this->hasMoreTasks ?? false) || ($this->hasMoreEvents ?? false) || ($this->hasMoreProjects ?? false)"
                         />
                     @endif
@@ -221,8 +219,6 @@
                             :filters="$this->getFilters()"
                             :active-focus-session="$this->activeFocusSession"
                             :pomodoro-settings="$this->pomodoroSettings"
-                            :scheduled-focus-plan-groups="$this->scheduledFocusPlanGroups"
-                            :scheduled-focus-plan-total-count="$this->scheduledFocusPlanTotalCount"
                         />
                     @endif
                 </div>

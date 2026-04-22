@@ -688,7 +688,6 @@ new class extends Component
             acceptedCount: $acceptedCount,
         ));
         app(UserNotificationBroadcastService::class)->broadcastInboxUpdated($user);
-        $this->dispatch('assistant-schedule-plan-updated');
     }
 
     /**

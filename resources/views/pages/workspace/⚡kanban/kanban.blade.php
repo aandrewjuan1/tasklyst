@@ -69,8 +69,6 @@
         'moveErrorToast' => __('Failed to move task. Please try again.'),
     ];
 
-    $scheduledFocusGroups = is_array($scheduledFocusPlanGroups ?? null) ? $scheduledFocusPlanGroups : [];
-    $scheduledFocusTotalCount = (int) ($scheduledFocusPlanTotalCount ?? 0);
 @endphp
 
 <div class="space-y-4">
@@ -85,12 +83,6 @@
         :has-active-filters="$kanbanHasActiveFilters"
         :search-query-display="$kanbanSearchQueryDisplay"
         :board-is-empty="$kanbanBoardIsEmpty"
-    />
-
-    <x-workspace.scheduled-focus-plan
-        appearance="compact"
-        :groups="$scheduledFocusGroups"
-        :total-count="$scheduledFocusTotalCount"
     />
 
 <div

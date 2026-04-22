@@ -28,165 +28,6 @@
     x-data="{
         storageKey: 'workspace-scheduled-focus-collapsed-v1',
         expanded: document.documentElement.dataset.workspaceScheduledFocusCollapsed !== 'true',
-        removedEntityKeys: {},
-        pendingDismissalEntityKeys: {},
-        lastInfoToastAtMs: 0,
-        infoToastCooldownMs: 1200,
-        entityKey(kind, entityId) {
-            return String(kind || '') + ':' + String(Number(entityId) || 0);
-        },
-        isEntityRemoved(kind, entityId) {
-            const key = this.entityKey(kind, entityId);
-            return this.removedEntityKeys[key] === true;
-        },
-        removeEntity(kind, entityId) {
-            const key = this.entityKey(kind, entityId);
-            if (key.endsWith(':0')) {
-                return;
-            }
-            this.removedEntityKeys[key] = true;
-        },
-        restoreEntity(kind, entityId) {
-            const key = this.entityKey(kind, entityId);
-            if (Object.prototype.hasOwnProperty.call(this.removedEntityKeys, key)) {
-                delete this.removedEntityKeys[key];
-            }
-        },
-        isDismissalPending(kind, entityId) {
-            const key = this.entityKey(kind, entityId);
-            return this.pendingDismissalEntityKeys[key] === true;
-        },
-        markDismissalPending(kind, entityId) {
-            const key = this.entityKey(kind, entityId);
-            if (key.endsWith(':0')) {
-                return;
-            }
-            this.pendingDismissalEntityKeys[key] = true;
-        },
-        clearDismissalPending(kind, entityId) {
-            const key = this.entityKey(kind, entityId);
-            if (Object.prototype.hasOwnProperty.call(this.pendingDismissalEntityKeys, key)) {
-                delete this.pendingDismissalEntityKeys[key];
-            }
-        },
-        isGroupVisible(items) {
-            if (!Array.isArray(items) || items.length === 0) {
-                return false;
-            }
-
-            return items.some((item) => {
-                const kind = String(item?.entity_type || '');
-                const entityId = Number(item?.entity_id || 0);
-                return !this.isEntityRemoved(kind, entityId);
-            });
-        },
-        emitInfoToast(message) {
-            const nowMs = Date.now();
-            if ((nowMs - Number(this.lastInfoToastAtMs || 0)) < this.infoToastCooldownMs) {
-                return;
-            }
-            this.lastInfoToastAtMs = nowMs;
-            $wire.$dispatch('toast', {
-                type: 'info',
-                message: message || @js(__('Removed from Scheduled Focus because timing changed.')),
-            });
-        },
-        handleWorkspaceTrashed(detail) {
-            const kind = String(detail?.kind || '');
-            const itemId = Number(detail?.id || 0);
-            if (! ['task', 'event', 'project'].includes(kind) || itemId < 1) {
-                return;
-            }
-            this.removeEntity(kind, itemId);
-        },
-        handleWorkspacePropertyUpdated(detail) {
-            const kind = String(detail?.kind || '');
-            const itemId = Number(detail?.itemId || 0);
-            const property = String(detail?.property || '');
-            const normalizedValue = String(detail?.value ?? '').toLowerCase();
-            if (! ['task', 'event', 'project'].includes(kind) || itemId < 1 || property === '') {
-                return;
-            }
-            const timingChanged = ['startDatetime', 'endDatetime', 'startTime', 'endTime'].includes(property);
-            const becameCompleted = property === 'status'
-                && (
-                    (kind === 'task' && normalizedValue === 'done')
-                    || (kind === 'event' && normalizedValue === 'completed')
-                );
-
-            if (timingChanged || becameCompleted) {
-                if (this.isDismissalPending(kind, itemId) || this.isEntityRemoved(kind, itemId)) {
-                    return;
-                }
-                this.removeEntity(kind, itemId);
-                if (becameCompleted) {
-                    this.emitInfoToast(@js(__('Removed from Scheduled Focus because it is completed.')));
-                } else {
-                    this.emitInfoToast(@js(__('Removed from Scheduled Focus because the scheduled time changed.')));
-                }
-                this.markDismissalPending(kind, itemId);
-                const reason = becameCompleted ? 'entity_completed' : 'entity_datetime_updated';
-                $wire.$parent.$call('dismissScheduledFocusForEntity', kind, itemId, reason)
-                    .catch(() => {
-                        this.restoreEntity(kind, itemId);
-                    })
-                    .finally(() => {
-                        this.clearDismissalPending(kind, itemId);
-                    });
-            }
-        },
-        handleWorkspaceTrashRollback(detail) {
-            const kind = String(detail?.kind || '');
-            const itemId = Number(detail?.id || 0);
-            if (! ['task', 'event', 'project'].includes(kind) || itemId < 1) {
-                return;
-            }
-            this.restoreEntity(kind, itemId);
-        },
-        handleWorkspacePropertyRollback(detail) {
-            const kind = String(detail?.kind || '');
-            const itemId = Number(detail?.itemId || 0);
-            const property = String(detail?.property || '');
-            if (! ['task', 'event', 'project'].includes(kind) || itemId < 1) {
-                return;
-            }
-            if (['startDatetime', 'endDatetime', 'startTime', 'endTime'].includes(property)) {
-                this.restoreEntity(kind, itemId);
-            }
-        },
-        async focusPlanItem(planItemId, kind, entityId) {
-            const normalizedKind = String(kind || '');
-            const normalizedEntityId = Number(entityId);
-            const normalizedPlanItemId = Number(planItemId);
-
-            if (!Number.isFinite(normalizedEntityId) || normalizedEntityId < 1) {
-                return;
-            }
-            if (!Number.isFinite(normalizedPlanItemId) || normalizedPlanItemId < 1) {
-                return;
-            }
-
-            const instant = typeof window.workspaceCalendarTryInstantFocus === 'function'
-                && window.workspaceCalendarTryInstantFocus(normalizedKind, normalizedEntityId);
-            const shouldShowLoadingSkeleton = !instant;
-
-            if (shouldShowLoadingSkeleton) {
-                window.dispatchEvent(new CustomEvent('workspace-focus-navigation-loading-start', { bubbles: true }));
-            }
-
-            try {
-                await $wire.$parent.$call('focusFromScheduledPlanItem', normalizedPlanItemId);
-                if (!instant && typeof window.runWorkspaceFocusToTarget === 'function') {
-                    requestAnimationFrame(() => {
-                        setTimeout(() => window.runWorkspaceFocusToTarget(normalizedKind, normalizedEntityId), 0);
-                    });
-                }
-            } finally {
-                if (shouldShowLoadingSkeleton) {
-                    window.dispatchEvent(new CustomEvent('workspace-focus-navigation-loading-end', { bubbles: true }));
-                }
-            }
-        },
         toggle() {
             this.expanded = !this.expanded;
             try {
@@ -199,10 +40,6 @@
     }"
     role="region"
     aria-labelledby="{{ $panelId }}-title"
-    @workspace-item-trashed.window="handleWorkspaceTrashed($event.detail)"
-    @workspace-item-trashed-rollback.window="handleWorkspaceTrashRollback($event.detail)"
-    @workspace-item-property-updated.window="handleWorkspacePropertyUpdated($event.detail)"
-    @workspace-item-property-update-rollback.window="handleWorkspacePropertyRollback($event.detail)"
     @class([
         'rounded-xl border border-violet-500/45 bg-linear-to-r from-violet-50/95 via-white/95 to-brand-light-blue/55 shadow-md ring-1 ring-violet-300/30 dark:border-violet-400/55 dark:from-violet-950/35 dark:via-zinc-900/65 dark:to-brand-blue/20 dark:ring-violet-300/20',
         'px-2.5 py-2.5 sm:px-3.5 sm:py-3.5' => ! $isCompact,
@@ -251,7 +88,6 @@
             @foreach ($grouped as $group)
                 @if (count((array) ($group['items'] ?? [])) > 0)
                     <div
-                        x-show="isGroupVisible(@js((array) ($group['items'] ?? [])))"
                         @class(['space-y-1.5', 'shrink-0' => $isCompact])
                     >
                         <flux:text class="{{ $isCompact ? 'text-[10px]' : 'text-[11px] sm:text-xs' }} font-bold uppercase tracking-[0.08em] text-muted-foreground">
@@ -267,18 +103,17 @@
                                     $entityTypePillClass = (string) ($item['entity_type_pill_class'] ?? 'lic-item-type-pill--task');
                                     $entityId = (int) ($item['entity_id'] ?? 0);
                                     $planItemId = (int) ($item['id'] ?? 0);
+                                    $workspaceUrl = (string) ($item['workspace_url'] ?? '#');
                                 @endphp
-                                <button
-                                    type="button"
+                                <a
+                                    href="{{ $workspaceUrl }}"
+                                    wire:navigate
                                     wire:key="scheduled-focus-{{ $planItemId }}"
-                                    @disabled($planItemId <= 0 || ! in_array($entityType, ['task', 'event', 'project'], true))
-                                    x-show="!isEntityRemoved('{{ $entityType }}', {{ $entityId }})"
                                     @class([
                                         'list-item-card border border-violet-400/45 dark:border-violet-400/40 flex w-full flex-col gap-1 rounded-lg text-left transition-all duration-200 ease-out hover:scale-[1.01] hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/45 focus-visible:ring-offset-1 focus-visible:ring-offset-white disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:scale-100 dark:focus-visible:ring-violet-300/55 dark:focus-visible:ring-offset-zinc-900',
                                         'px-2 py-1.5 sm:gap-1.5 sm:px-2.5 sm:py-2' => ! $isCompact,
                                         'min-w-[11rem] max-w-[14rem] shrink-0 px-2 py-1.5 sm:min-w-[12rem]' => $isCompact,
                                     ])
-                                    @click="focusPlanItem({{ $planItemId }}, '{{ $entityType }}', {{ $entityId }})"
                                     data-scheduled-focus-kind="{{ $entityType }}"
                                     data-scheduled-focus-entity-id="{{ $entityId }}"
                                     data-scheduled-focus-plan-item-id="{{ $planItemId }}"
@@ -333,7 +168,7 @@
                                             </span>
                                         @endif
                                     </div>
-                                </button>
+                                </a>
                             @endforeach
                         </div>
                     </div>

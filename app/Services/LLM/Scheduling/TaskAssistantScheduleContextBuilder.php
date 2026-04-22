@@ -149,6 +149,10 @@ final class TaskAssistantScheduleContextBuilder
             if (! in_array('intent_default_asap_mode', $reasonCodes, true)) {
                 $reasonCodes[] = 'intent_default_asap_mode';
             }
+            if (($normalized['schedule_horizon']['label'] ?? null) === 'default_asap_spread'
+                && ! in_array('intent_default_asap_horizon_spread', $reasonCodes, true)) {
+                $reasonCodes[] = 'intent_default_asap_horizon_spread';
+            }
             $normalized['schedule_intent_reason_codes'] = $reasonCodes;
         }
 
@@ -236,9 +240,6 @@ final class TaskAssistantScheduleContextBuilder
         if (($horizon['label'] ?? '') !== 'default_today') {
             return $this->normalizeHorizonShape($horizon);
         }
-        if ($defaultAsapMode) {
-            return $this->normalizeHorizonShape($horizon);
-        }
         if ($timeConstraint !== 'none') {
             return $this->normalizeHorizonShape($horizon);
         }
@@ -252,7 +253,7 @@ final class TaskAssistantScheduleContextBuilder
         }
 
         $maxDays = max(1, (int) config('task-assistant.schedule.max_horizon_days', 14));
-        $spread = max(1, (int) config('task-assistant.schedule.smart_default_spread_days', 3));
+        $spread = max(1, (int) config('task-assistant.schedule.smart_default_spread_days', 7));
         $spanDays = min($spread, $maxDays);
 
         try {
@@ -267,7 +268,7 @@ final class TaskAssistantScheduleContextBuilder
             'mode' => 'range',
             'start_date' => $start->toDateString(),
             'end_date' => $end->toDateString(),
-            'label' => 'smart_default_spread',
+            'label' => $defaultAsapMode ? 'default_asap_spread' : 'smart_default_spread',
         ];
     }
 

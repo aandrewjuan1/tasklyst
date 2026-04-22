@@ -197,6 +197,11 @@
                         @endforeach
                     </div>
 
+                    <x-workspace.scheduled-focus-plan
+                        :groups="$this->scheduledFocusPlanGroups"
+                        :total-count="$this->scheduledFocusPlanTotalCount"
+                    />
+
                     @auth
                         <div class="grid grid-cols-1 gap-4 xl:grid-cols-3">
                             <div class="{{ $dashboardPanelShell['urgent'] }}">

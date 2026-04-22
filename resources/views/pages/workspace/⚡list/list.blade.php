@@ -28,8 +28,6 @@
         $showCompleted = (bool) ($filters['showCompleted'] ?? false);
         $completedItems = $showCompleted ? $completedEntries->values() : collect();
         $hasAnyListContent = $allItems->isNotEmpty() || $completedItems->isNotEmpty();
-        $scheduledFocusGroups = is_array($scheduledFocusPlanGroups ?? null) ? $scheduledFocusPlanGroups : [];
-        $scheduledFocusTotalCount = (int) ($scheduledFocusPlanTotalCount ?? 0);
     @endphp
 
     <x-workspace.item-creation
@@ -43,11 +41,6 @@
         :has-active-filters="$hasActiveFilters"
         :search-query-display="$searchQueryDisplay"
         :visible-items-initial="$visibleItemsInitial"
-    />
-
-    <x-workspace.scheduled-focus-plan
-        :groups="$scheduledFocusGroups"
-        :total-count="$scheduledFocusTotalCount"
     />
 
     @if ($hasAnyListContent)

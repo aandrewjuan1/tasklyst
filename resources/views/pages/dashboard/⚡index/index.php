@@ -1,12 +1,14 @@
 <?php
 
 use App\Data\Analytics\DashboardAnalyticsOverview;
+use App\Enums\AssistantSchedulePlanItemStatus;
 use App\Enums\ActivityLogAction;
 use App\Enums\TaskSourceType;
 use App\Enums\TaskStatus;
 use App\Livewire\Concerns\HandlesCalendarFeeds;
 use App\Livewire\Concerns\HandlesWorkspaceCalendar;
 use App\Models\ActivityLog;
+use App\Models\AssistantSchedulePlanItem;
 use App\Models\CalendarFeed;
 use App\Models\Collaboration;
 use App\Models\CollaborationInvitation;
@@ -26,6 +28,7 @@ use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Str;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
@@ -187,6 +190,126 @@ class extends Component
             'date' => $this->getParsedSelectedDate()->toDateString(),
             'view' => 'list',
         ]);
+    }
+
+    /**
+     * @return Collection<int, array<string, mixed>>
+     */
+    #[Computed]
+    public function scheduledFocusPlanEntries(): Collection
+    {
+        $userId = Auth::id();
+        if ($userId === null) {
+            return collect();
+        }
+
+        $timezone = (string) config('app.timezone', 'UTC');
+        $todayStart = \Carbon\CarbonImmutable::now($timezone)->startOfDay();
+
+        return AssistantSchedulePlanItem::query()
+            ->forUser($userId)
+            ->active()
+            ->where('planned_start_at', '>=', $todayStart)
+            ->orderBy('planned_start_at')
+            ->limit(50)
+            ->get([
+                'id',
+                'entity_type',
+                'entity_id',
+                'title',
+                'planned_start_at',
+                'planned_end_at',
+                'planned_duration_minutes',
+                'status',
+                'metadata',
+            ])
+            ->map(function (AssistantSchedulePlanItem $item) use ($timezone): array {
+                $startAt = $item->planned_start_at?->setTimezone($timezone);
+                $endAt = $item->planned_end_at?->setTimezone($timezone);
+                $entityType = (string) $item->entity_type;
+                $metadata = is_array($item->metadata ?? null) ? $item->metadata : [];
+                $lastAction = strtolower(trim((string) data_get($metadata, 'actions.last_action', '')));
+                $supersededCount = (int) data_get($metadata, 'rescheduled_from_previous_plan_item_count', 0);
+                $isRescheduled = $lastAction === 'rescheduled' || $supersededCount > 0;
+
+                $entityTypePillClass = match ($entityType) {
+                    'event' => 'lic-item-type-pill--event',
+                    'project' => 'lic-item-type-pill--project',
+                    default => 'lic-item-type-pill--task',
+                };
+
+                return [
+                    'id' => $item->id,
+                    'entity_type' => $entityType,
+                    'entity_id' => (int) $item->entity_id,
+                    'entity_label' => Str::headline($entityType),
+                    'entity_type_pill_class' => $entityTypePillClass,
+                    'title' => (string) $item->title,
+                    'planned_start_at' => $startAt?->toIso8601String(),
+                    'planned_end_at' => $endAt?->toIso8601String(),
+                    'planned_duration_minutes' => $item->planned_duration_minutes,
+                    'status' => $item->status?->value ?? AssistantSchedulePlanItemStatus::Planned->value,
+                    'time_range_label' => $this->formatScheduledFocusTimeRange($startAt, $endAt),
+                    'duration_label' => $this->formatScheduledFocusDuration($item->planned_duration_minutes),
+                    'is_rescheduled' => $isRescheduled,
+                    'workspace_url' => $this->workspaceRouteForAgendaStyleFocus(
+                        $startAt?->toDateString() ?? $this->getParsedSelectedDate()->toDateString(),
+                        $entityType,
+                        (int) $item->entity_id
+                    ),
+                ];
+            })
+            ->values();
+    }
+
+    /**
+     * @return array<int, array{key: string, label: string, items: array<int, array<string, mixed>>}>
+     */
+    #[Computed]
+    public function scheduledFocusPlanGroups(): array
+    {
+        $entries = $this->scheduledFocusPlanEntries;
+        $timezone = (string) config('app.timezone', 'UTC');
+        $today = \Carbon\CarbonImmutable::now($timezone)->startOfDay();
+        $tomorrow = $today->addDay();
+
+        return $entries
+            ->groupBy(function (array $entry): string {
+                $plannedStartAt = (string) ($entry['planned_start_at'] ?? '');
+                if ($plannedStartAt === '') {
+                    return 'undated';
+                }
+
+                return \Carbon\Carbon::parse($plannedStartAt)->toDateString();
+            })
+            ->sortKeys()
+            ->map(function (Collection $items, string $dayKey) use ($timezone, $today, $tomorrow): array {
+                $label = (string) __('No date');
+                if ($dayKey !== 'undated') {
+                    $day = \Carbon\CarbonImmutable::parse($dayKey, $timezone)->startOfDay();
+                    if ($day->equalTo($today)) {
+                        $label = (string) __('Today');
+                    } elseif ($day->equalTo($tomorrow)) {
+                        $label = (string) __('Tomorrow');
+                    } else {
+                        $label = $day->translatedFormat('l, F j');
+                    }
+                }
+
+                return [
+                    'key' => $dayKey,
+                    'label' => $label,
+                    'items' => $items->values()->all(),
+                ];
+            })
+            ->values()
+            ->all();
+    }
+
+    #[Computed]
+    public function scheduledFocusPlanTotalCount(): int
+    {
+        return $this->scheduledFocusPlanEntries->count();
     }
 
     #[Computed]
@@ -1481,6 +1604,42 @@ class extends Component
         }
 
         return $startsAt->translatedFormat('g:i A').' - '.$endsAt->translatedFormat('g:i A');
+    }
+
+    private function formatScheduledFocusTimeRange(?CarbonInterface $startAt, ?CarbonInterface $endAt): string
+    {
+        if (! $startAt) {
+            return (string) __('No time set');
+        }
+
+        $prefix = $startAt->isToday()
+            ? __('Today')
+            : ($startAt->isTomorrow() ? __('Tomorrow') : $startAt->translatedFormat('M j, Y'));
+        $time = $startAt->format('g:i A');
+        if (! $endAt) {
+            return sprintf('%s %s %s', $prefix, __('at'), $time);
+        }
+
+        return sprintf('%s %s %s - %s', $prefix, __('at'), $time, $endAt->format('g:i A'));
+    }
+
+    private function formatScheduledFocusDuration(?int $minutes): ?string
+    {
+        if ($minutes === null || $minutes <= 0) {
+            return null;
+        }
+
+        $hours = intdiv($minutes, 60);
+        $remainingMinutes = $minutes % 60;
+        if ($hours === 0) {
+            return trans_choice(':count minute|:count minutes', $remainingMinutes, ['count' => $remainingMinutes]);
+        }
+        if ($remainingMinutes === 0) {
+            return trans_choice(':count hour|:count hours', $hours, ['count' => $hours]);
+        }
+
+        return trans_choice(':count hour|:count hours', $hours, ['count' => $hours]).' '
+            .trans_choice(':count minute|:count minutes', $remainingMinutes, ['count' => $remainingMinutes]);
     }
 
     /**

@@ -136,7 +136,6 @@ trait HandlesProjects
         }
 
         $this->dispatch('toast', ...Project::toastPayload('delete', true, $project->name));
-        $this->dispatch('assistant-schedule-plan-updated');
 
         return true;
     }
@@ -325,8 +324,6 @@ trait HandlesProjects
         if (in_array($property, ['startDatetime', 'endDatetime'], true) && method_exists($this, 'deactivateScheduledFocusForEntity')) {
             $this->deactivateScheduledFocusForEntity('project', (int) $project->id, 'project_datetime_updated');
         }
-
-        $this->dispatch('assistant-schedule-plan-updated');
 
         return true;
     }

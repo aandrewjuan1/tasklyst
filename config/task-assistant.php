@@ -165,7 +165,7 @@ return [
          * When the user gives a vague schedule request (horizon label default_today), search this many
          * consecutive local days starting from today, capped by max_horizon_days.
          */
-        'smart_default_spread_days' => (int) env('TASK_ASSISTANT_SCHEDULE_SMART_DEFAULT_SPREAD_DAYS', 3),
+        'smart_default_spread_days' => (int) env('TASK_ASSISTANT_SCHEDULE_SMART_DEFAULT_SPREAD_DAYS', 7),
         /**
          * Hard-block buffer (minutes) around effective SchoolClass intervals when placing schedule proposals.
          * Set to 0 to disable the extra prep/travel margin.

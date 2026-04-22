@@ -204,8 +204,6 @@ trait HandlesTasks
             $this->queueWorkspaceCalendarRefresh();
         }
 
-        $this->dispatch('assistant-schedule-plan-updated');
-
         return true;
     }
 
@@ -439,8 +437,6 @@ trait HandlesTasks
         if ($property === 'recurrence') {
             $task->load('recurringTask');
 
-            $this->dispatch('assistant-schedule-plan-updated');
-
             return ['success' => true, 'recurringTaskId' => $task->recurringTask?->id];
         }
 
@@ -456,8 +452,6 @@ trait HandlesTasks
                 }
             }
         }
-
-        $this->dispatch('assistant-schedule-plan-updated');
 
         return true;
     }

@@ -20,7 +20,7 @@ afterEach(function (): void {
     Livewire::flushState();
 });
 
-test('focusFromScheduledPlanItem aligns selected date to planned day and clears search', function (): void {
+test('dashboard scheduled focus item renders workspace redirect link with date and focus query', function (): void {
     Carbon::setTestNow(Carbon::parse('2026-04-15 12:00:00', config('app.timezone')));
 
     $this->actingAs($this->user);
@@ -58,15 +58,13 @@ test('focusFromScheduledPlanItem aligns selected date to planned day and clears 
         'metadata' => [],
     ]);
 
-    Livewire::test('pages::workspace.index')
-        ->set('selectedDate', '2026-04-15')
-        ->set('searchQuery', 'blocked-by-search')
-        ->call('focusFromScheduledPlanItem', $item->id)
-        ->assertSet('selectedDate', '2026-04-16')
-        ->assertSet('searchQuery', null);
+    $this->get(route('dashboard', ['date' => '2026-04-15']))
+        ->assertSuccessful()
+        ->assertSee('task='.$task->id)
+        ->assertSee('date=2026-04-16');
 });
 
-test('workspace kanban view shows compact scheduled focus strip when plan items exist', function (): void {
+test('dashboard view shows scheduled focus panel when plan items exist', function (): void {
     $this->actingAs($this->user);
 
     $plan = AssistantSchedulePlan::query()->create([
@@ -94,7 +92,7 @@ test('workspace kanban view shows compact scheduled focus strip when plan items 
         'metadata' => [],
     ]);
 
-    $this->get(route('workspace', ['view' => 'kanban']))
+    $this->get(route('dashboard'))
         ->assertSuccessful()
         ->assertSee('AI Proposed Schedule')
         ->assertSee('Kanban Scheduled Focus Row');
@@ -161,7 +159,7 @@ test('scheduled focus renders dynamic day labels for today tomorrow and later da
         'metadata' => [],
     ]);
 
-    $this->get(route('workspace', ['view' => 'list']))
+    $this->get(route('dashboard'))
         ->assertSuccessful()
         ->assertSee('Today')
         ->assertSee('Tomorrow')
@@ -227,7 +225,7 @@ test('a day section disappears when its last item is removed while other section
         'metadata' => [],
     ]);
 
-    $this->get(route('workspace', ['view' => 'list']))
+    $this->get(route('dashboard'))
         ->assertSuccessful()
         ->assertSee('Today')
         ->assertSee('Tomorrow')
@@ -237,7 +235,7 @@ test('a day section disappears when its last item is removed while other section
     Livewire::test('pages::workspace.index')
         ->call('dismissScheduledFocusForEntity', 'task', (int) $taskToday->id, 'task_datetime_updated');
 
-    $this->get(route('workspace', ['view' => 'list']))
+    $this->get(route('dashboard'))
         ->assertSuccessful()
         ->assertDontSee('Today Section Proposal')
         ->assertSee('Tomorrow')
@@ -293,7 +291,7 @@ test('dismissing scheduled focus for an entity persists and does not return afte
         ->assertSet('scheduledFocusPlanTotalCount', 0);
 });
 
-test('entity dismissal bumps workspace items version once', function (): void {
+test('entity dismissal does not bump workspace items version', function (): void {
     Carbon::setTestNow(Carbon::parse('2026-04-20 10:00:00', config('app.timezone')));
 
     $this->actingAs($this->user);
@@ -333,7 +331,7 @@ test('entity dismissal bumps workspace items version once', function (): void {
     Livewire::test('pages::workspace.index')
         ->assertSet('workspaceItemsVersion', 0)
         ->call('dismissScheduledFocusForEntity', 'task', (int) $task->id, 'task_datetime_updated')
-        ->assertSet('workspaceItemsVersion', 1);
+        ->assertSet('workspaceItemsVersion', 0);
 });
 
 test('task status done deactivates scheduled focus persistently', function (): void {
@@ -462,14 +460,14 @@ test('panel stays visible with empty state when last item is removed and still r
         'metadata' => [],
     ]);
 
-    $this->get(route('workspace'))
+    $this->get(route('dashboard'))
         ->assertSuccessful()
         ->assertSee('AI Proposed Schedule');
 
     Livewire::test('pages::workspace.index')
         ->call('updateTaskProperty', (int) $task->id, 'status', TaskStatus::Done->value, true);
 
-    $this->get(route('workspace'))
+    $this->get(route('dashboard'))
         ->assertSuccessful()
         ->assertSee('AI Proposed Schedule')
         ->assertSee('No scheduled focus items yet')
@@ -491,16 +489,16 @@ test('panel stays visible with empty state when last item is removed and still r
         'metadata' => [],
     ]);
 
-    $this->get(route('workspace'))
+    $this->get(route('dashboard'))
         ->assertSuccessful()
         ->assertSee('AI Proposed Schedule')
         ->assertSee('New Accepted Proposal');
 });
 
-test('workspace kanban view shows scheduled focus empty state when there are no plan items', function (): void {
+test('dashboard view shows scheduled focus empty state when there are no plan items', function (): void {
     $this->actingAs($this->user);
 
-    $this->get(route('workspace', ['view' => 'kanban']))
+    $this->get(route('dashboard'))
         ->assertSuccessful()
         ->assertSee('AI Proposed Schedule')
         ->assertSee('No scheduled focus items yet')

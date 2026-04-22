@@ -2774,6 +2774,10 @@ final class TaskAssistantService
      */
     private function shouldRequireFallbackConfirmation(ExecutionPlan $plan, array $scheduleData): bool
     {
+        if ($this->isDefaultAsapAutoSpillSuccess($scheduleData)) {
+            return false;
+        }
+
         if ($this->scheduleFallbackPolicy->shouldRequireConfirmation($plan, $scheduleData)) {
             return true;
         }
@@ -2788,6 +2792,29 @@ final class TaskAssistantService
         }
 
         return false;
+    }
+
+    /**
+     * Generic schedule prompts (no explicit day/time) should auto-propose when default auto-spill
+     * found at least one valid placement within the expanded horizon.
+     *
+     * @param  array<string, mixed>  $scheduleData
+     */
+    private function isDefaultAsapAutoSpillSuccess(array $scheduleData): bool
+    {
+        $digest = is_array($scheduleData['placement_digest'] ?? null) ? $scheduleData['placement_digest'] : [];
+        if (! (bool) ($digest['default_asap_mode'] ?? false)) {
+            return false;
+        }
+
+        $attemptedHorizon = is_array($digest['attempted_horizon'] ?? null) ? $digest['attempted_horizon'] : [];
+        if (trim((string) ($attemptedHorizon['label'] ?? '')) !== 'default_asap_spread') {
+            return false;
+        }
+
+        $proposals = is_array($scheduleData['proposals'] ?? null) ? $scheduleData['proposals'] : [];
+
+        return count($proposals) > 0;
     }
 
     /**
@@ -2822,6 +2849,10 @@ final class TaskAssistantService
             ? $signals['nearest_available_window']
             : null;
         $nearestLabel = trim((string) ($nearestAvailableWindow['display_label'] ?? ''));
+        $nearestChipLabel = trim((string) ($nearestAvailableWindow['chip_label'] ?? ''));
+        if ($nearestChipLabel === '') {
+            $nearestChipLabel = trim((string) ($nearestAvailableWindow['date_label'] ?? ''));
+        }
         $hasNearestWindow = $nearestAvailableWindow !== null && $nearestLabel !== '';
 
         $hasDraftToKeep = $proposalsCount > 0;
@@ -2867,7 +2898,7 @@ final class TaskAssistantService
                 : 'I can try the closest available window, or widen your time window. What would you prefer?';
             $options = $defaultOptions;
             $optionActions = [
-                ['id' => 'try_tomorrow_morning', 'label' => $hasNearestWindow ? "Schedule for {$nearestLabel}" : 'Schedule for the closest available window'],
+                ['id' => 'try_tomorrow_morning', 'label' => $hasNearestWindow ? "Schedule for {$nearestChipLabel}" : 'Schedule for the closest available window'],
                 ['id' => 'pick_another_time_window', 'label' => 'Pick another time this week'],
             ];
         } elseif (in_array('adaptive_relaxed_placement', $triggers, true)) {
@@ -2888,7 +2919,7 @@ final class TaskAssistantService
             $prompt = 'Do you want to continue with that plan, or pick another time this week?';
             $options = $defaultOptions;
             $optionActions = [
-                ['id' => $hasDraftToKeep ? 'use_current_draft' : 'try_tomorrow_morning', 'label' => $hasDraftToKeep ? 'Continue with that plan' : ($hasNearestWindow ? "Schedule for {$nearestLabel}" : 'Schedule for the closest available window')],
+                ['id' => $hasDraftToKeep ? 'use_current_draft' : 'try_tomorrow_morning', 'label' => $hasDraftToKeep ? 'Continue with that plan' : ($hasNearestWindow ? "Schedule for {$nearestChipLabel}" : 'Schedule for the closest available window')],
                 ['id' => 'pick_another_time_window', 'label' => 'Pick another time this week'],
             ];
         } elseif (in_array('placement_outside_horizon', $triggers, true)) {
@@ -2897,7 +2928,7 @@ final class TaskAssistantService
             $prompt = 'Should I continue with that plan, or pick another time this week?';
             $options = $defaultOptions;
             $optionActions = [
-                ['id' => $hasDraftToKeep ? 'use_current_draft' : 'try_tomorrow_morning', 'label' => $hasDraftToKeep ? 'Continue with that plan' : ($hasNearestWindow ? "Schedule for {$nearestLabel}" : 'Schedule for the closest available window')],
+                ['id' => $hasDraftToKeep ? 'use_current_draft' : 'try_tomorrow_morning', 'label' => $hasDraftToKeep ? 'Continue with that plan' : ($hasNearestWindow ? "Schedule for {$nearestChipLabel}" : 'Schedule for the closest available window')],
                 ['id' => 'pick_another_time_window', 'label' => 'Pick another time this week'],
             ];
         } elseif (in_array('unplaced_units', $triggers, true)) {
@@ -2908,7 +2939,7 @@ final class TaskAssistantService
                 : 'Should I schedule for tomorrow morning instead, or pick another time this week?';
             $options = $defaultOptions;
             $optionActions = [
-                ['id' => $hasDraftToKeep ? 'use_current_draft' : 'try_tomorrow_morning', 'label' => $hasDraftToKeep ? 'Continue with that plan' : ($hasNearestWindow ? "Schedule for {$nearestLabel}" : 'Schedule for the closest available window')],
+                ['id' => $hasDraftToKeep ? 'use_current_draft' : 'try_tomorrow_morning', 'label' => $hasDraftToKeep ? 'Continue with that plan' : ($hasNearestWindow ? "Schedule for {$nearestChipLabel}" : 'Schedule for the closest available window')],
                 ['id' => 'pick_another_time_window', 'label' => 'Pick another time this week'],
             ];
         } elseif (in_array('strict_window_no_fit', $triggers, true)) {
@@ -2919,7 +2950,7 @@ final class TaskAssistantService
                 : 'I can try the closest available window, or adjust your window. Which one should I do?';
             $options = $defaultOptions;
             $optionActions = [
-                ['id' => 'try_tomorrow_morning', 'label' => $hasNearestWindow ? "Schedule for {$nearestLabel}" : 'Schedule for the closest available window'],
+                ['id' => 'try_tomorrow_morning', 'label' => $hasNearestWindow ? "Schedule for {$nearestChipLabel}" : 'Schedule for the closest available window'],
                 ['id' => 'pick_another_time_window', 'label' => 'Pick another time this week'],
             ];
         } elseif ($plan->timeWindowHint === 'later') {
@@ -2934,7 +2965,7 @@ final class TaskAssistantService
                 ? ['Continue with that plan', 'Pick another time this week']
                 : ['Schedule for tomorrow morning instead', 'Pick another time this week'];
             $optionActions = [
-                ['id' => 'try_tomorrow_morning', 'label' => $hasNearestWindow ? "Schedule for {$nearestLabel}" : 'Schedule for the closest available window'],
+                ['id' => 'try_tomorrow_morning', 'label' => $hasNearestWindow ? "Schedule for {$nearestChipLabel}" : 'Schedule for the closest available window'],
                 ['id' => 'pick_another_time_window', 'label' => 'Pick another time this week'],
             ];
         } else {
