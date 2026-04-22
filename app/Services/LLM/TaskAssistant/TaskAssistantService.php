@@ -679,10 +679,7 @@ final class TaskAssistantService
                 'next_options' => TaskAssistantPrioritizeOutputDefaults::clampNextField(
                     (string) __('After you add or adjust tasks, I can help sort what to do first or plan time for them.'),
                 ),
-                'next_options_chip_texts' => [
-                    TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText((string) __('Add a task')),
-                    TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText((string) __('Try a broader question')),
-                ],
+                'next_options_chip_texts' => [],
                 'filter_interpretation' => null,
                 'assumptions' => null,
                 'count_mismatch_explanation' => null,
@@ -2298,6 +2295,20 @@ final class TaskAssistantService
             );
         }
 
+        $dynamicChips = $this->quickChipResolver->resolveForEmptyState(
+            user: $thread->user,
+            thread: $thread,
+            limit: 4,
+        );
+        $dynamicChips = $this->quickChipResolver->filterContinueStyleQuickChips($dynamicChips);
+        $dynamicChips = array_values(array_slice($dynamicChips, 0, 3));
+        if (count($dynamicChips) < 3) {
+            $fallbackChips = ['What should I do first', 'Schedule my most important task', 'Create a plan for today'];
+            while (count($dynamicChips) < 3) {
+                $dynamicChips[] = $fallbackChips[count($dynamicChips)];
+            }
+        }
+
         return [
             'intent' => 'task',
             'acknowledgement' => trim($acknowledgement),
@@ -2307,10 +2318,7 @@ final class TaskAssistantService
                 'Schedule time blocks for my next tasks.',
             ],
             'next_options' => trim($nextOptions),
-            'next_options_chip_texts' => [
-                'What should I do first',
-                'Schedule my most important task',
-            ],
+            'next_options_chip_texts' => $dynamicChips,
             'subtype' => 'closing',
         ];
     }
@@ -2797,8 +2805,8 @@ final class TaskAssistantService
 
         $hasDraftToKeep = $proposalsCount > 0;
         $defaultOptions = $hasDraftToKeep
-            ? ['Use this draft', 'Pick another time window', 'Cancel scheduling for now']
-            : ['Try tomorrow morning', 'Pick another time window', 'Cancel scheduling for now'];
+            ? ['Continue with that plan', 'Pick another time this week']
+            : ['Schedule for tomorrow morning instead', 'Pick another time this week'];
 
         if ($strictDate !== null) {
             $datePhrase = CarbonImmutable::parse($strictDate)->format('M j, Y');
@@ -2808,12 +2816,10 @@ final class TaskAssistantService
             $options = [
                 "Keep {$datePhrase} only",
                 'Widen to nearby days',
-                'Cancel scheduling for now',
             ];
             $optionActions = [
                 ['id' => 'pick_another_time_window', 'label' => "Keep {$datePhrase} only"],
                 ['id' => 'pick_another_time_window', 'label' => 'Widen to nearby days'],
-                ['id' => 'cancel_scheduling', 'label' => 'Cancel scheduling for now'],
             ];
         } elseif ($topNShortfall) {
             $taskNoun = $proposalsCount === 1 ? 'task' : 'tasks';
@@ -2825,14 +2831,12 @@ final class TaskAssistantService
             $prompt = "I can keep this draft with {$proposalsCount} {$taskNoun}, or we can adjust your time window to try fitting all {$requestedCount}. Which would you like?";
             $reasonCode = 'top_n_shortfall';
             $options = [
-                'Keep this current draft',
-                'Pick another time window',
-                'Cancel scheduling for now',
+                'Continue with that plan',
+                'Pick another time this week',
             ];
             $optionActions = [
-                ['id' => 'use_current_draft', 'label' => 'Keep this current draft'],
-                ['id' => 'pick_another_time_window', 'label' => 'Pick another time window'],
-                ['id' => 'cancel_scheduling', 'label' => 'Cancel scheduling for now'],
+                ['id' => 'use_current_draft', 'label' => 'Continue with that plan'],
+                ['id' => 'pick_another_time_window', 'label' => 'Pick another time this week'],
             ];
         } elseif (in_array('empty_placement', $triggers, true)) {
             $reasonCode = 'empty_placement_no_fit';
@@ -2840,55 +2844,49 @@ final class TaskAssistantService
             $prompt = 'I can try tomorrow morning or widen your time window. What would you prefer?';
             $options = $defaultOptions;
             $optionActions = [
-                ['id' => 'try_tomorrow_morning', 'label' => 'Try tomorrow morning'],
-                ['id' => 'pick_another_time_window', 'label' => 'Pick another time window'],
-                ['id' => 'cancel_scheduling', 'label' => 'Cancel scheduling for now'],
+                ['id' => 'try_tomorrow_morning', 'label' => 'Schedule for tomorrow morning instead'],
+                ['id' => 'pick_another_time_window', 'label' => 'Pick another time this week'],
             ];
         } elseif (in_array('adaptive_relaxed_placement', $triggers, true)) {
             $reasonCode = 'adaptive_relaxed_placement';
             $reasonMessage = 'Your first-choice window was too tight, so I drafted times on another part of the day or the next day.';
             $prompt = "I can keep this draft starting around {$datePhrase}, or we can try different times. What works for you?";
             $options = [
-                'Use this draft',
-                'Pick another time window',
-                'Cancel scheduling for now',
+                'Continue with that plan',
+                'Pick another time this week',
             ];
             $optionActions = [
-                ['id' => 'use_current_draft', 'label' => 'Use this draft'],
-                ['id' => 'pick_another_time_window', 'label' => 'Pick another time window'],
-                ['id' => 'cancel_scheduling', 'label' => 'Cancel scheduling for now'],
+                ['id' => 'use_current_draft', 'label' => 'Continue with that plan'],
+                ['id' => 'pick_another_time_window', 'label' => 'Pick another time this week'],
             ];
         } elseif (in_array('requested_window_unsatisfied', $triggers, true) || in_array('hinted_window_unsatisfied', $triggers, true)) {
             $reasonCode = 'alternative_outside_requested_window';
             $reasonMessage = "The best open slots I found do not fall inside {$requestedWindowLabel}.";
-            $prompt = 'Do you want to go with these suggested times, try a different window, or stop here?';
+            $prompt = 'Do you want to continue with that plan, or pick another time this week?';
             $options = $defaultOptions;
             $optionActions = [
-                ['id' => $hasDraftToKeep ? 'use_current_draft' : 'try_tomorrow_morning', 'label' => $hasDraftToKeep ? 'Use this draft' : 'Try tomorrow morning'],
-                ['id' => 'pick_another_time_window', 'label' => 'Pick another time window'],
-                ['id' => 'cancel_scheduling', 'label' => 'Cancel scheduling for now'],
+                ['id' => $hasDraftToKeep ? 'use_current_draft' : 'try_tomorrow_morning', 'label' => $hasDraftToKeep ? 'Continue with that plan' : 'Schedule for tomorrow morning instead'],
+                ['id' => 'pick_another_time_window', 'label' => 'Pick another time this week'],
             ];
         } elseif (in_array('placement_outside_horizon', $triggers, true)) {
             $reasonCode = 'placement_outside_horizon';
             $reasonMessage = 'The draft uses at least one time outside the day range you originally asked for.';
-            $prompt = 'Should I keep this draft, adjust the day range, or cancel scheduling for now?';
+            $prompt = 'Should I continue with that plan, or pick another time this week?';
             $options = $defaultOptions;
             $optionActions = [
-                ['id' => $hasDraftToKeep ? 'use_current_draft' : 'try_tomorrow_morning', 'label' => $hasDraftToKeep ? 'Use this draft' : 'Try tomorrow morning'],
-                ['id' => 'pick_another_time_window', 'label' => 'Pick another time window'],
-                ['id' => 'cancel_scheduling', 'label' => 'Cancel scheduling for now'],
+                ['id' => $hasDraftToKeep ? 'use_current_draft' : 'try_tomorrow_morning', 'label' => $hasDraftToKeep ? 'Continue with that plan' : 'Schedule for tomorrow morning instead'],
+                ['id' => 'pick_another_time_window', 'label' => 'Pick another time this week'],
             ];
         } elseif (in_array('unplaced_units', $triggers, true)) {
             $reasonCode = 'unplaced_explicit_targets';
             $reasonMessage = 'Something you asked to schedule could not be placed in the available time.';
             $prompt = $hasDraftToKeep
-                ? 'Should I keep what already fits, try a different window for the rest, or stop here?'
-                : 'Should I try tomorrow morning, try a different window, or stop here?';
+                ? 'Should I continue with that plan, or pick another time this week?'
+                : 'Should I schedule for tomorrow morning instead, or pick another time this week?';
             $options = $defaultOptions;
             $optionActions = [
-                ['id' => $hasDraftToKeep ? 'use_current_draft' : 'try_tomorrow_morning', 'label' => $hasDraftToKeep ? 'Use this draft' : 'Try tomorrow morning'],
-                ['id' => 'pick_another_time_window', 'label' => 'Pick another time window'],
-                ['id' => 'cancel_scheduling', 'label' => 'Cancel scheduling for now'],
+                ['id' => $hasDraftToKeep ? 'use_current_draft' : 'try_tomorrow_morning', 'label' => $hasDraftToKeep ? 'Continue with that plan' : 'Schedule for tomorrow morning instead'],
+                ['id' => 'pick_another_time_window', 'label' => 'Pick another time this week'],
             ];
         } elseif (in_array('strict_window_no_fit', $triggers, true)) {
             $reasonCode = 'strict_window_no_fit';
@@ -2896,9 +2894,8 @@ final class TaskAssistantService
             $prompt = 'I can try tomorrow morning or adjust your window. Which one should I do?';
             $options = $defaultOptions;
             $optionActions = [
-                ['id' => 'try_tomorrow_morning', 'label' => 'Try tomorrow morning'],
-                ['id' => 'pick_another_time_window', 'label' => 'Pick another time window'],
-                ['id' => 'cancel_scheduling', 'label' => 'Cancel scheduling for now'],
+                ['id' => 'try_tomorrow_morning', 'label' => 'Schedule for tomorrow morning instead'],
+                ['id' => 'pick_another_time_window', 'label' => 'Pick another time this week'],
             ];
         } elseif ($plan->timeWindowHint === 'later') {
             $prompt = $hasDraftToKeep
@@ -2907,22 +2904,20 @@ final class TaskAssistantService
             $reasonMessage = 'There is not enough free time left in your requested "later today" window.';
             $reasonCode = 'later_window_not_feasible';
             $options = $hasDraftToKeep
-                ? ['Yes, continue with tomorrow', 'Pick another time window', 'Cancel scheduling for now']
-                : ['Try tomorrow morning', 'Pick another time window', 'Cancel scheduling for now'];
+                ? ['Continue with that plan', 'Pick another time this week']
+                : ['Schedule for tomorrow morning instead', 'Pick another time this week'];
             $optionActions = [
-                ['id' => 'try_tomorrow_morning', 'label' => 'Try tomorrow morning'],
-                ['id' => 'pick_another_time_window', 'label' => 'Pick another time window'],
-                ['id' => 'cancel_scheduling', 'label' => 'Cancel scheduling for now'],
+                ['id' => 'try_tomorrow_morning', 'label' => 'Schedule for tomorrow morning instead'],
+                ['id' => 'pick_another_time_window', 'label' => 'Pick another time this week'],
             ];
         } else {
             $reasonCode = 'schedule_confirmation_needed';
             $reasonMessage = 'This draft needs your confirmation before anything is finalized.';
-            $prompt = 'Use these suggested times, try a different window, or cancel scheduling for now?';
+            $prompt = 'Do you want to continue with that plan, or pick another time this week?';
             $options = $defaultOptions;
             $optionActions = [
-                ['id' => $hasDraftToKeep ? 'use_current_draft' : 'try_tomorrow_morning', 'label' => $hasDraftToKeep ? 'Use this draft' : 'Try tomorrow morning'],
-                ['id' => 'pick_another_time_window', 'label' => 'Pick another time window'],
-                ['id' => 'cancel_scheduling', 'label' => 'Cancel scheduling for now'],
+                ['id' => $hasDraftToKeep ? 'use_current_draft' : 'try_tomorrow_morning', 'label' => $hasDraftToKeep ? 'Continue with that plan' : 'Schedule for tomorrow morning instead'],
+                ['id' => 'pick_another_time_window', 'label' => 'Pick another time this week'],
             ];
         }
 

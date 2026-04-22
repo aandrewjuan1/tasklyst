@@ -18,6 +18,7 @@ final class TaskAssistantFlowExecutionEngine
         private readonly AssistantCandidateProvider $candidateProvider,
         private readonly AssistantMetadataGateway $metadataGateway,
         private readonly TaskAssistantProcessingGuard $processingGuard,
+        private readonly TaskAssistantQuickChipResolver $quickChipResolver,
     ) {}
 
     /**
@@ -100,7 +101,7 @@ final class TaskAssistantFlowExecutionEngine
         $finalValid = $generationValid && $processedValid;
         $structuredData = $finalValid
             ? (is_array($processedResponse['structured_data'] ?? null) ? $processedResponse['structured_data'] : [])
-            : $this->minimalStructuredDataForInvalidFlow($flow, $payload);
+            : $this->minimalStructuredDataForInvalidFlow($flow, $payload, $thread->user);
 
         $assistantContent = $finalValid
             ? (string) ($processedResponse['formatted_content'] ?? '')
@@ -170,7 +171,7 @@ final class TaskAssistantFlowExecutionEngine
      * @param  array<string, mixed>  $payload
      * @return array<string, mixed>
      */
-    private function minimalStructuredDataForInvalidFlow(string $flow, array $payload): array
+    private function minimalStructuredDataForInvalidFlow(string $flow, array $payload, User $user): array
     {
         return match ($flow) {
             'prioritize' => [
@@ -225,7 +226,7 @@ final class TaskAssistantFlowExecutionEngine
                     'Share when you want to schedule work',
                 ],
                 'next_options' => (string) config('task-assistant.general_guidance.default_next_options', 'If you want, I can help you decide what to do first or schedule time for your work.'),
-                'next_options_chip_texts' => $this->generalGuidanceDefaultChips(),
+                'next_options_chip_texts' => $this->generalGuidanceDefaultChips($user),
             ],
             default => [],
         };
@@ -302,27 +303,30 @@ final class TaskAssistantFlowExecutionEngine
     /**
      * @return list<string>
      */
-    private function generalGuidanceDefaultChips(): array
+    private function generalGuidanceDefaultChips(User $user): array
     {
-        $raw = config('task-assistant.general_guidance.next_options_chip_texts', []);
-        if (! is_array($raw) || $raw === []) {
-            return ['What should I do first', 'Schedule my most important task'];
+        $chips = $this->quickChipResolver->resolveForEmptyState(
+            user: $user,
+            thread: null,
+            limit: 4,
+        );
+        $chips = $this->quickChipResolver->filterContinueStyleQuickChips($chips);
+        $chips = array_values(array_slice($chips, 0, 3));
+
+        if (count($chips) === 3) {
+            return $chips;
         }
 
-        $chips = array_values(array_filter(array_map(
-            static fn (mixed $value): string => trim((string) $value),
-            $raw
-        ), static fn (string $value): bool => $value !== ''));
-
-        if ($chips === []) {
-            return ['What should I do first', 'Schedule my most important task'];
+        $fallbacks = [
+            'What should I do first',
+            'Schedule my most important task',
+            'Create a plan for today',
+        ];
+        while (count($chips) < 3) {
+            $chips[] = $fallbacks[count($chips)];
         }
 
-        if (count($chips) === 1) {
-            return [$chips[0], 'Schedule my most important task'];
-        }
-
-        return array_slice($chips, 0, 2);
+        return array_slice($chips, 0, 3);
     }
 
     /**

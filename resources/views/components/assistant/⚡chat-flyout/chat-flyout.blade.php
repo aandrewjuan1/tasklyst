@@ -461,14 +461,17 @@
                                 <div class="mt-3 flex flex-wrap gap-2">
                                     @foreach ($nextOptionChips as $chipIndex => $chipText)
                                         <flux:button
-                                            size="xs"
+                                            size="sm"
                                             variant="ghost"
-                                            class="rounded-full border border-brand-blue/18 bg-white/90 px-3 py-1 text-sm font-medium text-black shadow-sm transition-colors hover:border-brand-blue/30 hover:bg-brand-light-blue/70 hover:text-black focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/40 focus-visible:ring-offset-1 dark:border-brand-blue/30 dark:bg-zinc-900/30 dark:text-black dark:hover:bg-zinc-800/50 dark:hover:text-black dark:focus-visible:ring-offset-zinc-900 disabled:pointer-events-none disabled:opacity-60"
+                                            class="rounded-full border border-brand-blue/18 bg-white/90 px-3.5 py-1.5 text-base font-medium text-black shadow-sm transition-colors hover:border-brand-blue/30 hover:bg-brand-light-blue/70 hover:text-black focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/40 focus-visible:ring-offset-1 dark:border-brand-blue/30 dark:bg-zinc-900/30 dark:text-black dark:hover:bg-zinc-800/50 dark:hover:text-black dark:focus-visible:ring-offset-zinc-900 disabled:pointer-events-none disabled:opacity-60"
                                             wire:click="submitNextOptionChip({{ $message->id }}, {{ $chipIndex }})"
                                             wire:loading.attr="disabled"
                                             wire:target="submitNextOptionChip,submitMessage"
                                         >
-                                            {{ $chipText }}
+                                            <span class="inline-flex items-center gap-1.5 text-left leading-normal">
+                                                <flux:icon name="chevron-right" class="size-3.5 shrink-0 self-center opacity-70" />
+                                                <span>{{ $chipText }}</span>
+                                            </span>
                                         </flux:button>
                                     @endforeach
                                 </div>

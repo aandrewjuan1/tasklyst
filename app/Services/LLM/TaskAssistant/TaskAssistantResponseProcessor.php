@@ -1035,14 +1035,17 @@ final class TaskAssistantResponseProcessor
                             'Keep this current draft',
                             'Keep',
                             'Yes, continue with tomorrow',
+                            'Continue with that plan',
                         ],
                         'try_tomorrow_morning' => [
                             'Try tomorrow morning',
                             'Yes, continue with tomorrow',
+                            'Schedule for tomorrow morning instead',
                         ],
                         'pick_another_time_window' => [
                             'Pick another time window',
                             'Widen to nearby days',
+                            'Pick another time this week',
                         ],
                         'cancel_scheduling' => [
                             'Cancel scheduling for now',

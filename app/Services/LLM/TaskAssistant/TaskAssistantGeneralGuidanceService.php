@@ -34,6 +34,7 @@ final class TaskAssistantGeneralGuidanceService
 
     public function __construct(
         private readonly TaskAssistantPromptData $promptData,
+        private readonly TaskAssistantQuickChipResolver $quickChipResolver,
     ) {}
 
     /**
@@ -193,7 +194,7 @@ final class TaskAssistantGeneralGuidanceService
                     'message' => $message,
                     'suggested_next_actions' => $suggestedNextActions,
                     'next_options' => $nextOptions,
-                    'next_options_chip_texts' => $this->deterministicGeneralGuidanceChipTexts(),
+                    'next_options_chip_texts' => $this->deterministicGeneralGuidanceChipTexts($user),
                 ];
             } catch (\Throwable $e) {
                 if ($attempt === $maxRetries) {
@@ -211,7 +212,7 @@ final class TaskAssistantGeneralGuidanceService
                             : 'I can help make this manageable with one clear next step.',
                         'suggested_next_actions' => $this->enforceSuggestedNextActions([], $resolvedIntent),
                         'next_options' => $this->finalizeNextOptionsString(''),
-                        'next_options_chip_texts' => $this->deterministicGeneralGuidanceChipTexts(),
+                        'next_options_chip_texts' => $this->deterministicGeneralGuidanceChipTexts($user),
                     ];
                 }
             }
@@ -225,7 +226,7 @@ final class TaskAssistantGeneralGuidanceService
                 : 'I can help make this feel more manageable with one clear next step.',
             'suggested_next_actions' => $this->enforceSuggestedNextActions([], $resolvedIntent),
             'next_options' => $this->finalizeNextOptionsString(''),
-            'next_options_chip_texts' => $this->deterministicGeneralGuidanceChipTexts(),
+            'next_options_chip_texts' => $this->deterministicGeneralGuidanceChipTexts($user),
         ];
     }
 
@@ -838,9 +839,6 @@ final class TaskAssistantGeneralGuidanceService
         return $snippet;
     }
 
-    /**
-     * @param  list<string>  $variants
-     */
     private function isLikelyGibberish(string $userMessage): bool
     {
         $msg = mb_strtolower(trim($userMessage));
@@ -1118,28 +1116,30 @@ final class TaskAssistantGeneralGuidanceService
     /**
      * @return list<string>
      */
-    private function deterministicGeneralGuidanceChipTexts(): array
+    private function deterministicGeneralGuidanceChipTexts(User $user): array
     {
-        $raw = config('task-assistant.general_guidance.next_options_chip_texts', []);
-        if (! is_array($raw)) {
-            $raw = [];
+        $chips = $this->quickChipResolver->resolveForEmptyState(
+            user: $user,
+            thread: null,
+            limit: 4,
+        );
+        $chips = $this->quickChipResolver->filterContinueStyleQuickChips($chips);
+        $chips = array_values(array_slice($chips, 0, 3));
+
+        if (count($chips) === 3) {
+            return $chips;
         }
-        $out = [];
-        foreach (array_slice($raw, 0, 2) as $line) {
-            $s = trim((string) $line);
-            if ($s !== '') {
-                $out[] = TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText($s);
-            }
-        }
+
         $fallbacks = [
             TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('What should I do first'),
             TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('Schedule my most important task'),
+            TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('Create a plan for today'),
         ];
-        while (count($out) < 2) {
-            $out[] = $fallbacks[count($out)];
+        while (count($chips) < 3) {
+            $chips[] = $fallbacks[count($chips)];
         }
 
-        return array_slice($out, 0, 2);
+        return array_slice($chips, 0, 3);
     }
 
     private function resolveProvider(): Provider
