@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\ValidateWorkOSSession;
+use App\Services\LLM\OllamaProxyClient;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Prism\Prism\Enums\Provider;
@@ -56,6 +57,45 @@ Route::middleware([
             'raw' => $payload,
         ]);
     })->name('llm.prompt-test');
+
+    Route::get('llm/proxy-test', function (Request $request, OllamaProxyClient $client) {
+        $prompt = trim((string) $request->query('prompt', ''));
+        if ($prompt === '') {
+            return response()->json([
+                'ok' => false,
+                'error' => 'prompt_required',
+            ], 422);
+        }
+
+        try {
+            $response = $client->generate($prompt);
+        } catch (\RuntimeException $exception) {
+            return response()->json([
+                'ok' => false,
+                'error' => 'proxy_not_configured',
+                'message' => $exception->getMessage(),
+            ], 422);
+        }
+
+        if ($response->failed()) {
+            return response()->json([
+                'ok' => false,
+                'error' => 'proxy_upstream_failed',
+                'status' => $response->status(),
+                'body' => $response->body(),
+            ], 502);
+        }
+
+        $payload = $response->json();
+
+        return response()->json([
+            'ok' => true,
+            'provider' => 'ollama_proxy',
+            'model' => (string) config('services.ollama_proxy.default_model', 'hermes3:3b'),
+            'prompt' => $prompt,
+            'raw' => is_array($payload) ? $payload : [],
+        ]);
+    })->name('llm.proxy-test');
 });
 
 // Test-only routes for ConnectCalendarFeedJobTest.

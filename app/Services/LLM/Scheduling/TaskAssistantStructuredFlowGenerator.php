@@ -2,6 +2,7 @@
 
 namespace App\Services\LLM\Scheduling;
 
+use App\Enums\TaskStatus;
 use App\Models\Task;
 use App\Models\TaskAssistantThread;
 use App\Models\User;
@@ -23,6 +24,8 @@ final class TaskAssistantStructuredFlowGenerator
         private readonly TaskAssistantScheduleContextBuilder $scheduleContextBuilder,
         private readonly TaskPrioritizationService $prioritizationService,
         private readonly TaskAssistantHybridNarrativeService $hybridNarrative,
+        private readonly TaskAssistantWindowPlacementService $windowPlacementService,
+        private readonly ScheduleConfirmationSignalsBuilder $confirmationSignalsBuilder,
     ) {}
 
     /**
@@ -82,11 +85,21 @@ final class TaskAssistantStructuredFlowGenerator
         $promptData['snapshot'] = $contextualSnapshot;
         $promptData['user_context'] = $context;
         $promptData['schedule_horizon'] = $contextualSnapshot['schedule_horizon'] ?? $context['schedule_horizon'] ?? null;
+        $promptData['schedule_source'] = is_string($options['schedule_source'] ?? null)
+            ? (string) $options['schedule_source']
+            : 'schedule';
         $countLimit = max(1, min((int) ($options['count_limit'] ?? 10), 10));
 
         [$proposals, $placementDigest] = $this->generateProposalsChunkedSpill($contextualSnapshot, $context, $countLimit, $options);
+        $placementDigest = $this->confirmationSignalsBuilder->enrich(
+            $contextualSnapshot,
+            $context,
+            $placementDigest,
+            $proposals,
+            $options
+        );
         $promptData['placement_digest'] = $placementDigest;
-        $timezoneName = (string) ($contextualSnapshot['timezone'] ?? config('app.timezone', 'UTC'));
+        $timezoneName = (string) ($contextualSnapshot['timezone'] ?? config('app.timezone', 'Asia/Manila'));
         $blocks = $this->buildLegacyBlocksFromProposals($proposals, $timezoneName);
         $items = $this->buildScheduleItemsFromProposals($proposals);
         $deterministicSummary = $this->buildDeterministicSummary($context, $contextualSnapshot);
@@ -120,9 +133,19 @@ final class TaskAssistantStructuredFlowGenerator
             && $horizon['start_date'] !== $horizon['end_date']) {
             $scheduleVariant = 'range';
         }
+        $scheduleExplainability = $this->buildScheduleExplainability(
+            snapshot: $contextualSnapshot,
+            context: $context,
+            proposals: $proposals,
+            digest: $placementDigest,
+            scheduleOptions: $options,
+        );
 
         $data = [
             'schema_version' => self::SCHEDULE_SCHEMA_VERSION,
+            'schedule_source' => is_string($options['schedule_source'] ?? null)
+                ? (string) $options['schedule_source']
+                : 'schedule',
             'proposals' => $proposals,
             'blocks' => $blocks,
             'items' => $items,
@@ -132,6 +155,17 @@ final class TaskAssistantStructuredFlowGenerator
             'confirmation' => $narrative['confirmation'],
             'schedule_empty_placement' => $isEmptyPlacement,
             'placement_digest' => $placementDigest,
+            'requested_horizon_label' => (string) ($scheduleExplainability['requested_horizon_label'] ?? 'your requested window'),
+            'requested_window_display_label' => (string) ($scheduleExplainability['requested_window_display_label'] ?? 'your requested window'),
+            'has_explicit_clock_time' => (bool) ($scheduleExplainability['has_explicit_clock_time'] ?? false),
+            'blocking_section_title' => (string) ($scheduleExplainability['blocking_section_title'] ?? 'These items are already scheduled in your requested window:'),
+            'window_selection_explanation' => $scheduleExplainability['window_selection_explanation'],
+            'ordering_rationale' => $scheduleExplainability['ordering_rationale'],
+            'blocking_reasons' => $scheduleExplainability['blocking_reasons'],
+            'fallback_choice_explanation' => $scheduleExplainability['fallback_choice_explanation'],
+            'window_selection_struct' => $scheduleExplainability['window_selection_struct'] ?? null,
+            'ordering_rationale_struct' => $scheduleExplainability['ordering_rationale_struct'] ?? [],
+            'blocking_reasons_struct' => $scheduleExplainability['blocking_reasons_struct'] ?? [],
             'confirmation_required' => false,
             'awaiting_user_decision' => false,
             'confirmation_context' => null,
@@ -180,6 +214,96 @@ final class TaskAssistantStructuredFlowGenerator
     }
 
     /**
+     * Resolve top-N task entities using the same improved scheduler snapshot/context pipeline.
+     *
+     * @param  array<int, array<string, mixed>>  $explicitTaskTargets
+     * @return list<array{entity_type: 'task', entity_id: int, title: string, position: int}>
+     */
+    public function resolvePrioritizeScheduleTaskTargets(
+        TaskAssistantThread $thread,
+        string $userMessageContent,
+        array $explicitTaskTargets,
+        int $countLimit,
+    ): array {
+        $limit = max(1, $countLimit);
+        if ($explicitTaskTargets !== []) {
+            $filteredExplicitTargets = array_values(array_filter(
+                $explicitTaskTargets,
+                static function (array $entity): bool {
+                    return (string) ($entity['status'] ?? '') !== TaskStatus::Doing->value;
+                }
+            ));
+            $explicitTaskIds = array_values(array_filter(array_map(
+                static fn (array $entity): int => (int) ($entity['entity_id'] ?? 0),
+                $filteredExplicitTargets
+            ), static fn (int $id): bool => $id > 0));
+            if ($explicitTaskIds !== []) {
+                $allowedTaskIds = Task::query()
+                    ->forUser($thread->user_id)
+                    ->whereIn('id', $explicitTaskIds)
+                    ->where('status', '!=', TaskStatus::Doing->value)
+                    ->pluck('id')
+                    ->map(static fn (mixed $id): int => (int) $id)
+                    ->all();
+                $allowedTaskLookup = array_fill_keys($allowedTaskIds, true);
+                $filteredExplicitTargets = array_values(array_filter(
+                    $filteredExplicitTargets,
+                    static fn (array $entity): bool => isset($allowedTaskLookup[(int) ($entity['entity_id'] ?? 0)])
+                ));
+            }
+
+            return array_values(array_map(
+                static function (array $entity, int $index): array {
+                    $title = trim((string) ($entity['title'] ?? 'Untitled'));
+
+                    return [
+                        'entity_type' => 'task',
+                        'entity_id' => (int) ($entity['entity_id'] ?? 0),
+                        'title' => $title !== '' ? $title : 'Untitled',
+                        'position' => $index,
+                    ];
+                },
+                array_slice($filteredExplicitTargets, 0, $limit),
+                array_keys(array_slice($filteredExplicitTargets, 0, $limit))
+            ));
+        }
+
+        $built = $this->dbContextBuilder->buildForUser(
+            $thread->user,
+            $userMessageContent,
+            ['schedule_user_id' => $thread->user_id]
+        );
+        $context = is_array($built['context'] ?? null) ? $built['context'] : [];
+        $snapshot = is_array($built['snapshot'] ?? null) ? $built['snapshot'] : [];
+        $ranked = $this->prioritizationService->prioritizeFocus($snapshot, $context);
+        $rankedTasks = array_values(array_filter($ranked, static function (mixed $candidate): bool {
+            if (! is_array($candidate)) {
+                return false;
+            }
+            $raw = is_array($candidate['raw'] ?? null) ? $candidate['raw'] : [];
+
+            return (string) ($candidate['type'] ?? '') === 'task'
+                && (int) ($candidate['id'] ?? 0) > 0
+                && (string) ($raw['status'] ?? '') !== TaskStatus::Doing->value;
+        }));
+
+        return array_values(array_map(
+            static function (array $candidate, int $index): array {
+                $title = trim((string) ($candidate['title'] ?? 'Untitled'));
+
+                return [
+                    'entity_type' => 'task',
+                    'entity_id' => (int) ($candidate['id'] ?? 0),
+                    'title' => $title !== '' ? $title : 'Untitled',
+                    'position' => $index,
+                ];
+            },
+            array_slice($rankedTasks, 0, $limit),
+            array_keys(array_slice($rankedTasks, 0, $limit))
+        ));
+    }
+
+    /**
      * Build schedule payload + narrative from server-owned proposals (e.g. multiturn refinement).
      *
      * @param  Collection<int, mixed>  $historyMessages
@@ -213,14 +337,24 @@ final class TaskAssistantStructuredFlowGenerator
             }
         }
 
+        $proposals = $this->regenerateApplyPayloadsForProposals($proposals);
+        $digestForPrompt = $this->confirmationSignalsBuilder->enrich(
+            $contextualSnapshot,
+            $context,
+            $digestForPrompt,
+            $proposals,
+            []
+        );
+
         $promptData = $this->promptData->forUser($user);
         $promptData['snapshot'] = $contextualSnapshot;
         $promptData['user_context'] = $context;
         $promptData['schedule_horizon'] = $contextualSnapshot['schedule_horizon'] ?? $context['schedule_horizon'] ?? null;
+        $promptData['schedule_source'] = is_string($context['schedule_source'] ?? null)
+            ? (string) $context['schedule_source']
+            : 'schedule';
         $promptData['placement_digest'] = $digestForPrompt;
-
-        $proposals = $this->regenerateApplyPayloadsForProposals($proposals);
-        $timezoneName = (string) ($contextualSnapshot['timezone'] ?? config('app.timezone', 'UTC'));
+        $timezoneName = (string) ($contextualSnapshot['timezone'] ?? config('app.timezone', 'Asia/Manila'));
         $blocks = $this->buildLegacyBlocksFromProposals($proposals, $timezoneName);
         $items = $this->buildScheduleItemsFromProposals($proposals);
         $deterministicSummary = $this->buildDeterministicSummary($context, $contextualSnapshot);
@@ -229,7 +363,9 @@ final class TaskAssistantStructuredFlowGenerator
         $isEmptyPlacement = $this->isScheduleEmptyPlacement($proposals);
         $schedulableProposalCount = $this->countSchedulableProposals($proposals);
 
-        $digestForNarrative = ($digestJsonNorm !== '{}' && $digestJsonNorm !== '[]') ? $digestJsonNorm : null;
+        $digestForNarrative = ($digestForPrompt !== [])
+            ? (json_encode($digestForPrompt, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: null)
+            : null;
 
         $narrative = $this->hybridNarrative->refineDailySchedule(
             $historyMessages,
@@ -253,9 +389,19 @@ final class TaskAssistantStructuredFlowGenerator
             && $horizon['start_date'] !== $horizon['end_date']) {
             $scheduleVariant = 'range';
         }
+        $scheduleExplainability = $this->buildScheduleExplainability(
+            snapshot: $contextualSnapshot,
+            context: $context,
+            proposals: $proposals,
+            digest: $digestForPrompt,
+            scheduleOptions: [],
+        );
 
         $data = [
             'schema_version' => self::SCHEDULE_SCHEMA_VERSION,
+            'schedule_source' => is_string($context['schedule_source'] ?? null)
+                ? (string) $context['schedule_source']
+                : 'schedule',
             'proposals' => $proposals,
             'blocks' => $blocks,
             'items' => $items,
@@ -265,6 +411,17 @@ final class TaskAssistantStructuredFlowGenerator
             'confirmation' => $narrative['confirmation'],
             'schedule_empty_placement' => $isEmptyPlacement,
             'placement_digest' => $digestForPrompt,
+            'requested_horizon_label' => (string) ($scheduleExplainability['requested_horizon_label'] ?? 'your requested window'),
+            'requested_window_display_label' => (string) ($scheduleExplainability['requested_window_display_label'] ?? 'your requested window'),
+            'has_explicit_clock_time' => (bool) ($scheduleExplainability['has_explicit_clock_time'] ?? false),
+            'blocking_section_title' => (string) ($scheduleExplainability['blocking_section_title'] ?? 'These items are already scheduled in your requested window:'),
+            'window_selection_explanation' => $scheduleExplainability['window_selection_explanation'],
+            'ordering_rationale' => $scheduleExplainability['ordering_rationale'],
+            'blocking_reasons' => $scheduleExplainability['blocking_reasons'],
+            'fallback_choice_explanation' => $scheduleExplainability['fallback_choice_explanation'],
+            'window_selection_struct' => $scheduleExplainability['window_selection_struct'] ?? null,
+            'ordering_rationale_struct' => $scheduleExplainability['ordering_rationale_struct'] ?? [],
+            'blocking_reasons_struct' => $scheduleExplainability['blocking_reasons_struct'] ?? [],
             'confirmation_required' => false,
             'awaiting_user_decision' => false,
             'confirmation_context' => null,
@@ -287,6 +444,406 @@ final class TaskAssistantStructuredFlowGenerator
             'data' => $data,
             'errors' => [],
         ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $snapshot
+     * @param  array<string, mixed>  $context
+     * @param  list<array<string, mixed>>  $proposals
+     * @param  array<string, mixed>  $digest
+     * @param  array<string, mixed>  $scheduleOptions
+     * @return array{
+     *   requested_horizon_label: string,
+     *   requested_window_display_label: string,
+     *   has_explicit_clock_time: bool,
+     *   blocking_section_title: string,
+     *   window_selection_explanation: string,
+     *   ordering_rationale: list<string>,
+     *   blocking_reasons: list<array{title:string,blocked_window:string,reason:string}>,
+     *   fallback_choice_explanation: string|null,
+     *   window_selection_struct: array<string, mixed>,
+     *   ordering_rationale_struct: list<array<string, mixed>>,
+     *   blocking_reasons_struct: list<array<string, mixed>>
+     * }
+     */
+    private function buildScheduleExplainability(
+        array $snapshot,
+        array $context,
+        array $proposals,
+        array $digest,
+        array $scheduleOptions,
+    ): array {
+        $window = is_array($snapshot['time_window'] ?? null) ? $snapshot['time_window'] : [];
+        $windowStart = is_string($window['start'] ?? null) ? (string) $window['start'] : '';
+        $windowEnd = is_string($window['end'] ?? null) ? (string) $window['end'] : '';
+        $horizon = is_array($snapshot['schedule_horizon'] ?? null) ? $snapshot['schedule_horizon'] : [];
+        $requestedHorizonLabel = trim((string) ($context['requested_horizon_label'] ?? ''));
+        if ($requestedHorizonLabel === '') {
+            $requestedHorizonLabel = $this->humanizeHorizonLabel((string) ($horizon['label'] ?? ''));
+        }
+        $hasExplicitClockTime = (bool) ($context['has_explicit_clock_time'] ?? false);
+        $requestedWindowDisplayLabel = trim((string) ($context['requested_window_display_label'] ?? ''));
+        if ($requestedWindowDisplayLabel === '') {
+            $requestedWindowDisplayLabel = $hasExplicitClockTime && $windowStart !== '' && $windowEnd !== ''
+                ? $this->formatClockLabel($windowStart).'-'.$this->formatClockLabel($windowEnd)
+                : $requestedHorizonLabel;
+        }
+        $horizonStart = is_string($horizon['start_date'] ?? null) ? (string) $horizon['start_date'] : '';
+        $horizonEnd = is_string($horizon['end_date'] ?? null) ? (string) $horizon['end_date'] : '';
+        $meaningfulWindow = $windowStart !== '' && $windowEnd !== '' && ! ($windowStart === '00:00' && $windowEnd === '23:59');
+
+        $windowSelectionExplanation = ($meaningfulWindow && $hasExplicitClockTime)
+            ? 'I prioritized slots between '.$this->formatClockLabel($windowStart).' and '.$this->formatClockLabel($windowEnd).' so this plan fits the time window you asked for.'
+            : 'I prioritized the earliest realistic windows in your requested time frame while avoiding conflicts.';
+        if ($horizonStart !== '' && $horizonEnd !== '' && $horizonStart !== $horizonEnd) {
+            $windowSelectionExplanation .= " I spread placements across {$horizonStart} to {$horizonEnd} when needed.";
+        }
+
+        $orderingRationale = [];
+        $orderingRationaleStruct = [];
+        foreach ($proposals as $index => $proposal) {
+            if (! is_array($proposal)) {
+                continue;
+            }
+            $title = trim((string) ($proposal['title'] ?? ''));
+            if ($title === '' || $title === 'No schedulable items found') {
+                continue;
+            }
+            $startRaw = trim((string) ($proposal['start_datetime'] ?? ''));
+            $startLabel = '';
+            if ($startRaw !== '') {
+                try {
+                    $startLabel = (new \DateTimeImmutable($startRaw))->format('M j g:i A');
+                } catch (\Throwable) {
+                    $startLabel = '';
+                }
+            }
+            $orderingRationale[] = $startLabel !== ''
+                ? '#'.($index + 1)." {$title}: placed at {$startLabel} as one of the strongest fit windows."
+                : '#'.($index + 1)." {$title}: placed in the next strongest fit window.";
+            $orderingRationaleStruct[] = [
+                'rank' => $index + 1,
+                'title' => $title,
+                'slot_start' => $startRaw !== '' ? $startRaw : null,
+                'fit_reason_code' => $startRaw !== '' ? 'strongest_fit_window' : 'next_fit_window',
+                'fit_facts' => [
+                    ['key' => 'has_explicit_slot', 'value' => $startRaw !== '' ? 'true' : 'false'],
+                    ['key' => 'slot_label', 'value' => $startLabel !== '' ? $startLabel : 'n/a'],
+                ],
+            ];
+        }
+
+        $blockingReasons = [];
+        $blockingReasonsStruct = [];
+        $taskSnapshotById = $this->snapshotTaskMapById($snapshot);
+        $unplacedUnits = is_array($digest['unplaced_units'] ?? null) ? $digest['unplaced_units'] : [];
+        foreach ($unplacedUnits as $unit) {
+            if (! is_array($unit)) {
+                continue;
+            }
+            $title = trim((string) ($unit['title'] ?? 'Unplaced item'));
+            $reason = (string) ($unit['reason'] ?? 'horizon_exhausted');
+            $reasonCode = match ($reason) {
+                'count_limit' => 'count_limit_reached',
+                'window_conflict' => 'window_conflict',
+                default => 'horizon_exhausted',
+            };
+            $humanReason = match ($reason) {
+                'count_limit' => 'Not scheduled yet because we reached the current item limit.',
+                default => 'No free slot was available inside the requested schedule window.',
+            };
+            $blockedWindow = $this->resolveBlockedWindowLabelForUnplacedUnit(
+                $unit,
+                $taskSnapshotById,
+                $requestedWindowDisplayLabel !== '' ? $requestedWindowDisplayLabel : 'your requested window'
+            );
+            $blockingReasons[] = [
+                'title' => $title !== '' ? $title : 'Unplaced item',
+                'blocked_window' => $blockedWindow,
+                'reason' => $humanReason,
+            ];
+            $blockingReasonsStruct[] = [
+                'title' => $title !== '' ? $title : 'Unplaced item',
+                'blocked_window' => $blockedWindow,
+                'block_reason_code' => $reasonCode,
+                'reason_facts' => [
+                    ['key' => 'source_reason', 'value' => $reason],
+                    ['key' => 'window_context', 'value' => $blockedWindow],
+                ],
+            ];
+        }
+
+        $busyBlockers = $this->collectRequestedWindowBusyBlockers($snapshot);
+        foreach ($busyBlockers as $blocker) {
+            $blockingReasons[] = $blocker;
+        }
+        $blockingReasons = $this->normalizeBlockingReasonRows(array_slice($blockingReasons, 0, 8));
+
+        $fallbackChoiceExplanation = null;
+        $fallbackMode = trim((string) ($digest['fallback_mode'] ?? ''));
+        if ($fallbackMode !== '') {
+            $fallbackChoiceExplanation = match ($fallbackMode) {
+                'auto_relaxed_today_or_tomorrow' => 'I widened placement to nearby days because the original window had no valid opening.',
+                default => 'I used a safer fallback schedule strategy to keep your plan realistic.',
+            };
+        }
+
+        return [
+            'requested_horizon_label' => $requestedHorizonLabel !== '' ? $requestedHorizonLabel : 'your requested window',
+            'requested_window_display_label' => $requestedWindowDisplayLabel !== '' ? $requestedWindowDisplayLabel : 'your requested window',
+            'has_explicit_clock_time' => $hasExplicitClockTime,
+            'blocking_section_title' => $this->resolveBlockingSectionTitle($requestedHorizonLabel),
+            'window_selection_explanation' => $windowSelectionExplanation,
+            'ordering_rationale' => $orderingRationale,
+            'blocking_reasons' => $blockingReasons,
+            'fallback_choice_explanation' => $fallbackChoiceExplanation,
+            'window_selection_struct' => [
+                'window_mode' => $meaningfulWindow ? 'requested_window' : 'earliest_conflict_free',
+                'window_used' => $meaningfulWindow
+                    ? ['start' => $windowStart, 'end' => $windowEnd]
+                    : null,
+                'horizon_span' => ['start_date' => $horizonStart, 'end_date' => $horizonEnd],
+                'fallback_used' => $fallbackMode !== '',
+                'reason_code_primary' => $meaningfulWindow ? 'window_matched_request' : 'window_auto_selected',
+            ],
+            'ordering_rationale_struct' => $orderingRationaleStruct,
+            'blocking_reasons_struct' => $blockingReasonsStruct,
+        ];
+    }
+
+    /**
+     * @param  list<array<string, string>>  $rows
+     * @return list<array{title:string,blocked_window:string,reason:string}>
+     */
+    private function normalizeBlockingReasonRows(array $rows): array
+    {
+        $normalized = [];
+        $seen = [];
+
+        foreach ($rows as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $title = trim((string) ($row['title'] ?? ''));
+            $blockedWindow = trim((string) ($row['blocked_window'] ?? ''));
+            $reason = trim((string) ($row['reason'] ?? ''));
+            if ($title === '') {
+                continue;
+            }
+            if ($blockedWindow === '') {
+                $blockedWindow = 'your requested window';
+            }
+            if ($reason === '') {
+                $reason = 'This overlaps your requested time window.';
+            }
+
+            $dedupeKey = mb_strtolower($title.'|'.$blockedWindow);
+            if (isset($seen[$dedupeKey])) {
+                continue;
+            }
+            $seen[$dedupeKey] = true;
+            $normalized[] = [
+                'title' => $title,
+                'blocked_window' => $blockedWindow,
+                'reason' => $reason,
+            ];
+        }
+
+        return $normalized;
+    }
+
+    /**
+     * @param  array<string, mixed>  $snapshot
+     * @return array<int, array<string, mixed>>
+     */
+    private function snapshotTaskMapById(array $snapshot): array
+    {
+        $map = [];
+        $tasks = is_array($snapshot['tasks'] ?? null) ? $snapshot['tasks'] : [];
+        foreach ($tasks as $task) {
+            if (! is_array($task)) {
+                continue;
+            }
+            $id = (int) ($task['id'] ?? 0);
+            if ($id <= 0) {
+                continue;
+            }
+            $map[$id] = $task;
+        }
+
+        return $map;
+    }
+
+    /**
+     * @param  array<string, mixed>  $unit
+     * @param  array<int, array<string, mixed>>  $taskSnapshotById
+     */
+    private function resolveBlockedWindowLabelForUnplacedUnit(
+        array $unit,
+        array $taskSnapshotById,
+        string $fallbackLabel
+    ): string {
+        $entityType = trim((string) ($unit['entity_type'] ?? ''));
+        $entityId = (int) ($unit['entity_id'] ?? 0);
+        if ($entityType !== 'task' || $entityId <= 0 || ! isset($taskSnapshotById[$entityId])) {
+            return $fallbackLabel;
+        }
+
+        $task = $taskSnapshotById[$entityId];
+        $startRaw = trim((string) ($task['starts_at'] ?? ''));
+        $endRaw = trim((string) ($task['ends_at'] ?? ''));
+
+        if ($startRaw !== '' && $endRaw !== '') {
+            try {
+                $start = new \DateTimeImmutable($startRaw);
+                $end = new \DateTimeImmutable($endRaw);
+
+                return $start->format('M j, Y g:i A').' - '.$end->format('M j, Y g:i A');
+            } catch (\Throwable) {
+                // Fall through to other labels.
+            }
+        }
+
+        if ($endRaw !== '') {
+            try {
+                $due = new \DateTimeImmutable($endRaw);
+
+                return 'Due '.$due->format('M j, Y g:i A');
+            } catch (\Throwable) {
+                // Fall through to fallback.
+            }
+        }
+
+        return $fallbackLabel;
+    }
+
+    private function resolveBlockingSectionTitle(string $requestedHorizonLabel): string
+    {
+        $label = trim($requestedHorizonLabel);
+        if ($label === '') {
+            return 'These items are already scheduled in your requested window:';
+        }
+
+        return match ($label) {
+            'today' => 'These items are already scheduled for today:',
+            'tomorrow' => 'These items are already scheduled for tomorrow:',
+            'this week' => "These items are already scheduled in this week's window:",
+            'next week' => "These items are already scheduled in next week's window:",
+            default => "These items are already scheduled in {$label}:",
+        };
+    }
+
+    private function humanizeHorizonLabel(string $rawLabel): string
+    {
+        $label = trim($rawLabel);
+        if ($label === '') {
+            return 'your requested window';
+        }
+
+        return match (true) {
+            $label === 'default_today' => 'today',
+            str_starts_with($label, 'qualified_weekday_') => trim(str_replace('qualified_weekday_', '', $label)),
+            str_starts_with($label, 'relative_days_') => 'the selected day',
+            str_starts_with($label, 'explicit_date_') => 'the selected day',
+            default => $label,
+        };
+    }
+
+    private function formatClockLabel(string $time): string
+    {
+        $raw = trim($time);
+        if ($raw === '') {
+            return '';
+        }
+
+        $parsed = \DateTimeImmutable::createFromFormat('H:i', $raw);
+        if (! $parsed instanceof \DateTimeImmutable) {
+            return $raw;
+        }
+
+        return $parsed->format('g:i A');
+    }
+
+    /**
+     * @param  array<string, mixed>  $snapshot
+     * @return list<array{title:string,blocked_window:string,reason:string}>
+     */
+    private function collectRequestedWindowBusyBlockers(array $snapshot): array
+    {
+        $window = is_array($snapshot['time_window'] ?? null) ? $snapshot['time_window'] : [];
+        $windowStart = is_string($window['start'] ?? null) ? trim((string) $window['start']) : '';
+        $windowEnd = is_string($window['end'] ?? null) ? trim((string) $window['end']) : '';
+        if ($windowStart === '' || $windowEnd === '' || ($windowStart === '00:00' && $windowEnd === '23:59')) {
+            return [];
+        }
+        $horizon = is_array($snapshot['schedule_horizon'] ?? null) ? $snapshot['schedule_horizon'] : [];
+        $day = is_string($horizon['start_date'] ?? null) ? (string) $horizon['start_date'] : '';
+        if ($day === '') {
+            return [];
+        }
+
+        $out = [];
+        $events = is_array($snapshot['events_for_busy'] ?? null) ? $snapshot['events_for_busy'] : [];
+        foreach ($events as $event) {
+            if (! is_array($event)) {
+                continue;
+            }
+            $title = trim((string) ($event['title'] ?? 'Busy event'));
+            $start = trim((string) ($event['starts_at'] ?? ''));
+            $end = trim((string) ($event['ends_at'] ?? ''));
+            if ($start === '' || $end === '') {
+                continue;
+            }
+            try {
+                $startDt = new \DateTimeImmutable($start);
+                $endDt = new \DateTimeImmutable($end);
+            } catch (\Throwable) {
+                continue;
+            }
+            if ($startDt->format('Y-m-d') !== $day && $endDt->format('Y-m-d') !== $day) {
+                continue;
+            }
+            $windowLabel = $startDt->format('g:i A').'-'.$endDt->format('g:i A');
+            $out[] = [
+                'title' => $title !== '' ? $title : 'Busy event',
+                'blocked_window' => $windowLabel,
+                'reason' => 'This event overlaps your requested time window.',
+            ];
+            if (count($out) >= 4) {
+                break;
+            }
+        }
+
+        $classIntervals = is_array($snapshot['school_class_busy_intervals'] ?? null) ? $snapshot['school_class_busy_intervals'] : [];
+        foreach ($classIntervals as $interval) {
+            if (! is_array($interval)) {
+                continue;
+            }
+            $start = trim((string) ($interval['start'] ?? ''));
+            $end = trim((string) ($interval['end'] ?? ''));
+            if ($start === '' || $end === '') {
+                continue;
+            }
+            try {
+                $startDt = new \DateTimeImmutable($start);
+                $endDt = new \DateTimeImmutable($end);
+            } catch (\Throwable) {
+                continue;
+            }
+            if ($startDt->format('Y-m-d') !== $day && $endDt->format('Y-m-d') !== $day) {
+                continue;
+            }
+            $out[] = [
+                'title' => 'School class',
+                'blocked_window' => $startDt->format('g:i A').'-'.$endDt->format('g:i A'),
+                'reason' => 'This class window overlaps your requested time.',
+            ];
+            if (count($out) >= 6) {
+                break;
+            }
+        }
+
+        return $out;
     }
 
     /**
@@ -403,6 +960,24 @@ final class TaskAssistantStructuredFlowGenerator
         $eventsForBusy = is_array($contextualSnapshot['events'] ?? null)
             ? $contextualSnapshot['events']
             : [];
+
+        $pendingBusyIntervals = is_array($options['pending_busy_intervals'] ?? null)
+            ? $options['pending_busy_intervals']
+            : [];
+        if ($pendingBusyIntervals !== []) {
+            $eventsForBusy = array_values(array_merge(
+                $eventsForBusy,
+                array_values(array_filter($pendingBusyIntervals, static function (mixed $row): bool {
+                    if (! is_array($row)) {
+                        return false;
+                    }
+
+                    return trim((string) ($row['starts_at'] ?? '')) !== ''
+                        && trim((string) ($row['ends_at'] ?? '')) !== '';
+                }))
+            ));
+        }
+
         $contextualSnapshot['events_for_busy'] = $eventsForBusy;
 
         $targetEntities = $options['target_entities'] ?? [];
@@ -446,6 +1021,12 @@ final class TaskAssistantStructuredFlowGenerator
             if ($scheduleUserId > 0 && $taskIds !== []) {
                 $contextualSnapshot = $this->mergeMissingTargetTasksForSchedule($contextualSnapshot, $taskIds, $scheduleUserId);
             }
+        }
+
+        $schedulingScope = (string) ($options['scheduling_scope'] ?? 'mixed');
+        if ($schedulingScope === 'tasks_only') {
+            $contextualSnapshot['events'] = [];
+            $contextualSnapshot['projects'] = [];
         }
 
         if (! empty($context['recurring_requested'])) {
@@ -522,6 +1103,11 @@ final class TaskAssistantStructuredFlowGenerator
             }
         }
 
+        $anchorAdjusted = $this->resolveClassAwareAnchorWindow($contextualSnapshot, $context);
+        if (is_array($anchorAdjusted) && isset($anchorAdjusted['start'], $anchorAdjusted['end'])) {
+            $contextualSnapshot['time_window'] = $anchorAdjusted;
+        }
+
         $horizon = $context['schedule_horizon'] ?? null;
         if (is_array($horizon) && isset($horizon['start_date'], $horizon['end_date'])) {
             $contextualSnapshot['schedule_horizon'] = $horizon;
@@ -531,6 +1117,76 @@ final class TaskAssistantStructuredFlowGenerator
         }
 
         return $contextualSnapshot;
+    }
+
+    /**
+     * @param  array<string, mixed>  $snapshot
+     * @param  array<string, mixed>  $context
+     * @return array{start: string, end: string}|null
+     */
+    private function resolveClassAwareAnchorWindow(array $snapshot, array $context): ?array
+    {
+        $reasonCodes = is_array($context['schedule_intent_reason_codes'] ?? null)
+            ? $context['schedule_intent_reason_codes']
+            : [];
+        $hasClassAnchor = false;
+        foreach ($reasonCodes as $code) {
+            if (! is_string($code)) {
+                continue;
+            }
+            if (str_contains($code, 'after_anchor_class') || str_contains($code, 'after_anchor_school')) {
+                $hasClassAnchor = true;
+                break;
+            }
+        }
+
+        if (! $hasClassAnchor) {
+            return null;
+        }
+
+        $horizon = is_array($snapshot['schedule_horizon'] ?? null) ? $snapshot['schedule_horizon'] : [];
+        $targetDay = is_string($horizon['start_date'] ?? null)
+            ? (string) $horizon['start_date']
+            : (string) ($snapshot['today'] ?? '');
+        if ($targetDay === '') {
+            return null;
+        }
+
+        $intervals = is_array($snapshot['school_class_busy_intervals'] ?? null)
+            ? $snapshot['school_class_busy_intervals']
+            : [];
+        $latestEnd = null;
+        foreach ($intervals as $interval) {
+            if (! is_array($interval) || ! is_string($interval['end'] ?? null)) {
+                continue;
+            }
+            try {
+                $end = new \DateTimeImmutable((string) $interval['end']);
+            } catch (\Throwable) {
+                continue;
+            }
+
+            if ($end->format('Y-m-d') !== $targetDay) {
+                continue;
+            }
+
+            if (! $latestEnd instanceof \DateTimeImmutable || $end > $latestEnd) {
+                $latestEnd = $end;
+            }
+        }
+
+        if (! $latestEnd instanceof \DateTimeImmutable) {
+            return null;
+        }
+
+        $currentWindow = is_array($snapshot['time_window'] ?? null) ? $snapshot['time_window'] : [];
+        $fallbackEnd = is_string($currentWindow['end'] ?? null) ? (string) $currentWindow['end'] : '22:00';
+        $start = $latestEnd->format('H:i');
+        if ($start >= $fallbackEnd) {
+            $start = $fallbackEnd;
+        }
+
+        return ['start' => $start, 'end' => $fallbackEnd];
     }
 
     /**
@@ -574,7 +1230,7 @@ final class TaskAssistantStructuredFlowGenerator
 
         foreach ($missing as $mid) {
             $task = $fetched->get($mid);
-            if ($task === null) {
+            if (! $task instanceof Task) {
                 $skips[] = [
                     'entity_type' => 'task',
                     'entity_id' => $mid,
@@ -633,7 +1289,7 @@ final class TaskAssistantStructuredFlowGenerator
      */
     private function generateProposalsChunkedSpillCore(array $snapshot, array $context, int $countLimit, ?array $unitsOverride, array $scheduleOptions = []): array
     {
-        $timezone = new \DateTimeZone((string) ($snapshot['timezone'] ?? config('app.timezone', 'UTC')));
+        $timezone = new \DateTimeZone((string) ($snapshot['timezone'] ?? config('app.timezone', 'Asia/Manila')));
         $adaptiveAttempted = (bool) ($context['_adaptive_fallback_attempted'] ?? false);
         $requestedCount = $this->resolveRequestedCount($countLimit, $scheduleOptions);
         $requestedCountSource = $this->resolveRequestedCountSource($scheduleOptions);
@@ -648,6 +1304,7 @@ final class TaskAssistantStructuredFlowGenerator
         $window = is_array($snapshot['time_window'] ?? null) ? $snapshot['time_window'] : null;
         $windowStart = is_string($window['start'] ?? null) ? $window['start'] : '00:00';
         $windowEnd = is_string($window['end'] ?? null) ? $window['end'] : '23:59:59';
+        $defaultAsapMode = (bool) ($context['default_asap_mode'] ?? false);
 
         $todayStr = is_string($snapshot['today'] ?? null) ? trim((string) $snapshot['today']) : '';
         $nowStr = is_string($snapshot['now'] ?? null) ? trim((string) $snapshot['now']) : '';
@@ -730,6 +1387,7 @@ final class TaskAssistantStructuredFlowGenerator
                 'end_date' => is_string($horizon['end_date'] ?? null) ? $horizon['end_date'] : null,
                 'label' => is_string($horizon['label'] ?? null) ? $horizon['label'] : null,
             ],
+            'default_asap_mode' => $defaultAsapMode,
         ];
         $strictRequestedDay = $this->resolveStrictRequestedDayFromSnapshot($snapshot);
         if ($strictRequestedDay !== null) {
@@ -752,9 +1410,13 @@ final class TaskAssistantStructuredFlowGenerator
 
         $anchorDay = $placementDates[0] ?? (string) ($snapshot['today'] ?? now($timezone)->format('Y-m-d'));
         $anchorStart = new \DateTimeImmutable($anchorDay.' '.$windowStart, $timezone);
+        $selectionAnchor = $lastPlacedStartAt instanceof \DateTimeImmutable
+            ? $lastPlacedStartAt
+            : ($nowInstant instanceof \DateTimeImmutable ? $nowInstant : $anchorStart);
 
         $skipMorning = (bool) ($context['_refinement_skip_morning_shortcut'] ?? false)
-            || $this->shouldSkipMorningShortcutForSnapshot($snapshot);
+            || $this->shouldSkipMorningShortcutForSnapshot($snapshot)
+            || $defaultAsapMode;
         if (! $skipMorning && $units !== [] && count($proposals) < $countLimit) {
             $topUnit = $units[0];
             if (($topUnit['entity_type'] ?? '') === 'task') {
@@ -825,7 +1487,14 @@ final class TaskAssistantStructuredFlowGenerator
                     : 0;
                 $requiredMinutes = $blockMinutes + $gapMinutes;
 
-                $fitted = $this->findFirstFittingWindow($freeWindows, $requiredMinutes);
+                $fitted = $this->windowPlacementService->selectBestFittingWindow(
+                    windows: $freeWindows,
+                    requiredMinutes: $requiredMinutes,
+                    unit: $unit,
+                    snapshot: $snapshot,
+                    minStartAt: $lastPlacedStartAt instanceof \DateTimeImmutable ? $lastPlacedStartAt : $selectionAnchor,
+                    defaultAsapMode: $defaultAsapMode,
+                );
                 if ($fitted === null) {
                     continue;
                 }
@@ -1289,6 +1958,7 @@ final class TaskAssistantStructuredFlowGenerator
         int $targetIndex,
         int $scheduleUserId,
         array $refinementDayOptions = [],
+        array $pendingBusyIntervals = [],
     ): array {
         if ($targetIndex < 0 || $targetIndex >= count($workingProposals)) {
             return ['ok' => false, 'merged_proposals' => $workingProposals, 'error' => 'invalid_target_index'];
@@ -1315,6 +1985,7 @@ final class TaskAssistantStructuredFlowGenerator
         $options = [
             'target_entities' => $targetEntities,
             'schedule_user_id' => $scheduleUserId,
+            'pending_busy_intervals' => $pendingBusyIntervals,
             'refinement_anchor_date' => is_string($refinementDayOptions['refinement_anchor_date'] ?? null)
                 ? (string) $refinementDayOptions['refinement_anchor_date']
                 : null,
@@ -1857,6 +2528,7 @@ final class TaskAssistantStructuredFlowGenerator
                     'title' => (string) ($candidate['title'] ?? 'Task'),
                     'score' => (int) ($candidate['score'] ?? 0),
                     'minutes' => $mins,
+                    'complexity' => is_string($candidate['complexity'] ?? null) ? (string) $candidate['complexity'] : null,
                     'candidate_order' => $order,
                     'priority_rank' => (int) ($candidate['priority_rank'] ?? ($order + 1)),
                 ];
@@ -1910,6 +2582,16 @@ final class TaskAssistantStructuredFlowGenerator
             'entity_id' => $candidate['entity_id'],
             'title' => $candidate['title'],
             'reason_score' => $candidate['score'],
+            'reason_code_primary' => (string) ($candidate['reason_code_primary'] ?? 'fit_window'),
+            'reason_codes_secondary' => array_values(array_filter(array_map(
+                static fn (mixed $code): string => trim((string) $code),
+                is_array($candidate['reason_codes_secondary'] ?? null) ? $candidate['reason_codes_secondary'] : []
+            ), static fn (string $code): bool => $code !== '')),
+            'explainability_facts' => array_values(array_filter(array_map(
+                static fn (mixed $fact): array => is_array($fact) ? $fact : [],
+                is_array($candidate['explainability_facts'] ?? null) ? $candidate['explainability_facts'] : []
+            ), static fn (array $fact): bool => isset($fact['key']) && isset($fact['value']))),
+            'narrative_anchor' => is_array($candidate['narrative_anchor'] ?? null) ? $candidate['narrative_anchor'] : [],
             'start_datetime' => $startAt->format(\DateTimeInterface::ATOM),
             'end_datetime' => $candidate['entity_type'] === 'project' ? null : $endAt->format(\DateTimeInterface::ATOM),
             'duration_minutes' => $candidate['entity_type'] === 'event' ? null : $minutes,
@@ -1940,6 +2622,14 @@ final class TaskAssistantStructuredFlowGenerator
             'entity_id' => null,
             'title' => 'No schedulable items found',
             'reason_score' => 0,
+            'reason_code_primary' => 'no_schedulable_items',
+            'reason_codes_secondary' => ['window_conflict'],
+            'explainability_facts' => [
+                ['key' => 'horizon_mode', 'value' => $multiDayHorizon ? 'range' : 'daily'],
+            ],
+            'narrative_anchor' => [
+                'title' => 'No schedulable items found',
+            ],
             'start_datetime' => $anchorForFallback->format(\DateTimeInterface::ATOM),
             'end_datetime' => $anchorForFallback->modify('+30 minutes')->format(\DateTimeInterface::ATOM),
             'duration_minutes' => 30,
@@ -1985,7 +2675,7 @@ final class TaskAssistantStructuredFlowGenerator
             $description = sprintf('Task assistant focus block linked to task #%d.', $taskId);
 
             return [
-                'tool' => 'create_event',
+                'action' => 'create_event',
                 'arguments' => [
                     'title' => $title,
                     'description' => $description,
@@ -1997,7 +2687,7 @@ final class TaskAssistantStructuredFlowGenerator
 
         if ($candidate['entity_type'] === 'task') {
             return [
-                'tool' => 'update_task',
+                'action' => 'update_task',
                 'arguments' => [
                     'taskId' => $candidate['entity_id'],
                     'updates' => [
@@ -2016,7 +2706,7 @@ final class TaskAssistantStructuredFlowGenerator
 
         if ($candidate['entity_type'] === 'event') {
             return [
-                'tool' => 'update_event',
+                'action' => 'update_event',
                 'arguments' => [
                     'eventId' => $candidate['entity_id'],
                     'updates' => [
@@ -2034,7 +2724,7 @@ final class TaskAssistantStructuredFlowGenerator
         }
 
         return [
-            'tool' => 'update_project',
+            'action' => 'update_project',
             'arguments' => [
                 'projectId' => $candidate['entity_id'],
                 'updates' => [
@@ -2051,16 +2741,32 @@ final class TaskAssistantStructuredFlowGenerator
     {
         $ranges = [];
 
-        // Built-in lunch break (product default): 12:00–13:00 local time.
-        // Represented as a busy range so it naturally subtracts from free windows.
-        $lunchStart = new \DateTimeImmutable($dayStart->format('Y-m-d').' 12:00:00', $timezone);
-        $lunchEnd = new \DateTimeImmutable($dayStart->format('Y-m-d').' 13:00:00', $timezone);
-        if ($lunchEnd > $lunchStart && $lunchEnd > $dayStart && $lunchStart < $dayEnd) {
+        $classBusyIntervals = is_array($snapshot['school_class_busy_intervals'] ?? null)
+            ? $snapshot['school_class_busy_intervals']
+            : [];
+
+        foreach ($classBusyIntervals as $interval) {
+            if (! is_array($interval)) {
+                continue;
+            }
+
+            $start = $this->safeDateTime($interval['start'] ?? null, $timezone);
+            $end = $this->safeDateTime($interval['end'] ?? null, $timezone);
+            if ($start === null || $end === null || $end <= $start) {
+                continue;
+            }
+
+            if ($end <= $dayStart || $start >= $dayEnd) {
+                continue;
+            }
+
             $ranges[] = [
-                'start' => $lunchStart < $dayStart ? $dayStart : $lunchStart,
-                'end' => $lunchEnd > $dayEnd ? $dayEnd : $lunchEnd,
+                'start' => $start < $dayStart ? $dayStart : $start,
+                'end' => $end > $dayEnd ? $dayEnd : $end,
             ];
         }
+
+        $this->appendLunchBusyRange($ranges, $snapshot, $dayStart, $dayEnd, $timezone);
 
         $eventSource = $snapshot['events_for_busy'] ?? $snapshot['events'] ?? [];
         foreach ($eventSource as $event) {
@@ -2069,8 +2775,14 @@ final class TaskAssistantStructuredFlowGenerator
             }
 
             $start = $this->safeDateTime($event['starts_at'] ?? null, $timezone);
-            $end = $this->safeDateTime($event['ends_at'] ?? null, $timezone);
+            $end = $this->resolveEventEnd($event, $start, $dayStart, $dayEnd, $timezone);
             if ($start === null || $end === null || $end <= $start) {
+                Log::debug('task-assistant.schedule.skipped_invalid_busy_event', [
+                    'event_id' => $event['id'] ?? null,
+                    'starts_at' => $event['starts_at'] ?? null,
+                    'ends_at' => $event['ends_at'] ?? null,
+                ]);
+
                 continue;
             }
 
@@ -2081,6 +2793,32 @@ final class TaskAssistantStructuredFlowGenerator
             $ranges[] = [
                 'start' => $start < $dayStart ? $dayStart : $start,
                 'end' => $end > $dayEnd ? $dayEnd : $end,
+            ];
+        }
+
+        $taskSource = is_array($snapshot['tasks'] ?? null) ? $snapshot['tasks'] : [];
+        foreach ($taskSource as $task) {
+            if (! is_array($task)) {
+                continue;
+            }
+
+            $taskStart = $this->safeDateTime($task['starts_at'] ?? null, $timezone);
+            if (! $taskStart instanceof \DateTimeImmutable) {
+                continue;
+            }
+
+            $taskEnd = $this->resolveTaskBusyEnd($task, $taskStart, $timezone);
+            if (! $taskEnd instanceof \DateTimeImmutable || $taskEnd <= $taskStart) {
+                continue;
+            }
+
+            if ($taskEnd <= $dayStart || $taskStart >= $dayEnd) {
+                continue;
+            }
+
+            $ranges[] = [
+                'start' => $taskStart < $dayStart ? $dayStart : $taskStart,
+                'end' => $taskEnd > $dayEnd ? $dayEnd : $taskEnd,
             ];
         }
 
@@ -2151,11 +2889,15 @@ final class TaskAssistantStructuredFlowGenerator
 
             if ($type === 'task') {
                 $raw = is_array($rankedCandidate['raw'] ?? null) ? $rankedCandidate['raw'] : [];
+                if ((string) ($raw['status'] ?? '') === TaskStatus::Doing->value) {
+                    continue;
+                }
                 $candidates[] = [
                     'entity_type' => 'task',
                     'entity_id' => $id,
                     'title' => $title,
                     'duration_minutes' => $this->resolveCandidateDurationMinutes($raw),
+                    'complexity' => is_string($raw['complexity'] ?? null) ? (string) $raw['complexity'] : null,
                     'score' => $score,
                     'priority_rank' => $priorityRank,
                 ];
@@ -2295,6 +3037,105 @@ final class TaskAssistantStructuredFlowGenerator
             return new \DateTimeImmutable($value, $timezone);
         } catch (\Throwable) {
             return null;
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $event
+     */
+    private function resolveEventEnd(
+        array $event,
+        ?\DateTimeImmutable $start,
+        \DateTimeImmutable $dayStart,
+        \DateTimeImmutable $dayEnd,
+        \DateTimeZone $timezone
+    ): ?\DateTimeImmutable {
+        if (! $start instanceof \DateTimeImmutable) {
+            return null;
+        }
+
+        $explicitEnd = $this->safeDateTime($event['ends_at'] ?? null, $timezone);
+        if ($explicitEnd instanceof \DateTimeImmutable) {
+            return $explicitEnd;
+        }
+
+        $isAllDay = (bool) ($event['all_day'] ?? false);
+        if ($isAllDay) {
+            return $dayEnd;
+        }
+
+        $fallbackMinutes = max(15, (int) config('task-assistant.schedule.event_fallback_duration_minutes', 60));
+
+        return $start->modify("+{$fallbackMinutes} minutes");
+    }
+
+    /**
+     * @param  array<string, mixed>  $task
+     */
+    private function resolveTaskBusyEnd(
+        array $task,
+        \DateTimeImmutable $taskStart,
+        \DateTimeZone $timezone
+    ): ?\DateTimeImmutable {
+        $explicitEnd = $this->safeDateTime($task['ends_at'] ?? null, $timezone);
+        $durationMinutes = max(0, (int) ($task['duration_minutes'] ?? 0));
+        if ($durationMinutes > 0) {
+            $durationEnd = $taskStart->modify("+{$durationMinutes} minutes");
+            if ($explicitEnd instanceof \DateTimeImmutable && $explicitEnd > $taskStart) {
+                return $explicitEnd < $durationEnd ? $explicitEnd : $durationEnd;
+            }
+
+            return $durationEnd;
+        }
+
+        if ($explicitEnd instanceof \DateTimeImmutable && $explicitEnd > $taskStart) {
+            return $explicitEnd;
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  array<int, array{start: \DateTimeImmutable, end: \DateTimeImmutable}>  $ranges
+     * @param  array<string, mixed>  $snapshot
+     */
+    private function appendLunchBusyRange(
+        array &$ranges,
+        array $snapshot,
+        \DateTimeImmutable $dayStart,
+        \DateTimeImmutable $dayEnd,
+        \DateTimeZone $timezone
+    ): void {
+        $lunchConfig = config('task-assistant.schedule.lunch_block', []);
+        $enabled = (bool) ($lunchConfig['enabled'] ?? true);
+        $start = is_string($lunchConfig['start'] ?? null) ? (string) $lunchConfig['start'] : '12:00';
+        $end = is_string($lunchConfig['end'] ?? null) ? (string) $lunchConfig['end'] : '13:00';
+
+        $preferences = is_array($snapshot['schedule_preferences'] ?? null)
+            ? $snapshot['schedule_preferences']
+            : [];
+        $prefLunch = is_array($preferences['lunch_block'] ?? null) ? $preferences['lunch_block'] : null;
+        if (is_array($prefLunch)) {
+            $enabled = (bool) ($prefLunch['enabled'] ?? $enabled);
+            $start = is_string($prefLunch['start'] ?? null) ? (string) $prefLunch['start'] : $start;
+            $end = is_string($prefLunch['end'] ?? null) ? (string) $prefLunch['end'] : $end;
+        }
+
+        if (! $enabled) {
+            return;
+        }
+
+        $lunchStart = $this->safeDateTime($dayStart->format('Y-m-d').' '.$start.':00', $timezone);
+        $lunchEnd = $this->safeDateTime($dayStart->format('Y-m-d').' '.$end.':00', $timezone);
+        if (! $lunchStart instanceof \DateTimeImmutable || ! $lunchEnd instanceof \DateTimeImmutable || $lunchEnd <= $lunchStart) {
+            return;
+        }
+
+        if ($lunchEnd > $dayStart && $lunchStart < $dayEnd) {
+            $ranges[] = [
+                'start' => $lunchStart < $dayStart ? $dayStart : $lunchStart,
+                'end' => $lunchEnd > $dayEnd ? $dayEnd : $lunchEnd,
+            ];
         }
     }
 

@@ -1,6 +1,5 @@
 <div
     class="relative isolate grid h-full min-h-[min(400px,80dvh)] grid-rows-[auto_1fr_auto] overflow-hidden rounded-xl bg-linear-to-r from-brand-light-blue via-white to-white text-zinc-900 shadow-sm ring-1 ring-black/5 dark:bg-zinc-900 dark:text-zinc-100 dark:ring-white/5"
-    wire:poll.5s="checkStreamingTimeout"
     x-data="{
         loadingPhrases: [
             @js(__('Thinking through this for you...')),
@@ -10,8 +9,22 @@
         ],
         loadingPhraseIndex: 0,
         loadingTimer: null,
+        streamingTimeoutPollTimer: null,
+        streamingFallbackPollTimer: null,
+        streamingFallbackStartedAtMs: null,
+        pageVisibilityListener: null,
+        fallbackPollInitialMs: @js(max(250, (int) config('task-assistant.streaming.fallback_poll_initial_ms', 2000))),
+        fallbackPollMidMs: @js(max(250, (int) config('task-assistant.streaming.fallback_poll_mid_ms', 3500))),
+        fallbackPollSlowMs: @js(max(250, (int) config('task-assistant.streaming.fallback_poll_slow_ms', 5000))),
+        fallbackPollMidAfterMs: @js(max(1000, (int) config('task-assistant.streaming.fallback_poll_mid_after_ms', 10000))),
+        fallbackPollSlowAfterMs: @js(max(2000, (int) config('task-assistant.streaming.fallback_poll_slow_after_ms', 25000))),
+        timeoutPollMs: @js(max(1000, (int) config('task-assistant.streaming.timeout_poll_ms', 10000))),
         scrollQueued: false,
         pendingScrollBehavior: 'smooth',
+        wasStreaming: false,
+        scrollStateRaf: null,
+        allowAutoScrollOnStreamEnd: true,
+        noRealtimeBroadcast: false,
         currentLoadingPhrase() {
             return this.loadingPhrases[this.loadingPhraseIndex] ?? this.loadingPhrases[0];
         },
@@ -32,6 +45,102 @@
             }
 
             this.loadingPhraseIndex = 0;
+        },
+        startStreamingTimeoutPolling() {
+            if (this.streamingTimeoutPollTimer) {
+                return;
+            }
+            this.queueStreamingTimeoutPoll();
+        },
+        queueStreamingTimeoutPoll() {
+            this.streamingTimeoutPollTimer = setTimeout(() => {
+                this.streamingTimeoutPollTimer = null;
+                if (!this.$wire.isStreaming) {
+                    return;
+                }
+                if (document.visibilityState !== 'visible') {
+                    this.queueStreamingTimeoutPoll();
+
+                    return;
+                }
+                this.$wire.checkStreamingTimeout();
+                this.queueStreamingTimeoutPoll();
+            }, this.timeoutPollMs);
+        },
+        stopStreamingTimeoutPolling() {
+            if (this.streamingTimeoutPollTimer) {
+                clearTimeout(this.streamingTimeoutPollTimer);
+                this.streamingTimeoutPollTimer = null;
+            }
+        },
+        detectRealtimeBroadcastAvailability() {
+            this.noRealtimeBroadcast = typeof window.Echo === 'undefined' || !window.Echo;
+        },
+        startStreamingFallbackPolling() {
+            if (!this.noRealtimeBroadcast || this.streamingFallbackPollTimer) {
+                return;
+            }
+            this.streamingFallbackStartedAtMs = Date.now();
+            this.queueStreamingFallbackPoll();
+        },
+        getStreamingFallbackPollIntervalMs() {
+            const startedAtMs = this.streamingFallbackStartedAtMs ?? Date.now();
+            const elapsedMs = Math.max(0, Date.now() - startedAtMs);
+            if (elapsedMs >= this.fallbackPollSlowAfterMs) {
+                return this.fallbackPollSlowMs;
+            }
+            if (elapsedMs >= this.fallbackPollMidAfterMs) {
+                return this.fallbackPollMidMs;
+            }
+
+            return this.fallbackPollInitialMs;
+        },
+        queueStreamingFallbackPoll() {
+            const intervalMs = this.getStreamingFallbackPollIntervalMs();
+            this.streamingFallbackPollTimer = setTimeout(() => {
+                this.streamingFallbackPollTimer = null;
+                if (!this.$wire.isStreaming) {
+                    return;
+                }
+                if (document.visibilityState !== 'visible') {
+                    this.queueStreamingFallbackPoll();
+
+                    return;
+                }
+                this.$wire.pollStreamingFallback();
+                this.queueStreamingFallbackPoll();
+            }, intervalMs);
+        },
+        stopStreamingFallbackPolling() {
+            if (this.streamingFallbackPollTimer) {
+                clearTimeout(this.streamingFallbackPollTimer);
+                this.streamingFallbackPollTimer = null;
+            }
+            this.streamingFallbackStartedAtMs = null;
+        },
+        registerVisibilityPollingListener() {
+            if (this.pageVisibilityListener) {
+                return;
+            }
+            this.pageVisibilityListener = () => {
+                if (document.visibilityState !== 'visible' || !this.$wire.isStreaming) {
+                    return;
+                }
+                if (this.noRealtimeBroadcast && !this.streamingFallbackPollTimer) {
+                    this.queueStreamingFallbackPoll();
+                }
+                if (!this.streamingTimeoutPollTimer) {
+                    this.queueStreamingTimeoutPoll();
+                }
+            };
+            document.addEventListener('visibilitychange', this.pageVisibilityListener);
+        },
+        unregisterVisibilityPollingListener() {
+            if (!this.pageVisibilityListener) {
+                return;
+            }
+            document.removeEventListener('visibilitychange', this.pageVisibilityListener);
+            this.pageVisibilityListener = null;
         },
         isNearBottom(thresholdPx = 80) {
             const container = this.$refs.messagesContainer ?? null;
@@ -64,8 +173,25 @@
                 this.scrollQueued = false;
             });
         },
+        handleMessagesScroll() {
+            if (this.scrollStateRaf) {
+                return;
+            }
+
+            this.scrollStateRaf = requestAnimationFrame(() => {
+                this.scrollStateRaf = null;
+
+                if (this.$wire.isStreaming && !this.isNearBottom(180)) {
+                    this.allowAutoScrollOnStreamEnd = false;
+                }
+            });
+        },
         init() {
+            this.detectRealtimeBroadcastAvailability();
+            this.registerVisibilityPollingListener();
             this.$nextTick(() => this.queueScrollToBottom('auto'));
+            this.wasStreaming = !! this.$wire.isStreaming;
+            this.allowAutoScrollOnStreamEnd = this.isNearBottom(180);
             this.$watch('$wire.streamingContent', () => {
                 // Streaming content updates frequently; only auto-scroll when the user is near the bottom.
                 if (this.isNearBottom()) {
@@ -78,27 +204,107 @@
                 }
             });
             this.$watch('$wire.isStreaming', (value) => {
+                const wasStreaming = this.wasStreaming;
+                this.wasStreaming = !! value;
+
                 if (value) {
+                    this.allowAutoScrollOnStreamEnd = this.isNearBottom(180);
                     this.startLoadingPhraseRotation();
+                    this.startStreamingTimeoutPolling();
+                    this.startStreamingFallbackPolling();
                 } else {
                     this.stopLoadingPhraseRotation();
+                    this.stopStreamingTimeoutPolling();
+                    this.stopStreamingFallbackPolling();
+
+                    // Stream just finished; only snap if user did not scroll away while waiting.
+                    if (wasStreaming && this.allowAutoScrollOnStreamEnd) {
+                        this.queueScrollToBottom('smooth');
+                    }
                 }
             });
 
             if (this.$wire.isStreaming) {
                 this.startLoadingPhraseRotation();
+                this.startStreamingTimeoutPolling();
+                this.startStreamingFallbackPolling();
+            }
+        },
+        destroy() {
+            this.stopLoadingPhraseRotation();
+            this.stopStreamingTimeoutPolling();
+            this.stopStreamingFallbackPolling();
+            this.unregisterVisibilityPollingListener();
+            if (this.scrollStateRaf) {
+                cancelAnimationFrame(this.scrollStateRaf);
+                this.scrollStateRaf = null;
             }
         },
     }"
 >
-    <div class="relative z-10 flex shrink-0 items-center gap-3 border-b border-border/60 px-4 py-3 dark:border-zinc-800">
+    <div class="relative z-20 flex shrink-0 items-start gap-3 overflow-visible border-b border-border/60 px-4 py-3 dark:border-zinc-800">
         <div class="flex size-10 shrink-0 items-center justify-center rounded-2xl border border-brand-blue/20 bg-white text-brand-blue shadow-sm dark:border-brand-blue/30 dark:bg-zinc-900/20 dark:text-brand-light-blue">
             <x-icons.assistant-robot class="size-5 text-brand-navy-blue dark:text-brand-light-blue" title="" />
         </div>
-        <div class="min-w-0">
-            <flux:text class="block text-xs font-semibold uppercase tracking-[0.12em] text-brand-blue dark:text-brand-light-blue">
-                {{ __('taskLyst assistant') }}
-            </flux:text>
+        <div class="min-w-0 flex-1 pt-0.5">
+            <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <div class="inline-flex items-center gap-x-1.5">
+                    <flux:text class="block text-xs font-semibold uppercase leading-none tracking-[0.12em] text-brand-blue dark:text-brand-light-blue">
+                        {{ __('taskLyst assistant') }}
+                    </flux:text>
+
+                    <flux:modal.trigger name="task-assistant-help">
+                        <button
+                            type="button"
+                            aria-label="{{ __('How this assistant works') }}"
+                            class="inline-flex shrink-0 items-center justify-center rounded-md p-px text-zinc-500 transition-colors hover:text-zinc-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/35 focus-visible:ring-offset-1 dark:text-zinc-400 dark:hover:text-zinc-200 dark:focus-visible:ring-offset-zinc-900"
+                        >
+                            <flux:icon name="information-circle" class="size-4" />
+                        </button>
+                    </flux:modal.trigger>
+                </div>
+
+                <flux:modal
+                    name="task-assistant-help"
+                    scroll="body"
+                    class="w-full max-w-lg"
+                >
+                    <div class="space-y-2.5 text-sm leading-snug text-zinc-700 dark:text-zinc-300">
+                            <div>
+                                <p class="font-semibold text-zinc-900 dark:text-zinc-100">
+                                    {{ __('Where the model runs') }}
+                                </p>
+                                <p class="mt-1">
+                                    {{ __('This assistant uses Hermes 3:3b, a compact model running locally on infrastructure we control. Local hosting keeps processing within a secure environment, supporting better privacy. Because it runs on limited local resources, responses may take some time to generate. As a smaller model, outputs may also be less nuanced than larger cloud-based assistants.') }}
+                                </p>
+                            </div>
+                            <div>
+                                <p class="font-semibold text-zinc-900 dark:text-zinc-100">
+                                    {{ __('What it is for') }}
+                                </p>
+                                <p class="mt-1">
+                                    {{ __('It helps with prioritization, scheduling, and planning using your tasks and calendar data in taskLyst. You\'ll get ranked suggestions, proposed time blocks, and quick follow-up prompts to refine results. It is not a general-purpose chatbot, so unrelated or vague prompts may return limited guidance.') }}
+                                </p>
+                            </div>
+                            <div>
+                                <p class="font-semibold text-zinc-900 dark:text-zinc-100">
+                                    {{ __('How to use it well') }}
+                                </p>
+                                <p class="mt-1">
+                                    {{ __('Send one clear goal per message and include a timeframe when relevant, such as "today" or "this week." This helps the assistant generate more accurate priorities and schedules. You can refine outputs using follow-ups or suggested chips, like adjusting time blocks or narrowing the scope.') }}
+                                </p>
+                            </div>
+                            <div>
+                                <p class="font-semibold text-zinc-900 dark:text-zinc-100">
+                                    {{ __('Limitations') }}
+                                </p>
+                                <p class="mt-1">
+                                    {{ __('It only supports task-related use and cannot browse the web or access data outside taskLyst. Smaller models may occasionally misinterpret wording, counts, or dates, so double-check important details. Responses are generated on the server and may take a moment to complete after you send a message.') }}
+                                </p>
+                            </div>
+                    </div>
+                </flux:modal>
+            </div>
             <flux:heading size="md">{{ __('Plan, prioritize, and organize faster') }}</flux:heading>
         </div>
     </div>
@@ -107,6 +313,8 @@
         class="relative z-10 flex min-h-0 flex-col gap-4 overflow-y-auto p-4"
         wire:key="messages-container"
         x-ref="messagesContainer"
+        x-on:scroll.passive="handleMessagesScroll()"
+        x-on:assistant-chat-open-requested.window="$nextTick(() => queueScrollToBottom('auto'))"
     >
         @if ($chatMessages->isEmpty() && ! $isStreaming)
             <div class="flex flex-1 flex-col items-center justify-center gap-4 text-center">
@@ -125,7 +333,7 @@
                             type="button"
                             size="sm"
                             variant="ghost"
-                            class="rounded-full border border-brand-blue/18 bg-white/90 px-4 py-2 text-sm font-medium text-zinc-800 shadow-sm transition-colors hover:border-brand-blue/28 hover:bg-brand-light-blue/70 hover:text-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/40 focus-visible:ring-offset-1 dark:border-border/70 dark:bg-zinc-900/30 dark:text-zinc-200 dark:hover:bg-zinc-800/50 dark:hover:text-zinc-100 dark:focus-visible:ring-offset-zinc-900 disabled:pointer-events-none disabled:opacity-60"
+                            class="rounded-full border border-brand-blue/18 bg-white/90 px-3 py-1 text-sm font-medium text-black shadow-sm transition-colors hover:border-brand-blue/30 hover:bg-brand-light-blue/70 hover:text-black focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/40 focus-visible:ring-offset-1 dark:border-brand-blue/30 dark:bg-zinc-900/30 dark:text-black dark:hover:bg-zinc-800/50 dark:hover:text-black dark:focus-visible:ring-offset-zinc-900 disabled:pointer-events-none disabled:opacity-60"
                             x-on:click.prevent="$dispatch('quick-prompt', { value: $event.currentTarget.textContent.trim() })"
                         >
                             {{ $chipText }}
@@ -141,7 +349,7 @@
                         class="flex justify-end"
                     >
                         <div class="max-w-[85%] min-w-0 rounded-xl border border-brand-blue/20 bg-brand-blue/15 px-3 py-2 shadow-sm ring-1 ring-brand-blue/10 dark:border-brand-blue/30 dark:bg-brand-blue/20 dark:ring-white/5">
-                            <flux:text class="wrap-break-word text-sm text-zinc-900 dark:text-zinc-100">{{ $message->content }}</flux:text>
+                            <flux:text class="wrap-break-word text-base text-black dark:text-black">{{ $message->content }}</flux:text>
                         </div>
                     </div>
                 @elseif ($message->role->value === 'assistant' && $message->id !== $streamingMessageId)
@@ -162,17 +370,30 @@
                                 $scheduleConfirmationRequired = (bool) data_get($message->metadata, 'schedule.confirmation_required', data_get($message->metadata, 'structured.data.confirmation_required', false));
                                 $scheduleAwaitingDecision = (bool) data_get($message->metadata, 'schedule.awaiting_user_decision', data_get($message->metadata, 'structured.data.awaiting_user_decision', false));
                                 $hideScheduleProposalCards = $scheduleConfirmationRequired || $scheduleAwaitingDecision;
+                                $fallbackOptionActions = data_get($message->metadata, 'schedule.confirmation_context.option_actions', []);
+                                if (! is_array($fallbackOptionActions)) {
+                                    $fallbackOptionActions = [];
+                                }
+                                $fallbackOptionChips = array_values(array_filter(array_map(
+                                    static fn (mixed $option): string => is_array($option) ? trim((string) ($option['label'] ?? '')) : '',
+                                    $fallbackOptionActions
+                                ), static fn (string $label): bool => $label !== ''));
                                 $prioritizeChips = data_get($message->metadata, 'prioritize.next_options_chip_texts', []);
                                 $guidanceChips = data_get($message->metadata, 'general_guidance.next_options_chip_texts', []);
                                 $scheduleChips = data_get($message->metadata, 'schedule.next_options_chip_texts', []);
+                                $listingFollowupChips = data_get($message->metadata, 'listing_followup.next_options_chip_texts', []);
                                 $structuredChips = data_get($message->metadata, 'structured.data.next_options_chip_texts', []);
-                                $nextOptionChips = is_array($prioritizeChips) && count($prioritizeChips) > 0
+                                $nextOptionChips = count($fallbackOptionChips) > 0
+                                    ? $fallbackOptionChips
+                                    : (is_array($prioritizeChips) && count($prioritizeChips) > 0
                                     ? $prioritizeChips
                                     : (is_array($guidanceChips) && count($guidanceChips) > 0
                                         ? $guidanceChips
                                         : (is_array($scheduleChips) && count($scheduleChips) > 0
                                             ? $scheduleChips
-                                            : (is_array($structuredChips) ? $structuredChips : [])));
+                                            : (is_array($listingFollowupChips) && count($listingFollowupChips) > 0
+                                                ? $listingFollowupChips
+                                                : (is_array($structuredChips) ? $structuredChips : [])))));
                                 if (! is_array($nextOptionChips)) {
                                     $nextOptionChips = [];
                                 }
@@ -180,6 +401,7 @@
                                     array_map(static fn (mixed $chip): string => trim((string) $chip), $nextOptionChips),
                                     static fn (string $chip): bool => $chip !== ''
                                 ));
+                                $nextOptionChips = $this->filterContinueStyleQuickChips($nextOptionChips);
                                 $isLatestAssistant = $latestAssistantMessageId !== null && $message->id === $latestAssistantMessageId;
                                 $chipsDismissed = (bool) ($dismissedNextOptionChipsByMessage[$message->id] ?? false);
                             @endphp
@@ -194,7 +416,7 @@
                                 </div>
                             @endif
                             @if ($display !== '')
-                                <flux:text class="wrap-break-word whitespace-pre-wrap text-sm text-zinc-900 dark:text-zinc-100">{{ $display }}</flux:text>
+                                <flux:text class="wrap-break-word whitespace-pre-wrap text-base text-black dark:text-black">{{ $display }}</flux:text>
                             @endif
 
                             @if (! $hideScheduleProposalCards && is_array($proposals) && count($proposals) > 0)
@@ -204,23 +426,7 @@
                                         if (! is_array($p)) {
                                             continue;
                                         }
-                                        if (($p['status'] ?? 'pending') !== 'pending') {
-                                            continue;
-                                        }
-                                        $ptitle = (string) ($p['title'] ?? '');
-                                        if ($ptitle === 'No schedulable items found') {
-                                            continue;
-                                        }
-                                        $ap = $p['apply_payload'] ?? null;
-                                        $hasPayload = is_array($ap) && $ap !== [];
-                                        $et = (string) ($p['entity_type'] ?? '');
-                                        $eid = (int) ($p['entity_id'] ?? 0);
-                                        $st = (string) ($p['start_datetime'] ?? '');
-                                        $en = (string) ($p['end_datetime'] ?? '');
-                                        $legacyOk = ($et === 'task' && $eid > 0 && $st !== '')
-                                            || ($et === 'event' && $eid > 0 && $st !== '' && $en !== '')
-                                            || ($et === 'project' && $eid > 0 && $st !== '');
-                                        if ($hasPayload || $legacyOk) {
+                                        if (\App\Support\LLM\SchedulableProposalPolicy::isPendingSchedulable($p)) {
                                             $pendingSchedulableCount++;
                                         }
                                     }
@@ -316,14 +522,17 @@
                                 <div class="mt-3 flex flex-wrap gap-2">
                                     @foreach ($nextOptionChips as $chipIndex => $chipText)
                                         <flux:button
-                                            size="xs"
+                                            size="sm"
                                             variant="ghost"
-                                            class="rounded-full border border-brand-blue/18 bg-white/90 px-3 py-1 text-xs font-medium text-zinc-700 shadow-sm transition-colors hover:border-brand-blue/30 hover:bg-brand-light-blue/70 hover:text-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/40 focus-visible:ring-offset-1 dark:border-brand-blue/30 dark:bg-zinc-900/30 dark:text-brand-light-blue dark:hover:bg-zinc-800/50 dark:hover:text-zinc-100 dark:focus-visible:ring-offset-zinc-900 disabled:pointer-events-none disabled:opacity-60"
+                                            class="rounded-full border border-brand-blue/18 bg-white/90 px-3.5 py-1.5 text-base font-medium text-black shadow-sm transition-colors hover:border-brand-blue/30 hover:bg-brand-light-blue/70 hover:text-black focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/40 focus-visible:ring-offset-1 dark:border-brand-blue/30 dark:bg-zinc-900/30 dark:text-black dark:hover:bg-zinc-800/50 dark:hover:text-black dark:focus-visible:ring-offset-zinc-900 disabled:pointer-events-none disabled:opacity-60"
                                             wire:click="submitNextOptionChip({{ $message->id }}, {{ $chipIndex }})"
                                             wire:loading.attr="disabled"
                                             wire:target="submitNextOptionChip,submitMessage"
                                         >
-                                            {{ $chipText }}
+                                            <span class="inline-flex items-center gap-1.5 text-left leading-normal">
+                                                <flux:icon name="chevron-right" class="size-3.5 shrink-0 self-center opacity-70" />
+                                                <span>{{ $chipText }}</span>
+                                            </span>
                                         </flux:button>
                                     @endforeach
                                 </div>
@@ -383,7 +592,7 @@
                                 </div>
                             </div>
                         </div>
-                        <flux:text class="wrap-break-word whitespace-pre-wrap text-sm text-zinc-900 dark:text-zinc-100">{{ $streamingContent }}</flux:text>
+                        <flux:text class="wrap-break-word whitespace-pre-wrap text-base text-black dark:text-black">{{ $streamingContent }}</flux:text>
                         </div>
                     </div>
                 </div>
@@ -400,6 +609,20 @@
             applyQuickPrompt(value) {
                 const trimmed = (value ?? '').toString().trim();
                 this.$refs.input.value = trimmed;
+                this.$refs.input.dispatchEvent(new Event('input', { bubbles: true }));
+            },
+            appendQuickPrompt(value) {
+                const trimmed = (value ?? '').toString().trim();
+                if (trimmed === '') {
+                    return;
+                }
+
+                const existing = (this.$refs.input.value ?? '').toString().trim();
+                if (existing === trimmed || existing.includes(trimmed)) {
+                    return;
+                }
+                const nextValue = existing === '' ? trimmed : `${existing} ${trimmed}`;
+                this.$refs.input.value = nextValue;
                 this.$refs.input.dispatchEvent(new Event('input', { bubbles: true }));
             },
             submit() {
@@ -420,7 +643,8 @@
         @submit.prevent="submit()"
         x-init="init()"
         x-effect="hasText = ($wire.newMessage ?? '').toString().trim().length > 0"
-        x-on:quick-prompt.window="applyQuickPrompt($event.detail.value)"
+        x-on:quick-prompt.window="applyQuickPrompt($event.detail.value); $wire.applyQuickPromptChip(($event.detail.value ?? '').toString())"
+        x-on:quick-prompt-append.window="appendQuickPrompt($event.detail.value)"
     >
         <button
             type="button"

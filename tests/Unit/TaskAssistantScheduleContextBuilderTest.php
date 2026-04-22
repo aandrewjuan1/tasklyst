@@ -51,6 +51,38 @@ class TaskAssistantScheduleContextBuilderTest extends TestCase
         $this->assertSame('22:00', $analysis['time_window']['end'] ?? null);
     }
 
+    public function test_it_derives_time_window_for_later_morning_relative_to_now(): void
+    {
+        $builder = app(TaskAssistantScheduleContextBuilder::class);
+
+        $analysis = $builder->build('Schedule this for later morning', [
+            'tasks' => [],
+            'timezone' => 'UTC',
+            'today' => '2026-03-31',
+            'now' => '2026-03-31T09:22:00+00:00',
+        ]);
+
+        $this->assertSame('09:30', $analysis['time_window']['start'] ?? null);
+        $this->assertSame('12:00', $analysis['time_window']['end'] ?? null);
+        $this->assertContains('intent_time_window_later_daypart_dynamic', $analysis['schedule_intent_reason_codes'] ?? []);
+    }
+
+    public function test_it_derives_time_window_for_later_evening_relative_to_now(): void
+    {
+        $builder = app(TaskAssistantScheduleContextBuilder::class);
+
+        $analysis = $builder->build('Schedule this for later evening', [
+            'tasks' => [],
+            'timezone' => 'UTC',
+            'today' => '2026-03-31',
+            'now' => '2026-03-31T19:07:00+00:00',
+        ]);
+
+        $this->assertSame('19:15', $analysis['time_window']['start'] ?? null);
+        $this->assertSame('22:00', $analysis['time_window']['end'] ?? null);
+        $this->assertContains('intent_time_window_later_daypart_dynamic', $analysis['schedule_intent_reason_codes'] ?? []);
+    }
+
     public function test_it_derives_time_window_for_afternoon_onwards_until_evening_cutoff(): void
     {
         $builder = app(TaskAssistantScheduleContextBuilder::class);
@@ -252,10 +284,10 @@ class TaskAssistantScheduleContextBuilderTest extends TestCase
         $this->assertContains('intent_time_window_later_multiday_default', $analysis['schedule_intent_reason_codes'] ?? []);
     }
 
-    public function test_it_widens_default_today_to_three_day_range_for_vague_schedule_message(): void
+    public function test_it_uses_default_asap_mode_for_vague_schedule_message_without_explicit_time_or_day(): void
     {
         config([
-            'task-assistant.schedule.smart_default_spread_days' => 3,
+            'task-assistant.schedule.smart_default_spread_days' => 7,
             'task-assistant.schedule.max_horizon_days' => 14,
         ]);
 
@@ -268,10 +300,13 @@ class TaskAssistantScheduleContextBuilderTest extends TestCase
             'now' => '2026-04-04T14:00:00+00:00',
         ]);
 
+        $this->assertTrue((bool) ($analysis['default_asap_mode'] ?? false));
+        $this->assertContains('intent_default_asap_mode', $analysis['schedule_intent_reason_codes'] ?? []);
+        $this->assertContains('intent_default_asap_horizon_spread', $analysis['schedule_intent_reason_codes'] ?? []);
         $this->assertSame('range', $analysis['schedule_horizon']['mode'] ?? null);
         $this->assertSame('2026-04-04', $analysis['schedule_horizon']['start_date'] ?? null);
-        $this->assertSame('2026-04-06', $analysis['schedule_horizon']['end_date'] ?? null);
-        $this->assertSame('smart_default_spread', $analysis['schedule_horizon']['label'] ?? null);
+        $this->assertSame('2026-04-10', $analysis['schedule_horizon']['end_date'] ?? null);
+        $this->assertSame('default_asap_spread', $analysis['schedule_horizon']['label'] ?? null);
     }
 
     public function test_it_does_not_widen_when_user_names_tomorrow(): void

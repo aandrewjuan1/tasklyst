@@ -420,6 +420,11 @@ select:focus[data-flux-control] {
         @apply opacity-95;
     }
 
+    .focus-modal-btn--exit {
+        @apply border border-rose-400/80 bg-rose-100 text-rose-800 hover:border-rose-500 hover:bg-rose-200 dark:border-rose-500/50 dark:bg-rose-950/60 dark:text-rose-200 dark:hover:border-rose-400/70 dark:hover:bg-rose-900/70;
+        transition: background-color 180ms ease-out, border-color 180ms ease-out, color 180ms ease-out, box-shadow 180ms ease-out;
+    }
+
     .focus-modal-timer-zone {
         @apply rounded-xl border border-blue-200/65 bg-blue-50/45 px-3 py-3.5 dark:border-blue-900/55 dark:bg-blue-950/25;
     }

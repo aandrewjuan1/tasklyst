@@ -54,7 +54,7 @@ final class ScheduleRefinementPlacementRouter
 
     private function hasVagueTemporalIntent(string $userMessage, string $timezone): bool
     {
-        $tz = $timezone !== '' ? $timezone : (string) config('app.timezone', 'UTC');
+        $tz = $timezone !== '' ? $timezone : (string) config('app.timezone', 'Asia/Manila');
         $now = CarbonImmutable::now($tz);
         $intent = $this->intentInterpreter->interpret($userMessage, $tz, $now);
         $tw = $intent['time_window'] ?? [];

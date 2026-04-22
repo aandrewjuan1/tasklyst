@@ -195,6 +195,19 @@ final class TaskAssistantMessageFormatter
         $countMismatchExplanation = is_string($data['count_mismatch_explanation'] ?? null)
             ? trim((string) $data['count_mismatch_explanation'])
             : '';
+        $rankingMethodSummary = trim((string) ($data['ranking_method_summary'] ?? ''));
+        $orderingRationale = is_array($data['ordering_rationale'] ?? null)
+            ? array_values(array_filter(array_map(
+                static fn (mixed $line): string => trim((string) $line),
+                $data['ordering_rationale']
+            ), static fn (string $line): bool => $line !== ''))
+            : [];
+        $assumptions = is_array($data['assumptions'] ?? null)
+            ? array_values(array_filter(array_map(
+                static fn (mixed $line): string => trim((string) $line),
+                $data['assumptions']
+            ), static fn (string $line): bool => $line !== ''))
+            : [];
 
         $filterInterpretation = trim((string) ($data['filter_interpretation'] ?? ''));
         if ($filterInterpretation !== '' && $singularCoerceCount === 1) {
@@ -208,6 +221,11 @@ final class TaskAssistantMessageFormatter
         $doingProgressCoach = trim((string) ($data['doing_progress_coach'] ?? ''));
         $hasDoingSection = $doingProgressCoach !== '';
         $lines = $this->formatPrioritizeItemLines($items);
+
+        if (! $hasDoingSection) {
+            $framing = $this->normalizePrioritizeFramingForRankedItems($framing, $items);
+        }
+        $reasoning = $this->normalizePrioritizeEffortPhrases($reasoning);
 
         $paragraphs = [];
 
@@ -239,8 +257,43 @@ final class TaskAssistantMessageFormatter
             $paragraphs[] = $filterInterpretation;
         }
 
+        if ($rankingMethodSummary !== '') {
+            $paragraphs[] = $rankingMethodSummary;
+        }
+        if ($orderingRationale !== []) {
+            $paragraphs[] = "Why this order:\n".implode("\n", array_map(
+                static fn (string $line): string => '• '.$line,
+                $orderingRationale
+            ));
+        }
+        $assumptionsBlock = $this->formatAssumptionsPlain($assumptions);
+        if ($assumptionsBlock !== null) {
+            $paragraphs[] = $assumptionsBlock;
+        }
+
         if ($reasoning === '') {
             $reasoning = TaskAssistantPrioritizeOutputDefaults::reasoningWhenEmpty();
+        }
+
+        if ($orderingRationale !== []) {
+            $orderingBlob = implode(' ', $orderingRationale);
+            if ($this->tokenJaccardSimilarity($this->normalizeForDedupe($orderingBlob), $this->normalizeForDedupe($reasoning)) >= 0.62) {
+                $orderingRationale = array_slice($orderingRationale, 0, 2);
+            }
+        }
+
+        if ($orderingRationale !== []) {
+            $firstOrdering = trim((string) ($orderingRationale[0] ?? ''));
+            if (
+                $firstOrdering !== ''
+                && $this->tokenJaccardSimilarity(
+                    $this->normalizeForDedupe($firstOrdering),
+                    $this->normalizeForDedupe($reasoning)
+                ) >= 0.72
+            ) {
+                $topTitle = trim((string) data_get($items, '0.title', 'this top task'));
+                $reasoning = "Start with {$topTitle} first, keep this block focused, then reassess your next step based on your energy and available time.";
+            }
         }
 
         if ($singularCoerceCount === 1) {
@@ -261,7 +314,52 @@ final class TaskAssistantMessageFormatter
 
         $paragraphs[] = $nextOptions;
 
-        return trim(implode("\n\n", array_filter($paragraphs, static fn (string $p): bool => $p !== '')));
+        return trim(implode("\n\n", $this->dedupeParagraphs(
+            array_values(array_filter($paragraphs, static fn (string $p): bool => $p !== ''))
+        )));
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $items
+     */
+    private function normalizePrioritizeFramingForRankedItems(string $framing, array $items): string
+    {
+        $framing = trim($framing);
+        if ($framing === '' || $items === []) {
+            return $framing;
+        }
+
+        $sentences = preg_split('/(?<=[.!?])\s+/u', $framing, -1, PREG_SPLIT_NO_EMPTY) ?: [$framing];
+        $firstSentence = trim((string) ($sentences[0] ?? $framing));
+        if ($firstSentence === '') {
+            $firstSentence = $framing;
+        }
+
+        $firstSentence = preg_replace('/\bhere (?:are|is)\s+\d+\s+(?:tasks?|items?|priorities)\b/iu', 'Here is your focused next-step slice', $firstSentence) ?? $firstSentence;
+        $firstSentence = preg_replace('/\b(?:ordered by|ranked by)\b[^.?!]*/iu', '', $firstSentence) ?? $firstSentence;
+        $firstSentence = preg_replace('/\s{2,}/u', ' ', $firstSentence) ?? $firstSentence;
+
+        return trim($firstSentence);
+    }
+
+    private function normalizePrioritizeEffortPhrases(string $text): string
+    {
+        $out = trim($text);
+        if ($out === '') {
+            return $out;
+        }
+
+        $replacements = [
+            '/\bcomplex\s+complexity\b/iu' => 'higher effort',
+            '/\bmoderate\s+complexity\b/iu' => 'manageable effort',
+            '/\bsimple\s+complexity\b/iu' => 'quick effort',
+        ];
+
+        foreach ($replacements as $pattern => $replacement) {
+            $out = preg_replace($pattern, $replacement, $out) ?? $out;
+        }
+
+        return trim($out);
     }
 
     /**
@@ -561,6 +659,9 @@ final class TaskAssistantMessageFormatter
             return $this->formatScheduleFallbackConfirmationMessage($data);
         }
 
+        $proposals = is_array($data['proposals'] ?? null) ? $data['proposals'] : [];
+        $hasSuccessfulProposals = count($proposals) > 0;
+        $scheduleSource = trim((string) ($data['schedule_source'] ?? 'schedule'));
         $framing = TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy(trim((string) ($data['framing'] ?? '')));
         $reasoning = TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy(trim((string) ($data['reasoning'] ?? '')));
         $confirmation = TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy(trim((string) ($data['confirmation'] ?? '')));
@@ -570,6 +671,10 @@ final class TaskAssistantMessageFormatter
         $framing = $this->harmonizeScheduleNarrativeDateMentions($items, $framing);
         $reasoning = $this->harmonizeScheduleNarrativeDateMentions($items, $reasoning);
         $confirmation = $this->harmonizeScheduleNarrativeDateMentions($items, $confirmation);
+        $normalizedNarrative = $this->normalizeDailyScheduleNarrativeFields($items, $blocks, $framing, $reasoning, $confirmation);
+        $framing = $normalizedNarrative['framing'];
+        $reasoning = $normalizedNarrative['reasoning'];
+        $confirmation = $normalizedNarrative['confirmation'];
 
         $paragraphs = [];
         if ($framing !== '') {
@@ -612,6 +717,9 @@ final class TaskAssistantMessageFormatter
                 $lines[] = $line;
             }
             if ($lines !== []) {
+                if ($hasSuccessfulProposals && $scheduleSource === 'prioritize_schedule') {
+                    $paragraphs[] = 'Here are your prioritized items, placed into schedule blocks:';
+                }
                 $paragraphs[] = implode("\n", $lines);
             }
         }
@@ -620,15 +728,168 @@ final class TaskAssistantMessageFormatter
         if ($digestNote !== '') {
             $paragraphs[] = $digestNote;
         }
+        $windowSelectionExplanation = $this->humanizeIsoDateRanges(trim((string) ($data['window_selection_explanation'] ?? '')));
+        $windowSelectionStruct = is_array($data['window_selection_struct'] ?? null) ? $data['window_selection_struct'] : [];
+        $orderingRationale = is_array($data['ordering_rationale'] ?? null) ? $data['ordering_rationale'] : [];
+        $orderingRationaleStruct = is_array($data['ordering_rationale_struct'] ?? null) ? $data['ordering_rationale_struct'] : [];
+        $blockingReasons = is_array($data['blocking_reasons'] ?? null) ? $data['blocking_reasons'] : [];
+        $blockingReasonsStruct = is_array($data['blocking_reasons_struct'] ?? null) ? $data['blocking_reasons_struct'] : [];
+        $fallbackChoiceExplanation = trim((string) ($data['fallback_choice_explanation'] ?? ''));
+        $summary = trim((string) ($data['summary'] ?? ''));
+        $assistantNote = trim((string) ($data['assistant_note'] ?? ''));
+        $strategyPoints = is_array($data['strategy_points'] ?? null) ? $data['strategy_points'] : [];
+        $suggestedNextSteps = is_array($data['suggested_next_steps'] ?? null) ? $data['suggested_next_steps'] : [];
+        $assumptions = is_array($data['assumptions'] ?? null) ? $data['assumptions'] : [];
+        $whyPlanLines = [];
+        if ($windowSelectionExplanation !== '') {
+            $whyPlanLines[] = '• '.$windowSelectionExplanation;
+        } elseif ($windowSelectionStruct !== []) {
+            $windowMode = trim((string) ($windowSelectionStruct['window_mode'] ?? ''));
+            $reasonCode = trim((string) ($windowSelectionStruct['reason_code_primary'] ?? ''));
+            if ($windowMode !== '' || $reasonCode !== '') {
+                $whyPlanLines[] = '• '.$this->scheduleWindowReasonFromStruct($windowMode, $reasonCode);
+            }
+        }
+        if (! $hasSuccessfulProposals && $orderingRationaleStruct !== [] && $orderingRationale === []) {
+            foreach ($orderingRationaleStruct as $row) {
+                if (! is_array($row)) {
+                    continue;
+                }
+                $rank = (int) ($row['rank'] ?? 0);
+                $title = trim((string) ($row['title'] ?? ''));
+                $fitReasonCode = trim((string) ($row['fit_reason_code'] ?? ''));
+                if ($title === '') {
+                    continue;
+                }
+                $prefix = $rank > 0 ? "#{$rank} {$title}" : $title;
+                $whyPlanLines[] = '• '.$prefix.': '.$this->scheduleFitReasonFromCode($fitReasonCode);
+            }
+        }
+        if (! $hasSuccessfulProposals) {
+            foreach ($orderingRationale as $line) {
+                $text = trim((string) $line);
+                if ($text === '') {
+                    continue;
+                }
+                $whyPlanLines[] = '• '.$text;
+            }
+        }
+        if ($fallbackChoiceExplanation !== '') {
+            $whyPlanLines[] = '• '.$fallbackChoiceExplanation;
+        }
+        if ($whyPlanLines !== []) {
+            $paragraphs[] = "Why this plan:\n".implode("\n", $whyPlanLines);
+        }
+        if (! $hasSuccessfulProposals) {
+            $blockingSectionTitle = $this->resolveBlockingSectionTitle($data);
+            if ($blockingReasons !== []) {
+                $blockerLines = $this->formatBlockingItemOnlyLines($blockingReasons);
+                if ($blockerLines !== []) {
+                    $paragraphs[] = $blockingSectionTitle."\n".implode("\n", $blockerLines);
+                }
+            } elseif ($blockingReasonsStruct !== []) {
+                $blockerLines = $this->formatBlockingItemOnlyLines($blockingReasonsStruct);
+                if ($blockerLines !== []) {
+                    $paragraphs[] = $blockingSectionTitle."\n".implode("\n", $blockerLines);
+                }
+            }
+        }
+        $strategyLines = array_values(array_filter(array_map(
+            static fn (mixed $line): string => trim((string) $line),
+            $strategyPoints
+        ), static fn (string $line): bool => $line !== ''));
+        if ($strategyLines !== []) {
+            $paragraphs[] = "Strategy highlights:\n".implode("\n", array_map(
+                static fn (string $line): string => '• '.$line,
+                $strategyLines
+            ));
+        }
+        $nextStepLines = array_values(array_filter(array_map(
+            static fn (mixed $line): string => trim((string) $line),
+            $suggestedNextSteps
+        ), static fn (string $line): bool => $line !== ''));
+        if ($nextStepLines !== []) {
+            $paragraphs[] = "Suggested next steps:\n".implode("\n", array_map(
+                static fn (string $line): string => '• '.$line,
+                $nextStepLines
+            ));
+        }
+        $assumptionsBlock = $this->formatAssumptionsPlain($assumptions, 'Planning assumptions');
+        if ($assumptionsBlock !== null) {
+            $paragraphs[] = $assumptionsBlock;
+        }
+        if ($assistantNote !== '') {
+            $paragraphs[] = $assistantNote;
+        }
+        if ($summary !== '') {
+            $paragraphs[] = $summary;
+        }
 
         if ($reasoning !== '') {
-            $paragraphs[] = $reasoning;
+            $paragraphs[] = $this->humanizeIsoDateRanges($reasoning);
         }
         if ($confirmation !== '') {
-            $paragraphs[] = $confirmation;
+            $paragraphs[] = $this->humanizeIsoDateRanges($confirmation);
         }
 
-        return implode("\n\n", $paragraphs);
+        return implode("\n\n", $this->dedupeParagraphs(
+            array_values(array_filter($paragraphs, static fn (string $p): bool => trim($p) !== ''))
+        ));
+    }
+
+    private function scheduleWindowReasonFromStruct(string $windowMode, string $reasonCode): string
+    {
+        return match ($reasonCode) {
+            'window_matched_request' => 'I kept this plan aligned with the availability window you asked for.',
+            'window_auto_selected' => 'I used the earliest conflict-free windows across your planning horizon.',
+            default => $windowMode === 'requested_window'
+                ? 'I kept this plan aligned with your requested window.'
+                : 'I used realistic conflict-free windows for this plan.',
+        };
+    }
+
+    private function scheduleFitReasonFromCode(string $fitReasonCode): string
+    {
+        return match ($fitReasonCode) {
+            'strongest_fit_window' => 'placed in the strongest fit window for momentum and feasibility.',
+            'next_fit_window' => 'placed in the next feasible window that avoids conflicts.',
+            default => 'placed in a feasible window based on your constraints.',
+        };
+    }
+
+    private function scheduleBlockReasonFromCode(string $reasonCode): string
+    {
+        return match ($reasonCode) {
+            'count_limit_reached' => 'not scheduled yet because this pass reached the current item limit.',
+            'window_conflict' => 'overlaps your requested window constraints.',
+            default => 'no free slot was available inside your requested window.',
+        };
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $items
+     * @param  list<array<string, mixed>>  $blocks
+     * @return array{
+     *   framing: string,
+     *   reasoning: string,
+     *   confirmation: string,
+     *   corrections: array<string, array{from: string, to: string}>
+     * }
+     */
+    public function normalizeDailyScheduleNarrativeFields(array $items, array $blocks, string $framing, string $reasoning, string $confirmation): array
+    {
+        $facts = $this->buildScheduleNarrativeFacts($items, $blocks);
+        $corrections = [];
+        $normalized = [
+            'framing' => $this->applyScheduleNarrativeCorrections($framing, $facts, 'framing', $corrections),
+            'reasoning' => $this->applyScheduleNarrativeCorrections($reasoning, $facts, 'reasoning', $corrections),
+            'confirmation' => $this->applyScheduleNarrativeCorrections($confirmation, $facts, 'confirmation', $corrections),
+        ];
+
+        return [
+            ...$normalized,
+            'corrections' => $corrections,
+        ];
     }
 
     /**
@@ -649,6 +910,27 @@ final class TaskAssistantMessageFormatter
         }
         if ($reason !== '') {
             $paragraphs[] = $reason;
+        }
+        $reasonDetails = is_array($ctx['reason_details'] ?? null) ? $ctx['reason_details'] : [];
+        $reasonDetailsBlock = $this->formatFallbackReasonDetails($reasonDetails);
+        if ($reasonDetailsBlock !== '') {
+            $paragraphs[] = $reasonDetailsBlock;
+        }
+        $blockingReasons = is_array($data['blocking_reasons'] ?? null) ? $data['blocking_reasons'] : [];
+        if ($blockingReasons !== []) {
+            $blockingReasons = array_values(array_filter($blockingReasons, static function (mixed $row): bool {
+                if (! is_array($row)) {
+                    return false;
+                }
+
+                $reason = mb_strtolower(trim((string) ($row['reason'] ?? '')));
+
+                return str_contains($reason, 'overlap');
+            }));
+            $blockerLines = $this->formatBlockingItemOnlyLines($blockingReasons);
+            if ($blockerLines !== []) {
+                $paragraphs[] = $this->resolveBlockingSectionTitle($data)."\n".implode("\n", $blockerLines);
+            }
         }
 
         $proposalsCount = (int) ($preview['proposals_count'] ?? 0);
@@ -689,17 +971,88 @@ final class TaskAssistantMessageFormatter
             }
         }
 
-        $options = is_array($ctx['options'] ?? null) ? $ctx['options'] : [];
-        $optionsBlock = $this->formatScheduleConfirmationOptions($options);
-        if ($optionsBlock !== '') {
-            $paragraphs[] = $optionsBlock;
-        }
-
         if ($prompt !== '') {
             $paragraphs[] = $prompt;
         }
 
         return trim(implode("\n\n", $paragraphs));
+    }
+
+    /**
+     * @param  array<int, mixed>  $reasonDetails
+     */
+    private function formatFallbackReasonDetails(array $reasonDetails): string
+    {
+        $lines = [];
+        foreach ($reasonDetails as $detail) {
+            $text = TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy(trim((string) $detail));
+            if ($text === '') {
+                continue;
+            }
+            $lines[] = '• '.$text;
+        }
+
+        if ($lines === []) {
+            return '';
+        }
+
+        return "What blocked scheduling:\n".implode("\n", array_slice($lines, 0, 3));
+    }
+
+    /**
+     * @param  array<int, mixed>  $rows
+     * @return list<string>
+     */
+    private function formatBlockingItemOnlyLines(array $rows): array
+    {
+        $lines = [];
+        $seen = [];
+
+        foreach ($rows as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $title = trim((string) ($row['title'] ?? 'Busy item'));
+            $window = trim((string) ($row['blocked_window'] ?? ''));
+            if ($title === '') {
+                continue;
+            }
+            $line = $window !== '' ? "• {$title} ({$window})" : "• {$title}";
+            $dedupeKey = mb_strtolower($line);
+            if (isset($seen[$dedupeKey])) {
+                continue;
+            }
+            $seen[$dedupeKey] = true;
+            $lines[] = $line;
+        }
+
+        return $lines;
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private function resolveBlockingSectionTitle(array $data): string
+    {
+        $explicit = trim((string) ($data['blocking_section_title'] ?? ''));
+        if ($explicit !== '') {
+            return $explicit;
+        }
+
+        $windowLabel = trim((string) ($data['requested_window_display_label'] ?? ''));
+        $horizonLabel = trim((string) ($data['requested_horizon_label'] ?? ''));
+        $target = $horizonLabel !== '' ? $horizonLabel : $windowLabel;
+        if ($target === '') {
+            $target = 'your requested window';
+        }
+
+        return match ($target) {
+            'today' => 'These items are already scheduled for today:',
+            'tomorrow' => 'These items are already scheduled for tomorrow:',
+            'this week' => "These items are already scheduled in this week's window:",
+            'next week' => "These items are already scheduled in next week's window:",
+            default => "These items are already scheduled in {$target}:",
+        };
     }
 
     /**
@@ -793,7 +1146,7 @@ final class TaskAssistantMessageFormatter
                 if ($hasCountLimit) {
                     $parts[] = 'I scheduled only up to the maximum number of items for this step.';
                 }
-                $parts[] = 'One or more segments did not fit before the planning horizon; you can ask for a wider window or fewer items.';
+                $parts[] = 'One or more segments did not fit in the selected schedule window; you can ask for a wider window or fewer items.';
             }
         }
 
@@ -831,6 +1184,45 @@ final class TaskAssistantMessageFormatter
 
         try {
             return (new \DateTimeImmutable($value))->format('M j, Y');
+        } catch (\Throwable) {
+            return '';
+        }
+    }
+
+    private function humanizeIsoDateRanges(string $text): string
+    {
+        $value = trim($text);
+        if ($value === '') {
+            return '';
+        }
+
+        $value = (string) preg_replace_callback(
+            '/\b(\d{4}-\d{2}-\d{2})\s+(to|-)\s+(\d{4}-\d{2}-\d{2})\b/u',
+            function (array $matches): string {
+                $start = $this->formatIsoDateForNarrative((string) ($matches[1] ?? ''));
+                $end = $this->formatIsoDateForNarrative((string) ($matches[3] ?? ''));
+                if ($start === '' || $end === '') {
+                    return (string) ($matches[0] ?? '');
+                }
+
+                return $start.' to '.$end;
+            },
+            $value
+        );
+
+        $value = (string) preg_replace_callback(
+            '/\b\d{4}-\d{2}-\d{2}\b/u',
+            fn (array $matches): string => $this->formatIsoDateForNarrative((string) ($matches[0] ?? '')) ?: (string) ($matches[0] ?? ''),
+            $value
+        );
+
+        return $value;
+    }
+
+    private function formatIsoDateForNarrative(string $isoDate): string
+    {
+        try {
+            return (new \DateTimeImmutable($isoDate))->format('M j');
         } catch (\Throwable) {
             return '';
         }
@@ -918,6 +1310,11 @@ final class TaskAssistantMessageFormatter
         $targetSlash = $target->format('m/d/Y');
         $targetPlain = $target->format('F j');
 
+        $hasRelativeDateLanguage = preg_match('/\b(today|tomorrow|tonight|this week|next week|weekend)\b/iu', $text) === 1;
+        if (! $hasRelativeDateLanguage) {
+            return $text;
+        }
+
         $normalized = preg_replace_callback(
             '/\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2}(?:st|nd|rd|th)?(?:,\s*\d{4})?\b/iu',
             static fn (): string => $targetShort,
@@ -931,6 +1328,159 @@ final class TaskAssistantMessageFormatter
         }
 
         return is_string($normalized) ? $normalized : $text;
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $items
+     * @param  list<array<string, mixed>>  $blocks
+     * @return array{
+     *   is_multi_day: bool,
+     *   span_label: string,
+     *   dominant_daypart: string|null
+     * }
+     */
+    private function buildScheduleNarrativeFacts(array $items, array $blocks): array
+    {
+        $dates = [];
+        $hours = [];
+
+        foreach ($items as $index => $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+
+            $start = trim((string) ($item['start_datetime'] ?? ''));
+            if ($start !== '') {
+                try {
+                    $dt = new \DateTimeImmutable($start);
+                    $dates[$dt->format('Y-m-d')] = true;
+                    $hours[] = (int) $dt->format('H');
+                } catch (\Throwable) {
+                    // Ignore malformed datetime entries.
+                }
+            }
+
+            $block = is_array($blocks[$index] ?? null) ? $blocks[$index] : [];
+            $blockHour = $this->extractHourFromHhmm((string) ($block['start_time'] ?? ''));
+            if ($blockHour !== null) {
+                $hours[] = $blockHour;
+            }
+        }
+
+        $sortedDates = array_keys($dates);
+        sort($sortedDates);
+        $isMultiDay = count($sortedDates) > 1;
+        $spanLabel = '';
+        if ($sortedDates !== []) {
+            try {
+                $first = (new \DateTimeImmutable($sortedDates[0]))->format('M j, Y');
+                $last = (new \DateTimeImmutable($sortedDates[count($sortedDates) - 1]))->format('M j, Y');
+                $spanLabel = $first === $last ? $first : $first.' to '.$last;
+            } catch (\Throwable) {
+                $spanLabel = '';
+            }
+        }
+
+        return [
+            'is_multi_day' => $isMultiDay,
+            'span_label' => $spanLabel,
+            'dominant_daypart' => $this->dominantDaypartFromHours($hours),
+        ];
+    }
+
+    /**
+     * @param  array{
+     *   is_multi_day: bool,
+     *   span_label: string,
+     *   dominant_daypart: string|null
+     * }  $facts
+     * @param  array<string, array{from: string, to: string}>  $corrections
+     */
+    private function applyScheduleNarrativeCorrections(string $text, array $facts, string $field, array &$corrections): string
+    {
+        $normalized = trim($text);
+        if ($normalized === '') {
+            return '';
+        }
+
+        $updated = $normalized;
+        $from = $normalized;
+
+        if ($facts['is_multi_day']) {
+            $updated = (string) preg_replace('/\b(today|tonight)\b/iu', 'this schedule window', $updated);
+            if ($field === 'framing' && ! preg_match('/\b(across|spans?)\b/iu', $updated)) {
+                $span = trim((string) $facts['span_label']);
+                if ($span !== '') {
+                    $updated = "Here is your plan across {$span}. ".ltrim($updated);
+                }
+            }
+        }
+
+        $dominantDaypart = $facts['dominant_daypart'];
+        if (is_string($dominantDaypart) && $dominantDaypart !== '') {
+            $updated = match ($dominantDaypart) {
+                'morning' => (string) preg_replace('/\b(evening|night|afternoon)\b/iu', 'morning', $updated),
+                'afternoon' => (string) preg_replace('/\b(evening|night|morning)\b/iu', 'afternoon', $updated),
+                'evening' => (string) preg_replace('/\b(morning|afternoon)\b/iu', 'evening', $updated),
+                default => $updated,
+            };
+        }
+
+        if ($updated !== $from) {
+            $corrections[$field] = [
+                'from' => $from,
+                'to' => $updated,
+            ];
+        }
+
+        return $updated;
+    }
+
+    private function extractHourFromHhmm(string $value): ?int
+    {
+        $hhmm = trim($value);
+        if (preg_match('/^(\d{1,2}):\d{2}$/', $hhmm, $matches) !== 1) {
+            return null;
+        }
+
+        $hour = (int) ($matches[1] ?? -1);
+
+        return $hour >= 0 && $hour <= 23 ? $hour : null;
+    }
+
+    /**
+     * @param  list<int>  $hours
+     */
+    private function dominantDaypartFromHours(array $hours): ?string
+    {
+        if ($hours === []) {
+            return null;
+        }
+
+        $counts = [
+            'morning' => 0,
+            'afternoon' => 0,
+            'evening' => 0,
+        ];
+
+        foreach ($hours as $hour) {
+            if ($hour < 12) {
+                $counts['morning']++;
+
+                continue;
+            }
+            if ($hour < 18) {
+                $counts['afternoon']++;
+
+                continue;
+            }
+            $counts['evening']++;
+        }
+
+        arsort($counts);
+        $winner = array_key_first($counts);
+
+        return is_string($winner) ? $winner : null;
     }
 
     private function formatHhmmLabel(string $hhmm): string
@@ -1092,5 +1642,34 @@ final class TaskAssistantMessageFormatter
         }
 
         return $intersection / $union;
+    }
+
+    /**
+     * @param  list<string>  $paragraphs
+     * @return list<string>
+     */
+    private function dedupeParagraphs(array $paragraphs): array
+    {
+        $unique = [];
+        foreach ($paragraphs as $paragraph) {
+            $candidate = trim($paragraph);
+            if ($candidate === '') {
+                continue;
+            }
+            $norm = $this->normalizeForDedupe($candidate);
+            $isDuplicate = false;
+            foreach ($unique as $existing) {
+                $existingNorm = $this->normalizeForDedupe($existing);
+                if ($norm === $existingNorm || $this->tokenJaccardSimilarity($norm, $existingNorm) >= 0.9) {
+                    $isDuplicate = true;
+                    break;
+                }
+            }
+            if (! $isDuplicate) {
+                $unique[] = $candidate;
+            }
+        }
+
+        return $unique;
     }
 }

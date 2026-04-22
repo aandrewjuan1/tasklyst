@@ -150,6 +150,10 @@ trait HandlesEvents
             return false;
         }
 
+        if (method_exists($this, 'deactivateScheduledFocusForEntity')) {
+            $this->deactivateScheduledFocusForEntity('event', (int) $event->id, 'event_deleted');
+        }
+
         $this->dispatch('toast', ...Event::toastPayload('delete', true, $event->title));
 
         if (method_exists($this, 'queueWorkspaceCalendarRefresh')) {
@@ -472,6 +476,19 @@ trait HandlesEvents
             return ['success' => true, 'recurringEventId' => $event->recurringEvent?->id];
         }
 
+        if (method_exists($this, 'deactivateScheduledFocusForEntity')) {
+            if (in_array($property, ['startDatetime', 'endDatetime'], true)) {
+                $this->deactivateScheduledFocusForEntity('event', (int) $event->id, 'event_datetime_updated');
+            }
+
+            if ($property === 'status') {
+                $newStatus = strtolower(trim((string) ($result->newValue ?? '')));
+                if ($newStatus === strtolower(EventStatus::Completed->value)) {
+                    $this->deactivateScheduledFocusForEntity('event', (int) $event->id, 'event_completed');
+                }
+            }
+        }
+
         return true;
     }
 
@@ -483,6 +500,10 @@ trait HandlesEvents
     #[Computed]
     public function events(): Collection
     {
+        if (method_exists($this, 'isOverdueStateFilterActive') && $this->isOverdueStateFilterActive()) {
+            return collect();
+        }
+
         // Early return: Skip if filtered to other item types (before any work)
         $filterItemType = property_exists($this, 'filterItemType') ? $this->normalizeFilterValue($this->filterItemType) : null;
         if ($filterItemType !== null && $filterItemType !== 'events') {
@@ -500,7 +521,9 @@ trait HandlesEvents
         $visibleLimit = $eventsPerPage * $eventsPage;
         $queryLimit = $visibleLimit + 1;
 
-        $searchAllItems = method_exists($this, 'shouldSearchAllItems') && $this->shouldSearchAllItems();
+        $searchAllItems = method_exists($this, 'shouldSearchAllItems')
+            && $this->shouldSearchAllItems()
+            && (! method_exists($this, 'isDueStateFilterActive') || ! $this->isDueStateFilterActive());
 
         $eventQuery = Event::query()
             ->with([
@@ -523,7 +546,8 @@ trait HandlesEvents
                 : Carbon::parse($this->selectedDate);
             $eventQuery->activeForDate($date);
 
-            if ($date->isToday()) {
+            $isDueStateFilterActive = method_exists($this, 'isDueStateFilterActive') && $this->isDueStateFilterActive();
+            if ($date->isToday() && ! $isDueStateFilterActive) {
                 $eventQuery->where(function (Builder $q): void {
                     $q->whereHas('recurringEvent')
                         ->orWhere(function (Builder $nonRecurring): void {
@@ -532,6 +556,14 @@ trait HandlesEvents
                         });
                 });
             }
+        }
+
+        if (method_exists($this, 'isDueStateFilterActive') && $this->isDueStateFilterActive()) {
+            $selectedDate = method_exists($this, 'getParsedSelectedDate')
+                ? $this->getParsedSelectedDate()
+                : Carbon::parse($this->selectedDate);
+            $eventQuery->whereNotNull('end_datetime')
+                ->whereDate('end_datetime', $selectedDate->toDateString());
         }
 
         if (method_exists($this, 'applyEventFilters')) {
@@ -590,6 +622,9 @@ trait HandlesEvents
         if (! method_exists($this, 'shouldShowCompleted') || ! $this->shouldShowCompleted()) {
             return collect();
         }
+        if (method_exists($this, 'isOverdueStateFilterActive') && $this->isOverdueStateFilterActive()) {
+            return collect();
+        }
         $filterItemType = property_exists($this, 'filterItemType') ? $this->normalizeFilterValue($this->filterItemType) : null;
         if ($filterItemType !== null && $filterItemType !== 'events') {
             return collect();
@@ -603,7 +638,9 @@ trait HandlesEvents
         $visibleLimit = (property_exists($this, 'eventsPerPage') ? (int) $this->eventsPerPage : 10)
             * (property_exists($this, 'eventsPage') ? max(1, (int) $this->eventsPage) : 1);
         $queryLimit = $visibleLimit + 1;
-        $searchAllItems = method_exists($this, 'shouldSearchAllItems') && $this->shouldSearchAllItems();
+        $searchAllItems = method_exists($this, 'shouldSearchAllItems')
+            && $this->shouldSearchAllItems()
+            && (! method_exists($this, 'isDueStateFilterActive') || ! $this->isDueStateFilterActive());
 
         $eventQuery = Event::query()
             ->with([
@@ -625,6 +662,14 @@ trait HandlesEvents
                 ? $this->getParsedSelectedDate()
                 : Carbon::parse($this->selectedDate);
             $eventQuery->activeForDate($date);
+        }
+
+        if (method_exists($this, 'isDueStateFilterActive') && $this->isDueStateFilterActive()) {
+            $selectedDate = method_exists($this, 'getParsedSelectedDate')
+                ? $this->getParsedSelectedDate()
+                : Carbon::parse($this->selectedDate);
+            $eventQuery->whereNotNull('end_datetime')
+                ->whereDate('end_datetime', $selectedDate->toDateString());
         }
 
         if (method_exists($this, 'applyEventFilters')) {

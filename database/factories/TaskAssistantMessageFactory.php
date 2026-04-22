@@ -22,7 +22,6 @@ class TaskAssistantMessageFactory extends Factory
             'thread_id' => TaskAssistantThread::factory(),
             'role' => $this->faker->randomElement(MessageRole::cases()),
             'content' => $this->faker->sentence(),
-            'tool_calls' => null,
             'metadata' => [],
         ];
     }

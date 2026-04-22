@@ -10,18 +10,22 @@ use Illuminate\Support\Facades\Log;
 
 final class TaskPrioritizationService
 {
-    private const TASK_DOING_BOOST = 75;
-
-    private const EVENT_ONGOING_BOOST = 50;
-
-    private const TIME_CRITICAL_EVENT_MINUTES = 60;
+    private const DEFAULT_TIME_CRITICAL_EVENT_MINUTES = 45;
 
     /**
      * Build one ranked list of "focus candidates" across tasks, events, and projects.
      *
      * @param  array<string, mixed>  $snapshot  Expected keys: tasks, events, projects, today, timezone
      * @param  array<string, mixed>  $context
-     * @return array<int, array{type: 'task'|'event'|'project', id: int, title: string, score: int, reasoning: string, raw: array<string, mixed>}>
+     * @return array<int, array{
+     *   type: 'task'|'event'|'project',
+     *   id: int,
+     *   title: string,
+     *   score: int,
+     *   reasoning: string,
+     *   explainability: array<string, mixed>,
+     *   raw: array<string, mixed>
+     * }>
      */
     public function prioritizeFocus(array $snapshot, array $context = []): array
     {
@@ -69,7 +73,12 @@ final class TaskPrioritizationService
         \DateTimeImmutable $now
     ): array {
         if ($preference === 'mixed') {
-            return [$taskRanked, $eventRanked, $projectRanked];
+            $globalTaskDominance = (bool) config('task-assistant.prioritization.student_first_global_task_dominance', true);
+            if (! $globalTaskDominance) {
+                return [$taskRanked, $eventRanked, $projectRanked];
+            }
+
+            return [$taskRanked, $this->filterTimeCriticalEvents($eventRanked, $now), []];
         }
 
         $criticalEvents = $this->filterTimeCriticalEvents($eventRanked, $now);
@@ -91,30 +100,55 @@ final class TaskPrioritizationService
     private function filterTimeCriticalEvents(array $events, \DateTimeImmutable $now): array
     {
         $out = [];
+        $overrideWindowMinutes = (int) config(
+            'task-assistant.prioritization.event_override_window_minutes',
+            self::DEFAULT_TIME_CRITICAL_EVENT_MINUTES
+        );
 
         foreach ($events as $event) {
             if (! is_array($event)) {
                 continue;
             }
 
-            $startsAt = $event['starts_at'] ?? null;
-            if (! is_string($startsAt) || trim($startsAt) === '') {
-                continue;
-            }
-
-            try {
-                $start = new \DateTimeImmutable($startsAt);
-            } catch (\Throwable) {
-                continue;
-            }
-
-            $minutesUntil = (int) floor(($start->getTimestamp() - $now->getTimestamp()) / 60);
-            if ($minutesUntil <= self::TIME_CRITICAL_EVENT_MINUTES) {
+            if ($this->isEventOngoingOrStartingSoon($event, $now, $overrideWindowMinutes)) {
                 $out[] = $event;
             }
         }
 
         return $out;
+    }
+
+    /**
+     * @param  array<string, mixed>  $event
+     */
+    private function isEventOngoingOrStartingSoon(array $event, \DateTimeImmutable $now, int $windowMinutes): bool
+    {
+        $startsAt = $event['starts_at'] ?? null;
+        if (! is_string($startsAt) || trim($startsAt) === '') {
+            return false;
+        }
+
+        try {
+            $start = new \DateTimeImmutable($startsAt);
+        } catch (\Throwable) {
+            return false;
+        }
+
+        $endsAt = $event['ends_at'] ?? null;
+        if (is_string($endsAt) && trim($endsAt) !== '') {
+            try {
+                $end = new \DateTimeImmutable($endsAt);
+                if ($start <= $now && $end >= $now) {
+                    return true;
+                }
+            } catch (\Throwable) {
+                // Ignore invalid ends_at and continue with starts_at based checks.
+            }
+        }
+
+        $minutesUntil = (int) floor(($start->getTimestamp() - $now->getTimestamp()) / 60);
+
+        return $minutesUntil >= 0 && $minutesUntil <= max(0, $windowMinutes);
     }
 
     /**
@@ -159,12 +193,28 @@ final class TaskPrioritizationService
                 'id' => $id,
                 'title' => $title,
                 'score' => $deadlineScore + $priorityScore + $durationScore,
+                'student_focus_tier_score' => (int) ($task['student_focus_tier_score'] ?? 0),
                 'deadline_score' => $deadlineScore,
                 'priority_score' => $priorityScore,
                 'duration_score' => $durationScore,
                 'deadline_epoch' => $deadlineEpoch,
                 'duration_minutes' => (int) ($task['duration_minutes'] ?? 0),
                 'reasoning' => $this->generateReasoning($task, $now),
+                'explainability' => $this->buildExplainability(
+                    type: 'task',
+                    urgencyBucket: $this->urgencyBucketLabel($deadlineScore),
+                    priorityLabel: (string) ($task['priority'] ?? 'medium'),
+                    quickWinLabel: $this->durationExplainabilityLabel((int) ($task['duration_minutes'] ?? 0)),
+                    score: $deadlineScore + $priorityScore + $durationScore,
+                    deadlineScore: $deadlineScore,
+                    priorityScore: $priorityScore,
+                    durationScore: $durationScore,
+                    studentFocusTierScore: (int) ($task['student_focus_tier_score'] ?? 0),
+                    reasonCodePrimary: $this->reasonCodeForTask((string) ($task['due_bucket'] ?? ''), (string) ($task['priority'] ?? 'medium')),
+                    reasonCodesSecondary: $this->secondaryReasonCodesForTask((string) ($task['priority'] ?? 'medium'), (int) ($task['duration_minutes'] ?? 0)),
+                    explainabilityFacts: $this->factsForTaskExplainability($task),
+                    narrativeAnchor: $this->narrativeAnchorForTask($task),
+                ),
                 'raw' => $task,
             ];
         }
@@ -181,12 +231,28 @@ final class TaskPrioritizationService
                 'id' => $id,
                 'title' => $title,
                 'score' => (int) ($event['score'] ?? 0),
+                'student_focus_tier_score' => 0,
                 'deadline_score' => (int) ($event['deadline_score'] ?? ($event['score'] ?? 0)),
                 'priority_score' => (int) ($event['priority_score'] ?? 0),
                 'duration_score' => (int) ($event['duration_score'] ?? 0),
                 'deadline_epoch' => (int) ($event['deadline_epoch'] ?? PHP_INT_MAX),
                 'duration_minutes' => 0,
                 'reasoning' => (string) ($event['reasoning'] ?? 'Upcoming event'),
+                'explainability' => $this->buildExplainability(
+                    type: 'event',
+                    urgencyBucket: $this->urgencyBucketLabel((int) ($event['deadline_score'] ?? ($event['score'] ?? 0))),
+                    priorityLabel: 'time-bound event',
+                    quickWinLabel: 'n/a',
+                    score: (int) ($event['score'] ?? 0),
+                    deadlineScore: (int) ($event['deadline_score'] ?? ($event['score'] ?? 0)),
+                    priorityScore: (int) ($event['priority_score'] ?? 0),
+                    durationScore: (int) ($event['duration_score'] ?? 0),
+                    studentFocusTierScore: 0,
+                    reasonCodePrimary: $this->reasonCodeForEvent((string) ($event['reasoning'] ?? '')),
+                    reasonCodesSecondary: ['time_bound', 'calendar_driven'],
+                    explainabilityFacts: $this->factsForEventExplainability($event),
+                    narrativeAnchor: $this->narrativeAnchorForEvent($event),
+                ),
                 'raw' => $event,
             ];
         }
@@ -203,12 +269,28 @@ final class TaskPrioritizationService
                 'id' => $id,
                 'title' => $title,
                 'score' => (int) ($project['score'] ?? 0),
+                'student_focus_tier_score' => 0,
                 'deadline_score' => (int) ($project['deadline_score'] ?? ($project['score'] ?? 0)),
                 'priority_score' => (int) ($project['priority_score'] ?? 0),
                 'duration_score' => (int) ($project['duration_score'] ?? 0),
                 'deadline_epoch' => (int) ($project['deadline_epoch'] ?? PHP_INT_MAX),
                 'duration_minutes' => 0,
                 'reasoning' => (string) ($project['reasoning'] ?? 'Active project'),
+                'explainability' => $this->buildExplainability(
+                    type: 'project',
+                    urgencyBucket: $this->urgencyBucketLabel((int) ($project['deadline_score'] ?? ($project['score'] ?? 0))),
+                    priorityLabel: 'active project',
+                    quickWinLabel: 'n/a',
+                    score: (int) ($project['score'] ?? 0),
+                    deadlineScore: (int) ($project['deadline_score'] ?? ($project['score'] ?? 0)),
+                    priorityScore: (int) ($project['priority_score'] ?? 0),
+                    durationScore: (int) ($project['duration_score'] ?? 0),
+                    studentFocusTierScore: 0,
+                    reasonCodePrimary: $this->reasonCodeForProject((string) ($project['reasoning'] ?? '')),
+                    reasonCodesSecondary: ['project_momentum'],
+                    explainabilityFacts: $this->factsForProjectExplainability($project),
+                    narrativeAnchor: $this->narrativeAnchorForProject($project),
+                ),
                 'raw' => $project,
             ];
         }
@@ -218,11 +300,25 @@ final class TaskPrioritizationService
 
     /**
      * @param  list<array<string, mixed>>  $candidates
-     * @return array<int, array{type: 'task'|'event'|'project', id: int, title: string, score: int, reasoning: string, raw: array<string, mixed>}>
+     * @return array<int, array{
+     *   type: 'task'|'event'|'project',
+     *   id: int,
+     *   title: string,
+     *   score: int,
+     *   reasoning: string,
+     *   explainability: array<string, mixed>,
+     *   raw: array<string, mixed>
+     * }>
      */
     private function sortAndStripCandidates(array $candidates): array
     {
         usort($candidates, function (array $a, array $b): int {
+            $aTier = (int) ($a['student_focus_tier_score'] ?? 0);
+            $bTier = (int) ($b['student_focus_tier_score'] ?? 0);
+            if ($aTier !== $bTier) {
+                return $bTier <=> $aTier;
+            }
+
             $aDeadline = (int) ($a['deadline_score'] ?? 0);
             $bDeadline = (int) ($b['deadline_score'] ?? 0);
             if ($aDeadline !== $bDeadline) {
@@ -258,23 +354,86 @@ final class TaskPrioritizationService
 
         // Strip helper fields so the return shape matches callers.
         return array_map(function (array $c): array {
-            unset($c['deadline_score'], $c['priority_score'], $c['duration_score'], $c['deadline_epoch'], $c['duration_minutes']);
+            unset($c['student_focus_tier_score'], $c['deadline_score'], $c['priority_score'], $c['duration_score'], $c['deadline_epoch'], $c['duration_minutes']);
 
             return $c;
         }, $candidates);
     }
 
     /**
-     * @return array{0: array<int, array<string, mixed>>, 1: array<int, array<string, mixed>>, 2: array<int, array<string, mixed>>}
+     * @return array<string, mixed>
      */
-    private function applyEntityTypePreference(array $tasks, array $events, array $projects, string $preference): array
+    private function buildExplainability(
+        string $type,
+        string $urgencyBucket,
+        string $priorityLabel,
+        string $quickWinLabel,
+        int $score,
+        int $deadlineScore,
+        int $priorityScore,
+        int $durationScore,
+        int $studentFocusTierScore,
+        string $reasonCodePrimary = 'needs_attention',
+        array $reasonCodesSecondary = [],
+        array $explainabilityFacts = [],
+        array $narrativeAnchor = [],
+    ): array {
+        return [
+            'entity_type' => $type,
+            'urgency_bucket' => $urgencyBucket,
+            'priority_label' => $priorityLabel,
+            'quick_win' => $quickWinLabel,
+            'reason_code_primary' => $reasonCodePrimary,
+            'reason_codes_secondary' => array_values(array_unique(array_filter(array_map(
+                static fn (mixed $code): string => trim((string) $code),
+                $reasonCodesSecondary
+            ), static fn (string $code): bool => $code !== ''))),
+            'explainability_facts' => array_values(array_filter(
+                array_map(static fn (mixed $fact): array => is_array($fact) ? $fact : [], $explainabilityFacts),
+                static fn (array $fact): bool => isset($fact['key']) && isset($fact['value'])
+            )),
+            'narrative_anchor' => $narrativeAnchor,
+            'score_total' => $score,
+            'score_breakdown' => [
+                'deadline' => $deadlineScore,
+                'priority' => $priorityScore,
+                'duration' => $durationScore,
+                'student_focus_tier' => $studentFocusTierScore,
+            ],
+        ];
+    }
+
+    private function urgencyBucketLabel(int $deadlineScore): string
     {
-        return match ($preference) {
-            'task' => [$tasks, [], []],
-            'event' => [[], $events, []],
-            'project' => [[], [], $projects],
-            default => [$tasks, $events, $projects],
-        };
+        if ($deadlineScore >= 1000) {
+            return 'overdue';
+        }
+        if ($deadlineScore >= 900) {
+            return 'due_today';
+        }
+        if ($deadlineScore >= 800) {
+            return 'due_tomorrow';
+        }
+        if ($deadlineScore >= 350) {
+            return 'due_this_week';
+        }
+
+        return 'due_later';
+    }
+
+    private function durationExplainabilityLabel(int $durationMinutes): string
+    {
+        if ($durationMinutes <= 0) {
+            return 'unknown';
+        }
+        if ($durationMinutes <= 30) {
+            return 'quick';
+        }
+        if ($durationMinutes <= 90) {
+            return 'moderate';
+        }
+
+        return 'long';
     }
 
     private function normalizeEntityTypePreference(mixed $value): string
@@ -384,6 +543,12 @@ final class TaskPrioritizationService
         // The last call (`sortBy('duration_minutes')`) currently overrides earlier
         // sorts, which can cause short-duration tasks to win over more urgent/deadline-heavy ones.
         usort($scored, function (array $a, array $b): int {
+            $aTier = (int) ($a['student_focus_tier_score'] ?? 0);
+            $bTier = (int) ($b['student_focus_tier_score'] ?? 0);
+            if ($aTier !== $bTier) {
+                return $bTier <=> $aTier;
+            }
+
             $aDeadline = (int) ($a['deadline_score'] ?? 0);
             $bDeadline = (int) ($b['deadline_score'] ?? 0);
             if ($aDeadline !== $bDeadline) {
@@ -425,6 +590,10 @@ final class TaskPrioritizationService
     private function prioritizeEvents(array $events, \DateTimeImmutable $now, array $context = []): array
     {
         $collection = collect($events);
+        $overrideWindowMinutes = (int) config(
+            'task-assistant.prioritization.event_override_window_minutes',
+            self::DEFAULT_TIME_CRITICAL_EVENT_MINUTES
+        );
 
         if (! empty($context['time_constraint']) && $context['time_constraint'] === 'today') {
             $collection = $collection->filter(function (array $event) use ($now): bool {
@@ -443,7 +612,7 @@ final class TaskPrioritizationService
         }
 
         return $collection
-            ->map(function (array $event) use ($now): array {
+            ->map(function (array $event) use ($now, $overrideWindowMinutes): array {
                 $reasoning = 'Upcoming event';
 
                 $startsAt = $event['starts_at'] ?? null;
@@ -478,10 +647,10 @@ final class TaskPrioritizationService
                                 // Event already started (treat as very urgent).
                                 $deadlineScore = 980;
                                 $reasoning = 'Event already started';
-                            } elseif ($minutesUntil <= 60) {
+                            } elseif ($minutesUntil <= max(0, $overrideWindowMinutes)) {
                                 // Near-term events can outrank many same-day tasks.
                                 $deadlineScore = 950;
-                                $reasoning = 'Event starts within 1 hour';
+                                $reasoning = sprintf('Event starts within %d minutes', max(0, $overrideWindowMinutes));
                             } elseif ($start->format('Y-m-d') === $now->format('Y-m-d')) {
                                 // Still today, but not imminent: should not automatically beat due-today tasks.
                                 $deadlineScore = 850;
@@ -620,10 +789,10 @@ final class TaskPrioritizationService
      * @param  array<string, mixed>  $context  Optional context filters
      * @return array<string, mixed>|null
      */
-    public function getTopTask(array $tasks, string $today, array $context = []): ?array
+    public function getTopTask(array $tasks, array $context = []): ?array
     {
         $timezone = config('app.timezone', 'UTC');
-        $now = CarbonImmutable::createFromFormat('Y-m-d', $today, $timezone)->startOfDay();
+        $now = CarbonImmutable::now($timezone);
         $prioritized = $this->prioritizeTasks($tasks, $now, $context);
 
         if (empty($prioritized)) {
@@ -646,7 +815,7 @@ final class TaskPrioritizationService
         // Filtering is a "preference cascade":
         // - We always try to respect explicit subject/type keywords.
         // - Priority and time constraints are relaxed if they would otherwise yield an empty candidate set.
-        $filtered = $tasks;
+        $filtered = $this->excludeDoingTasks($tasks);
 
         if (! empty($context['recurring_requested'])) {
             $recurringOnly = $filtered->filter(function (array $task): bool {
@@ -855,15 +1024,72 @@ final class TaskPrioritizationService
      */
     private function calculateTaskScore(array $task, \DateTimeImmutable $now): array
     {
+        $task['student_focus_tier_score'] = $this->calculateStudentFocusTierScore($task);
         $task['deadline_score'] = $this->calculateDeadlineScore($task, $now);
-        if (($task['deadline_score'] ?? 0) > 0 && ($task['status'] ?? null) === TaskStatus::Doing->value) {
-            // Momentum boost, but kept small so it cannot override urgency buckets.
-            $task['deadline_score'] += self::TASK_DOING_BOOST;
-        }
         $task['priority_score'] = $this->calculatePriorityScore($task);
         $task['duration_score'] = $this->calculateDurationScore($task);
 
         return $task;
+    }
+
+    private function excludeDoingTasks(Collection $tasks): Collection
+    {
+        return $tasks->filter(static function (array $task): bool {
+            return (string) ($task['status'] ?? '') !== TaskStatus::Doing->value;
+        })->values();
+    }
+
+    /**
+     * Tier order (higher is better):
+     * 4: non-recurring + school/study
+     * 3: non-recurring + non-school
+     * 2: recurring + school/study
+     * 1: recurring + non-school
+     */
+    private function calculateStudentFocusTierScore(array $task): int
+    {
+        $isRecurring = ! empty($task['is_recurring']);
+        $isAcademic = $this->taskAppearsSchoolStudyRelated($task);
+
+        if (! $isRecurring && $isAcademic) {
+            return (int) config('task-assistant.prioritization.student_focus_tier.non_recurring_academic', 400);
+        }
+
+        if (! $isRecurring) {
+            return (int) config('task-assistant.prioritization.student_focus_tier.non_recurring_general', 300);
+        }
+
+        if ($isAcademic) {
+            return (int) config('task-assistant.prioritization.student_focus_tier.recurring_academic', 200);
+        }
+
+        return (int) config('task-assistant.prioritization.student_focus_tier.recurring_general', 100);
+    }
+
+    /**
+     * Broad academic relevance for global student-first ordering.
+     *
+     * @param  array<string, mixed>  $task
+     */
+    private function taskAppearsSchoolStudyRelated(array $task): bool
+    {
+        if ($this->taskMatchesSchoolAcademicContext($task)) {
+            return true;
+        }
+
+        if (! empty($task['school_class_id'])) {
+            return true;
+        }
+
+        $title = strtolower((string) ($task['title'] ?? ''));
+        if (
+            $title !== ''
+            && preg_match('/\b(study|studying|revision|revise|thesis|essay|exam|quiz|midterm|finals?|module|lesson|coursework|classwork)\b/i', $title) === 1
+        ) {
+            return true;
+        }
+
+        return false;
     }
 
     /**
@@ -1061,6 +1287,147 @@ final class TaskPrioritizationService
     /**
      * Generate human-readable reasoning for task selection.
      */
+    private function reasonCodeForTask(string $dueBucket, string $priority): string
+    {
+        $due = strtolower(trim($dueBucket));
+        $prio = strtolower(trim($priority));
+
+        if ($due === 'overdue') {
+            return 'overdue_task';
+        }
+        if ($due === 'due_today') {
+            return 'due_today_task';
+        }
+        if ($due === 'due_tomorrow') {
+            return 'due_tomorrow_task';
+        }
+        if ($prio === 'urgent' || $prio === 'high') {
+            return 'high_priority_task';
+        }
+
+        return 'next_best_task';
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function secondaryReasonCodesForTask(string $priority, int $durationMinutes): array
+    {
+        $codes = ['deadline_weighted'];
+
+        if (in_array(strtolower(trim($priority)), ['urgent', 'high'], true)) {
+            $codes[] = 'explicit_priority';
+        }
+        if ($durationMinutes > 0 && $durationMinutes <= 30) {
+            $codes[] = 'quick_win';
+        } elseif ($durationMinutes >= 120) {
+            $codes[] = 'long_block';
+        }
+
+        return $codes;
+    }
+
+    /**
+     * @param  array<string, mixed>  $task
+     * @return list<array{key: string, value: string}>
+     */
+    private function factsForTaskExplainability(array $task): array
+    {
+        return [
+            ['key' => 'priority', 'value' => strtolower(trim((string) ($task['priority'] ?? 'medium')))],
+            ['key' => 'due_bucket', 'value' => strtolower(trim((string) ($task['due_bucket'] ?? 'no_deadline')))],
+            ['key' => 'duration_minutes', 'value' => (string) ((int) ($task['duration_minutes'] ?? 0))],
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $task
+     * @return array<string, mixed>
+     */
+    private function narrativeAnchorForTask(array $task): array
+    {
+        return [
+            'title' => trim((string) ($task['title'] ?? '')),
+            'due_phrase' => trim((string) ($task['due_phrase'] ?? '')),
+            'priority' => strtolower(trim((string) ($task['priority'] ?? 'medium'))),
+        ];
+    }
+
+    private function reasonCodeForEvent(string $reasoning): string
+    {
+        $value = strtolower(trim($reasoning));
+
+        return match (true) {
+            str_contains($value, 'already started') => 'event_in_progress',
+            str_contains($value, 'today') => 'event_today',
+            str_contains($value, 'tomorrow') => 'event_tomorrow',
+            default => 'event_upcoming',
+        };
+    }
+
+    /**
+     * @param  array<string, mixed>  $event
+     * @return list<array{key: string, value: string}>
+     */
+    private function factsForEventExplainability(array $event): array
+    {
+        return [
+            ['key' => 'starts_at', 'value' => trim((string) ($event['starts_at'] ?? ''))],
+            ['key' => 'status', 'value' => trim((string) ($event['status'] ?? 'scheduled'))],
+            ['key' => 'all_day', 'value' => ((bool) ($event['all_day'] ?? false)) ? 'true' : 'false'],
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $event
+     * @return array<string, mixed>
+     */
+    private function narrativeAnchorForEvent(array $event): array
+    {
+        return [
+            'title' => trim((string) ($event['title'] ?? '')),
+            'starts_at' => trim((string) ($event['starts_at'] ?? '')),
+            'status' => trim((string) ($event['status'] ?? '')),
+        ];
+    }
+
+    private function reasonCodeForProject(string $reasoning): string
+    {
+        $value = strtolower(trim($reasoning));
+
+        return match (true) {
+            str_contains($value, 'overdue') => 'project_overdue',
+            str_contains($value, 'today') => 'project_due_today',
+            str_contains($value, 'soon') => 'project_due_soon',
+            default => 'project_active',
+        };
+    }
+
+    /**
+     * @param  array<string, mixed>  $project
+     * @return list<array{key: string, value: string}>
+     */
+    private function factsForProjectExplainability(array $project): array
+    {
+        return [
+            ['key' => 'end_at', 'value' => trim((string) ($project['end_at'] ?? ''))],
+            ['key' => 'status', 'value' => trim((string) ($project['status'] ?? 'active'))],
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $project
+     * @return array<string, mixed>
+     */
+    private function narrativeAnchorForProject(array $project): array
+    {
+        return [
+            'title' => trim((string) ($project['name'] ?? '')),
+            'end_at' => trim((string) ($project['end_at'] ?? '')),
+            'status' => trim((string) ($project['status'] ?? 'active')),
+        ];
+    }
+
     private function generateReasoning(array $task, \DateTimeImmutable $now): string
     {
         $priority = ucfirst($task['priority'] ?? 'medium');

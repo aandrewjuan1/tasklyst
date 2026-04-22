@@ -21,6 +21,8 @@ class UserFactory extends Factory
             'email' => $this->faker->unique()->safeEmail(),
             'workos_id' => $this->faker->uuid(),
             'avatar' => $this->faker->imageUrl(),
+            'timezone' => null,
+            'schedule_preferences' => null,
         ];
     }
 

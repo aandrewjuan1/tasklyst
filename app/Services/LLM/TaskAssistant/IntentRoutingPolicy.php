@@ -7,6 +7,7 @@ use App\Services\LLM\Intent\TaskAssistantIntentHybridCue;
 use App\Services\LLM\Intent\TaskAssistantIntentInferenceService;
 use App\Services\LLM\Intent\TaskAssistantIntentResolutionService;
 use App\Services\LLM\Intent\TaskAssistantIntentSignalExtractor;
+use App\Support\LLM\TaskAssistantReasonCodes;
 use App\Support\LLM\TaskAssistantWhatToDoFirstIntent;
 use Illuminate\Support\Facades\Log;
 
@@ -18,6 +19,8 @@ final class IntentRoutingPolicy
         private readonly TaskAssistantIntentResolutionService $resolution,
         private readonly TaskAssistantConversationStateService $conversationState,
         private readonly TaskAssistantListingReferenceResolver $listingReferenceResolver,
+        private readonly TaskAssistantClosingIntentClassifier $closingIntentClassifier,
+        private readonly TaskAssistantGreetingIntentClassifier $greetingIntentClassifier,
     ) {}
 
     public function decide(TaskAssistantThread $thread, string $content): IntentRoutingDecision
@@ -36,7 +39,35 @@ final class IntentRoutingPolicy
             return new IntentRoutingDecision(
                 flow: 'general_guidance',
                 confidence: 1.0,
-                reasonCodes: ['empty_message'],
+                reasonCodes: [TaskAssistantReasonCodes::EMPTY_MESSAGE],
+                constraints: [],
+                clarificationNeeded: false,
+                clarificationQuestion: null,
+            );
+        }
+
+        $greetingDecision = $this->greetingIntentClassifier->classify($thread, $content);
+        if (($greetingDecision['is_greeting_only'] ?? false) === true) {
+            $reasonCodes = is_array($greetingDecision['reason_codes'] ?? null)
+                ? array_values(array_map(static fn (mixed $code): string => (string) $code, $greetingDecision['reason_codes']))
+                : [];
+            $reasonCodes[] = TaskAssistantReasonCodes::GENERAL_GUIDANCE_GREETING_ONLY_DETERMINISTIC;
+            $reasonCodes = array_values(array_unique($reasonCodes));
+
+            Log::info('task-assistant.intent.policy', [
+                'layer' => 'intent_policy',
+                'run_id' => app()->bound('task_assistant.run_id') ? app('task_assistant.run_id') : null,
+                'thread_id' => $thread->id,
+                'assistant_message_id' => app()->bound('task_assistant.message_id') ? app('task_assistant.message_id') : null,
+                'outcome' => 'greeting_only_deterministic_shortcircuit',
+                'flow' => 'general_guidance',
+                'confidence' => (float) ($greetingDecision['confidence'] ?? 1.0),
+            ]);
+
+            return new IntentRoutingDecision(
+                flow: 'general_guidance',
+                confidence: max(0.0, min(1.0, (float) ($greetingDecision['confidence'] ?? 1.0))),
+                reasonCodes: $reasonCodes,
                 constraints: [],
                 clarificationNeeded: false,
                 clarificationQuestion: null,
@@ -56,7 +87,11 @@ final class IntentRoutingPolicy
             return new IntentRoutingDecision(
                 flow: 'general_guidance',
                 confidence: 1.0,
-                reasonCodes: ['greeting_shortcircuit_general_guidance', 'general_guidance_greeting_only'],
+                reasonCodes: [
+                    TaskAssistantReasonCodes::GREETING_SHORTCIRCUIT_GENERAL_GUIDANCE,
+                    TaskAssistantReasonCodes::GENERAL_GUIDANCE_GREETING_ONLY,
+                    TaskAssistantReasonCodes::GENERAL_GUIDANCE_GREETING_ONLY_DETERMINISTIC,
+                ],
                 constraints: [],
                 clarificationNeeded: false,
                 clarificationQuestion: null,
@@ -83,8 +118,39 @@ final class IntentRoutingPolicy
             );
         }
 
+        $closingDecision = $this->closingIntentClassifier->classify($thread, $content);
+        if (($closingDecision['is_closing'] ?? false) === true) {
+            $reasonCodes = is_array($closingDecision['reason_codes'] ?? null)
+                ? array_values(array_map(static fn (mixed $code): string => (string) $code, $closingDecision['reason_codes']))
+                : [];
+            $reasonCodes[] = TaskAssistantReasonCodes::GENERAL_GUIDANCE_CLOSING_ONLY;
+            $reasonCodes = array_values(array_unique($reasonCodes));
+
+            Log::info('task-assistant.intent.policy', [
+                'layer' => 'intent_policy',
+                'run_id' => app()->bound('task_assistant.run_id') ? app('task_assistant.run_id') : null,
+                'thread_id' => $thread->id,
+                'assistant_message_id' => app()->bound('task_assistant.message_id') ? app('task_assistant.message_id') : null,
+                'outcome' => 'closing_shortcircuit_general_guidance',
+                'flow' => 'general_guidance',
+                'closing_kind' => $closingDecision['kind'] ?? null,
+                'closing_confidence' => $closingDecision['confidence'] ?? null,
+                'context_weighted' => (bool) ($closingDecision['context_weighted'] ?? false),
+            ]);
+
+            return new IntentRoutingDecision(
+                flow: 'general_guidance',
+                confidence: max(0.0, min(1.0, (float) ($closingDecision['confidence'] ?? 1.0))),
+                reasonCodes: $reasonCodes,
+                constraints: [],
+                clarificationNeeded: false,
+                clarificationQuestion: null,
+            );
+        }
+
         if ($this->isLikelyPrioritizeScheduleCombinedPrompt($normalized)) {
             $constraints = $this->extractConstraintsForFlow($thread, $normalized, 'prioritize_schedule');
+            $constraints = $this->applyFreshTopNConstraintOverride($normalized, 'prioritize_schedule', $constraints);
 
             Log::info('task-assistant.intent.policy', [
                 'layer' => 'intent_policy',
@@ -106,6 +172,36 @@ final class IntentRoutingPolicy
                 flow: 'prioritize_schedule',
                 confidence: 1.0,
                 reasonCodes: ['prioritize_schedule_combined_prompt'],
+                constraints: $constraints,
+                clarificationNeeded: false,
+                clarificationQuestion: null,
+            );
+        }
+
+        if ($this->isLikelyFreshDayPlanningPrompt($normalized)) {
+            $constraints = $this->extractConstraintsForFlow($thread, $normalized, 'prioritize_schedule');
+            $constraints = $this->applyFreshTopNConstraintOverride($normalized, 'prioritize_schedule', $constraints);
+
+            Log::info('task-assistant.intent.policy', [
+                'layer' => 'intent_policy',
+                'run_id' => app()->bound('task_assistant.run_id') ? app('task_assistant.run_id') : null,
+                'thread_id' => $thread->id,
+                'assistant_message_id' => app()->bound('task_assistant.message_id') ? app('task_assistant.message_id') : null,
+                'outcome' => 'fresh_day_planning_shortcircuit',
+                'flow' => 'prioritize_schedule',
+                'constraints' => [
+                    'count_limit' => $constraints['count_limit'] ?? 1,
+                    'time_window_hint' => $constraints['time_window_hint'] ?? null,
+                    'target_entities_count' => is_array($constraints['target_entities'] ?? null)
+                        ? count($constraints['target_entities'])
+                        : 0,
+                ],
+            ]);
+
+            return new IntentRoutingDecision(
+                flow: 'prioritize_schedule',
+                confidence: 1.0,
+                reasonCodes: ['fresh_day_planning_prioritize_schedule'],
                 constraints: $constraints,
                 clarificationNeeded: false,
                 clarificationQuestion: null,
@@ -164,26 +260,6 @@ final class IntentRoutingPolicy
                 confidence: 1.0,
                 reasonCodes: ['schedule_refinement_context_shortcircuit'],
                 constraints: $constraints,
-                clarificationNeeded: false,
-                clarificationQuestion: null,
-            );
-        }
-
-        if ($this->isLikelyGeneralAssistancePrompt($normalized)) {
-            Log::info('task-assistant.intent.policy', [
-                'layer' => 'intent_policy',
-                'run_id' => app()->bound('task_assistant.run_id') ? app('task_assistant.run_id') : null,
-                'thread_id' => $thread->id,
-                'assistant_message_id' => app()->bound('task_assistant.message_id') ? app('task_assistant.message_id') : null,
-                'outcome' => 'general_guidance_heuristic',
-                'flow' => 'general_guidance',
-            ]);
-
-            return new IntentRoutingDecision(
-                flow: 'general_guidance',
-                confidence: 1.0,
-                reasonCodes: ['general_guidance_heuristic'],
-                constraints: [],
                 clarificationNeeded: false,
                 clarificationQuestion: null,
             );
@@ -257,6 +333,7 @@ final class IntentRoutingPolicy
 
         $decision = $this->resolution->resolve($thread, $normalized, $inference, $signals);
         $constraints = $this->extractConstraintsForFlow($thread, $normalized, $decision->flow);
+        $constraints = $this->applyFreshTopNConstraintOverride($normalized, $decision->flow, $constraints);
 
         Log::info('task-assistant.intent.policy', [
             'layer' => 'intent_policy',
@@ -276,6 +353,9 @@ final class IntentRoutingPolicy
                 'target_entities_count' => is_array($constraints['target_entities'] ?? null)
                     ? count($constraints['target_entities'])
                     : 0,
+                'schedule_signal_strength' => data_get($constraints, 'routing_signal_strength.schedule'),
+                'routing_hint' => $constraints['routing_hint'] ?? null,
+                'demotion_reason_detail' => $constraints['demotion_reason_detail'] ?? null,
             ],
             'message_length' => mb_strlen($content),
         ]);
@@ -314,17 +394,40 @@ final class IntentRoutingPolicy
             $targetEntities = $selected;
         }
 
-        $countLimit = $this->extractCountLimit($normalized);
+        [$countLimit, $countLimitExplicitlyRequested] = $this->extractCountLimitWithSource($normalized);
+        $hasDirectTopNRequest = preg_match(
+            '/(?:top|first|next)\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|couple)/i',
+            $normalized
+        ) === 1;
+        $countLimitExplicitlyRequested = $countLimitExplicitlyRequested || $hasDirectTopNRequest;
 
         if ($resolvedFlow === 'listing_followup' && $targetEntities === [] && is_array($listing)) {
             $targetEntities = $this->targetsFromListingHead($listing, $countLimit);
         }
 
-        // If we resolved explicit schedule targets from the user's last ordered listing
-        // ("those/the above"/sliced subsets), align how many we schedule with that resolved set.
-        // This prevents unintentionally truncating the user's requested batch size.
         if (($resolvedFlow === 'schedule' || $resolvedFlow === 'prioritize_schedule' || $resolvedFlow === 'listing_followup') && $targetEntities !== []) {
-            $countLimit = max(1, count($targetEntities));
+            $isDeicticFollowup = $this->isLikelyDeicticScheduleFollowup($normalized);
+            $shouldAlignWithResolvedTargets = $resolvedFlow === 'schedule'
+                || ! $countLimitExplicitlyRequested
+                || $isDeicticFollowup;
+
+            if ($shouldAlignWithResolvedTargets) {
+                $countLimit = max(1, count($targetEntities));
+            }
+        }
+
+        $routingSignal = $this->buildRoutingSignalStrength($normalized, $resolvedFlow);
+
+        $demotionReasonDetail = null;
+        if (
+            in_array($resolvedFlow, ['prioritize', 'schedule'], true)
+            && $this->hasHybridLikeIntentCue($normalized)
+            && ($routingSignal['schedule'] ?? 0.0) < 0.8
+        ) {
+            $demotionReasonDetail = sprintf(
+                'hybrid_cue_detected_with_schedule_signal_%.2f_below_escalation_threshold',
+                (float) ($routingSignal['schedule'] ?? 0.0)
+            );
         }
 
         return [
@@ -332,7 +435,67 @@ final class IntentRoutingPolicy
             'time_window_hint' => $this->extractTimeWindowHint($normalized),
             'strict_window' => $this->extractStrictWindowFlag($normalized),
             'target_entities' => $targetEntities,
+            'routing_signal_strength' => $routingSignal,
+            'routing_hint' => ($resolvedFlow === 'prioritize' && ($routingSignal['schedule'] ?? 0.0) >= 0.55)
+                ? 'schedule_followup_likely_next_turn'
+                : null,
+            'demotion_reason_detail' => $demotionReasonDetail,
         ];
+    }
+
+    /**
+     * @return array{schedule: float, prioritize: float, hybrid: float, source: string}
+     */
+    private function buildRoutingSignalStrength(string $normalized, string $resolvedFlow): array
+    {
+        $scheduleScore = 0.0;
+        $prioritizeScore = 0.0;
+
+        if (preg_match('/\b(schedule|time[\s-]?block|calendar|slot|reschedule|plan)\b/u', $normalized) === 1) {
+            $scheduleScore += 0.45;
+        }
+        if (preg_match('/\b(today|tomorrow|this week|next week|later|morning|afternoon|evening|tonight)\b/u', $normalized) === 1) {
+            $scheduleScore += 0.25;
+        }
+        if (preg_match('/\b(at\s+\d{1,2}(:\d{2})?\s*(am|pm)|\d{1,2}(:\d{2})?\s*(am|pm))\b/u', $normalized) === 1) {
+            $scheduleScore += 0.20;
+        }
+        if (preg_match('/\b(priorit(?:y|ize)|important|urgent|what should i do first|next \d+ priorities?)\b/u', $normalized) === 1) {
+            $prioritizeScore += 0.55;
+        }
+        if (preg_match('/\b(top|first|next)\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|couple)\b/u', $normalized) === 1) {
+            $prioritizeScore += 0.20;
+        }
+        if (preg_match('/\b(tasks?|items?|priorities)\b/u', $normalized) === 1) {
+            $prioritizeScore += 0.15;
+            $scheduleScore += 0.10;
+        }
+
+        if ($resolvedFlow === 'schedule' || $resolvedFlow === 'prioritize_schedule') {
+            $scheduleScore += 0.05;
+        }
+        if ($resolvedFlow === 'prioritize' || $resolvedFlow === 'prioritize_schedule') {
+            $prioritizeScore += 0.05;
+        }
+
+        $scheduleScore = max(0.0, min(1.0, $scheduleScore));
+        $prioritizeScore = max(0.0, min(1.0, $prioritizeScore));
+        $hybridScore = max(0.0, min(1.0, ($scheduleScore * 0.5) + ($prioritizeScore * 0.5)));
+
+        return [
+            'schedule' => round($scheduleScore, 3),
+            'prioritize' => round($prioritizeScore, 3),
+            'hybrid' => round($hybridScore, 3),
+            'source' => 'heuristic_v1',
+        ];
+    }
+
+    private function hasHybridLikeIntentCue(string $normalized): bool
+    {
+        $hasPrioritizeCue = preg_match('/\b(top|first|next|priorit(?:y|ize)|important|urgent)\b/u', $normalized) === 1;
+        $hasSchedulingCue = preg_match('/\b(schedule|calendar|later|today|tomorrow|this week|time[\s-]?block)\b/u', $normalized) === 1;
+
+        return $hasPrioritizeCue && $hasSchedulingCue;
     }
 
     private function scheduleAwareLastListing(TaskAssistantThread $thread, string $normalizedContent = ''): ?array
@@ -378,6 +541,12 @@ final class IntentRoutingPolicy
                             return $lastListing;
                         }
                     }
+                    if ($this->isOrdinalOrIndexedReferenceRequest($normalizedContent) && is_array($lastListing)) {
+                        $listingItems = is_array($lastListing['items'] ?? null) ? $lastListing['items'] : [];
+                        if (count($listingItems) > count($items)) {
+                            return $lastListing;
+                        }
+                    }
 
                     return [
                         'source_flow' => 'schedule',
@@ -399,10 +568,30 @@ final class IntentRoutingPolicy
         return preg_match('/\b(all|them all|those all|all of them|all those)\b/u', $normalized) === 1;
     }
 
-    private function extractCountLimit(string $normalized): int
+    private function isOrdinalOrIndexedReferenceRequest(string $normalized): bool
+    {
+        if ($normalized === '') {
+            return false;
+        }
+        if (preg_match('/\b(top|first)\s+\d+\b/u', $normalized) === 1) {
+            return false;
+        }
+
+        return preg_match(
+            '/\b(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|last|bottom|top)\b/u',
+            $normalized
+        ) === 1
+            || preg_match('/(?:#\s*)\d+\b/u', $normalized) === 1
+            || preg_match('/\b(item|task)\s*#?\s*\d+\b/u', $normalized) === 1;
+    }
+
+    /**
+     * @return array{0: int, 1: bool}
+     */
+    private function extractCountLimitWithSource(string $normalized): array
     {
         if (preg_match('/\b(top|first)\s+(task|item)\b/u', $normalized) === 1) {
-            return 1;
+            return [1, true];
         }
 
         // Word-based ordinal singles like:
@@ -412,7 +601,7 @@ final class IntentRoutingPolicy
             '/\b(?:schedule|put|plan)\b.{0,40}\b(only\s+)?(?:the\s+)?(first|top|last|bottom)\b.{0,40}\bone\b/iu',
             $normalized
         ) === 1) {
-            return 1;
+            return [1, true];
         }
 
         $wordNumbers = [
@@ -456,40 +645,149 @@ final class IntentRoutingPolicy
         ) === 1) {
             $n = $parseToken((string) ($matches[1] ?? ''));
             if ($n !== null) {
-                return max(1, min($n, 10));
+                return [max(1, min($n, 10)), true];
             }
         }
 
         if (preg_match('/\b(those|them)\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|couple)\b/iu', $normalized, $matches) === 1) {
             $n = $parseToken((string) ($matches[2] ?? ''));
             if ($n !== null) {
-                return max(1, min($n, 10));
+                return [max(1, min($n, 10)), true];
             }
         }
 
         if (preg_match('/\b(top|first|next|only|limit)\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|couple)\b/iu', $normalized, $matches) === 1) {
             $n = $parseToken((string) ($matches[2] ?? ''));
             if ($n !== null) {
-                return max(1, min($n, 10));
+                return [max(1, min($n, 10)), true];
             }
         }
 
         if ($this->isSingleFocusRequest($normalized)) {
-            return 1;
+            return [1, true];
         }
 
         $defaultMulti = (int) config('task-assistant.intent.prioritize_default_multi_count', 3);
         $defaultMulti = max(2, min($defaultMulti, 10));
 
         if (TaskAssistantWhatToDoFirstIntent::impliesMultiplePrioritizedRows($normalized)) {
-            return $defaultMulti;
+            return [$defaultMulti, false];
         }
 
         if (TaskAssistantWhatToDoFirstIntent::matchesSingleFocusPrioritizeFirst($normalized)) {
-            return 1;
+            return [1, true];
         }
 
-        return 3;
+        return [3, false];
+    }
+
+    private function extractCountLimit(string $normalized): int
+    {
+        return $this->extractCountLimitWithSource($normalized)[0];
+    }
+
+    private function isLikelyDeicticScheduleFollowup(string $normalized): bool
+    {
+        return preg_match(
+            '/\b(it|them|those|the above|same one|this\s+one|that(?:\s+one)?|first|second|third|last|\d+(?:st|nd|rd|th)|item\s*#?\d+|task\s*#?\d+|\d+\s*(?:,|and)\s*\d+)\b/u',
+            $normalized
+        ) === 1;
+    }
+
+    private function isLikelyFreshBatchScheduleRequest(string $normalized): bool
+    {
+        $hasScheduleVerb = preg_match('/\b(schedule|plan|organi[sz]e|map\s*out|line\s*up)\b/u', $normalized) === 1;
+        $hasBatchCue = preg_match('/\b(top|first|next|\d+|two|three|four|five|six|seven|eight|nine|ten)\b/u', $normalized) === 1;
+        $hasPluralScope = preg_match('/\b(tasks?|items?|priorities)\b/u', $normalized) === 1;
+
+        return $hasScheduleVerb && $hasBatchCue && $hasPluralScope;
+    }
+
+    private function extractDirectTopNCount(string $normalized): ?int
+    {
+        if (preg_match('/top[^0-9]{0,3}(\d{1,2})/i', $normalized, $digitMatch) === 1) {
+            return max(1, min((int) ($digitMatch[1] ?? 0), 10));
+        }
+
+        if (preg_match('/(?:first|next)\s+(\d{1,2})/i', $normalized, $digitMatch) === 1) {
+            return max(1, min((int) ($digitMatch[1] ?? 0), 10));
+        }
+
+        if (preg_match(
+            '/(?:top|first|next)\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|couple)/i',
+            $normalized,
+            $matches
+        ) !== 1) {
+            return null;
+        }
+
+        $token = mb_strtolower(trim((string) ($matches[2] ?? '')));
+        if ($token === '') {
+            return null;
+        }
+
+        if (preg_match('/^\d+$/u', $token) === 1) {
+            return max(1, min((int) $token, 10));
+        }
+
+        $wordNumbers = [
+            'one' => 1,
+            'two' => 2,
+            'three' => 3,
+            'four' => 4,
+            'five' => 5,
+            'six' => 6,
+            'seven' => 7,
+            'eight' => 8,
+            'nine' => 9,
+            'ten' => 10,
+            'couple' => 2,
+        ];
+
+        return $wordNumbers[$token] ?? null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $constraints
+     * @return array<string, mixed>
+     */
+    private function applyFreshTopNConstraintOverride(string $normalized, string $flow, array $constraints): array
+    {
+        if (! in_array($flow, ['schedule', 'prioritize_schedule'], true)) {
+            return $constraints;
+        }
+
+        if (
+            $flow === 'prioritize_schedule'
+            && str_contains($normalized, 'schedule')
+            && str_contains($normalized, 'top')
+            && preg_match('/\b(tasks?|items?|priorities)\b/u', $normalized) === 1
+            && preg_match('/(\d{1,2})/', $normalized, $fallbackDigits) === 1
+        ) {
+            $fallbackN = max(1, min((int) ($fallbackDigits[1] ?? 3), 10));
+            $constraints['count_limit'] = $fallbackN;
+        }
+
+        $explicitTopN = $this->extractDirectTopNCount($normalized);
+        if ($explicitTopN === null && preg_match('/top.*?(\d{1,2})/i', $normalized, $fallbackTopN) === 1) {
+            $explicitTopN = max(1, min((int) ($fallbackTopN[1] ?? 0), 10));
+        }
+        if ($explicitTopN === null) {
+            return $constraints;
+        }
+
+        $hasPluralScope = preg_match('/\b(tasks?|items?|priorities)\b/u', $normalized) === 1;
+        if (! $hasPluralScope) {
+            return $constraints;
+        }
+
+        $constraints['count_limit'] = $explicitTopN;
+        $targets = is_array($constraints['target_entities'] ?? null) ? $constraints['target_entities'] : [];
+        if ($targets !== [] && $explicitTopN > count($targets)) {
+            $constraints['target_entities'] = [];
+        }
+
+        return $constraints;
     }
 
     private function isSingleFocusRequest(string $normalized): bool
@@ -577,6 +875,24 @@ final class IntentRoutingPolicy
         return TaskAssistantIntentHybridCue::matchesCombinedPrioritizeSchedulePrompt($normalized);
     }
 
+    private function isLikelyFreshDayPlanningPrompt(string $normalized): bool
+    {
+        if ($normalized === '') {
+            return false;
+        }
+
+        if ($this->isLikelyScheduleRefinementEditPrompt($normalized)) {
+            return false;
+        }
+
+        return preg_match(
+            '/\b(plan|schedule|organi[sz]e|organize|map\s+out|line\s+up)\b.{0,45}\b(my|the)\s+(whole\s+)?day\b/u',
+            $normalized
+        ) === 1
+            || preg_match('/\b(plan|schedule)\b.{0,45}\b(all|everything)\b.{0,30}\b(tasks?|important|priority)\b/u', $normalized) === 1
+            || preg_match('/\b(plan|schedule)\b.{0,45}\b(important|priority|urgent)\b.{0,30}\b(tasks?)\b/u', $normalized) === 1;
+    }
+
     private function isLikelyDirectPrioritizeFirstPrompt(string $normalized): bool
     {
         return TaskAssistantWhatToDoFirstIntent::matches($normalized);
@@ -601,7 +917,7 @@ final class IntentRoutingPolicy
             return false;
         }
 
-        $hasEditVerb = preg_match('/\b(move|set|change|edit|shift|push|swap|reorder|put|make|reschedule|adjust|do|bring|bump|drag|slide|delay|advance|pull|drop)\b/u', $normalized) === 1;
+        $hasEditVerb = preg_match('/\b(move|set|change|edit|shift|push|swap|reorder|put|make|reschedule|adjust|bring|bump|drag|slide|delay|advance|pull|drop)\b/u', $normalized) === 1;
         $hasScheduleCue = preg_match(
             '/\b(first|second|third|last|\d+(?:st|nd|rd|th)|item|task|one|it|this|that|same one|before|after|later|earlier|tomorrow|today|tmrw|tomorow|next week|next|at\s+\d{1,2}|am|pm|minute|minutes|duration|shorter|longer)\b/u',
             $normalized
@@ -617,7 +933,12 @@ final class IntentRoutingPolicy
             $normalized
         ) === 1;
 
-        return ($hasEditVerb && $hasScheduleCue) || $hasStandaloneReorderShape || $implicitEditPhrase;
+        $hasDoIndexedSchedulingPhrase = preg_match(
+            '/\bdo\b.{0,16}\b(the\s+)?(first|second|third|last|\d+(?:st|nd|rd|th)|one)\b.{0,36}\b(later|today|tomorrow|morning|afternoon|evening|night|tonight)\b/u',
+            $normalized
+        ) === 1;
+
+        return ($hasEditVerb && $hasScheduleCue) || $hasStandaloneReorderShape || $implicitEditPhrase || $hasDoIndexedSchedulingPhrase;
     }
 
     private function isLikelyPureGreeting(string $normalized): bool

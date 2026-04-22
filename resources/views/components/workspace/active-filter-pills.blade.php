@@ -30,6 +30,11 @@
         'brightspace' => TaskSourceType::Brightspace->label(),
         'manual' => TaskSourceType::Manual->label(),
     ];
+    $dueStateLabels = [
+        '' => __('Any'),
+        'overdue' => __('Overdue'),
+        'due' => __('Due'),
+    ];
 
     $tags = $tags instanceof \Illuminate\Support\Collection ? $tags : collect($tags);
     $tagsForJs = $tags->map(fn ($t) => ['id' => $t->id, 'name' => $t->name])->values()->all();
@@ -42,6 +47,7 @@
         'eventStatus' => ['' => __('All'), ...$eventStatuses],
         'recurring' => ['' => __('All'), ...$recurringLabels],
         'taskSource' => ['' => __('All'), ...$taskSourceLabels],
+        'dueState' => $dueStateLabels,
     ];
 
     $pillLabels = [
@@ -53,6 +59,7 @@
         'tagIds' => __('Tags'),
         'recurring' => __('Recurring'),
         'taskSource' => __('Source'),
+        'dueState' => __('When'),
     ];
 
     $tagIds = $filters['tagIds'] ?? [];
@@ -62,7 +69,7 @@
     $hasOtherActiveFilters = ($filters['taskStatus'] ?? null) || ($filters['taskPriority'] ?? null)
         || ($filters['taskComplexity'] ?? null) || ($filters['eventStatus'] ?? null)
         || (is_array($tagIds) && $tagIds !== []) || ($filters['recurring'] ?? null)
-        || ($filters['taskSource'] ?? null);
+        || ($filters['taskSource'] ?? null) || ($filters['dueState'] ?? null);
 
     $filterPillEnumFillClass = static fn (string $color): string => 'bg-' . $color . '/10 text-' . $color;
 
@@ -87,6 +94,10 @@
 
     $filterPillTaskSourceBrightspace =
         'border-blue-500/25 bg-blue-500/10 text-blue-800 shadow-sm dark:border-blue-500/30 dark:bg-blue-500/15 dark:text-blue-200';
+    $filterPillDueStateOverdue =
+        'border-red-200/55 bg-red-100 text-red-700 shadow-sm dark:border-red-900/40 dark:bg-red-950/50 dark:text-red-200';
+    $filterPillDueStateDue =
+        'border-amber-200/55 bg-amber-100 text-amber-700 shadow-sm dark:border-amber-900/40 dark:bg-amber-950/50 dark:text-amber-200';
 
     $initialItemType = $filters['itemType'] ?? null;
     $initialTaskStatus = $filters['taskStatus'] ?? null;
@@ -95,6 +106,7 @@
     $initialEventStatus = $filters['eventStatus'] ?? null;
     $initialTaskSource = $filters['taskSource'] ?? null;
     $initialRecurring = $filters['recurring'] ?? null;
+    $initialDueState = $filters['dueState'] ?? null;
     $initialShowCompleted = (bool) ($filters['showCompleted'] ?? false);
 
     $initialItemTypeClass = match ($initialItemType) {
@@ -117,6 +129,11 @@
     $initialTaskSourceClass = $initialTaskSource === 'brightspace'
         ? $filterPillTaskSourceBrightspace
         : $filterPillDefaultClass;
+    $initialDueStateClass = match ($initialDueState) {
+        'overdue' => $filterPillDueStateOverdue,
+        'due' => $filterPillDueStateDue,
+        default => $filterPillDefaultClass,
+    };
 @endphp
 
 <div
@@ -133,6 +150,7 @@
             tagIds: false,
             recurring: false,
             taskSource: false,
+            dueState: false,
         },
         togglePillMenu(key) {
             const opening = !this.menus[key];
@@ -154,6 +172,7 @@
             tagIds: @js($filters['tagIds'] ?? []),
             recurring: @js($filters['recurring'] ?? null),
             taskSource: @js($filters['taskSource'] ?? null),
+            dueState: @js($filters['dueState'] ?? null),
             showCompleted: @js((bool) ($filters['showCompleted'] ?? false)),
         },
         _m(cls) {
@@ -165,6 +184,8 @@
         filterPillEventStatusColors: @js($filterPillEventStatusColors),
         filterPillRecurringRecurring: @js($filterPillRecurringRecurring),
         filterPillTaskSourceBrightspace: @js($filterPillTaskSourceBrightspace),
+        filterPillDueStateOverdue: @js($filterPillDueStateOverdue),
+        filterPillDueStateDue: @js($filterPillDueStateDue),
         pillClassesTaskSource() {
             const v = this.displayFilters.taskSource;
             if (v === 'brightspace') {
@@ -197,6 +218,17 @@
             const v = this.displayFilters.recurring;
             if (v === 'recurring') {
                 return this._m(this.filterPillRecurringRecurring);
+            }
+            const fill = 'bg-muted text-muted-foreground';
+            return [...this._m(fill), 'border', 'border-black/10', 'dark:border-white/10'];
+        },
+        pillClassesDueState() {
+            const v = this.displayFilters.dueState;
+            if (v === 'overdue') {
+                return this._m(this.filterPillDueStateOverdue);
+            }
+            if (v === 'due') {
+                return this._m(this.filterPillDueStateDue);
             }
             const fill = 'bg-muted text-muted-foreground';
             return [...this._m(fill), 'border', 'border-black/10', 'dark:border-white/10'];
@@ -234,6 +266,7 @@
                 this.displayFilters.tagIds = $wire.filterTagIds ?? [];
                 this.displayFilters.recurring = $wire.filterRecurring ?? null;
                 this.displayFilters.taskSource = $wire.filterTaskSource ?? null;
+                this.displayFilters.dueState = $wire.filterDueState ?? null;
                 this.displayFilters.showCompleted = ($wire.showCompleted ?? '0') === '1';
             };
             this.$watch('$wire.filterItemType', () => { this.displayFilters.itemType = $wire.filterItemType ?? null; });
@@ -244,6 +277,7 @@
             this.$watch('$wire.filterTagIds', () => { this.displayFilters.tagIds = $wire.filterTagIds ?? []; });
             this.$watch('$wire.filterRecurring', () => { this.displayFilters.recurring = $wire.filterRecurring ?? null; });
             this.$watch('$wire.filterTaskSource', () => { this.displayFilters.taskSource = $wire.filterTaskSource ?? null; });
+            this.$watch('$wire.filterDueState', () => { this.displayFilters.dueState = $wire.filterDueState ?? null; });
             this.$watch('$wire.showCompleted', () => { this.displayFilters.showCompleted = ($wire.showCompleted ?? '0') === '1'; });
             const typeSpecificKeys = ['taskStatus', 'taskPriority', 'taskComplexity', 'taskSource', 'eventStatus'];
             const handler = (e) => {
@@ -261,6 +295,7 @@
                     this.displayFilters.tagIds = [];
                     this.displayFilters.recurring = null;
                     this.displayFilters.taskSource = null;
+                    this.displayFilters.dueState = null;
                 } else if (key === 'tagIds') {
                     this.displayFilters.tagIds = Array.isArray(value) ? value : (value ? [value] : []);
                 } else if (key) {
@@ -289,12 +324,14 @@
         hasActiveFilters() {
             return this.displayFilters.itemType || this.displayFilters.taskStatus || this.displayFilters.taskPriority ||
                 this.displayFilters.taskComplexity || this.displayFilters.eventStatus ||
-                (this.displayFilters.tagIds?.length > 0) || this.displayFilters.recurring || this.displayFilters.taskSource;
+                (this.displayFilters.tagIds?.length > 0) || this.displayFilters.recurring || this.displayFilters.taskSource ||
+                this.displayFilters.dueState;
         },
         hasOtherActiveFilters() {
             return this.displayFilters.taskStatus || this.displayFilters.taskPriority ||
                 this.displayFilters.taskComplexity || this.displayFilters.eventStatus ||
-                (this.displayFilters.tagIds?.length > 0) || this.displayFilters.recurring || this.displayFilters.taskSource;
+                (this.displayFilters.tagIds?.length > 0) || this.displayFilters.recurring || this.displayFilters.taskSource ||
+                this.displayFilters.dueState;
         },
         setItemType(value) {
             this.displayFilters.itemType = value || null;
@@ -318,6 +355,7 @@
             this.displayFilters.tagIds = [];
             this.displayFilters.recurring = null;
             this.displayFilters.taskSource = null;
+            this.displayFilters.dueState = null;
             window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'clearAll' } }));
             $wire.clearAllFilters();
         },
@@ -332,20 +370,25 @@
     @if ($showListScopedFilters)
         <div class="inline-flex items-center gap-1.5">
             <flux:tooltip :content="__('Toggle completed items visibility')" position="top">
-                <button
-                    type="button"
-                    @click="toggleShowCompleted()"
-                    class="inline-flex size-8 items-center justify-center rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/45 {{ $initialShowCompleted
-                        ? 'border-emerald-400/60 bg-emerald-500/12 text-emerald-700 shadow-sm dark:border-emerald-500/45 dark:bg-emerald-500/18 dark:text-emerald-300'
+                <span
+                    class="lic-item-type-pill {{ $initialShowCompleted
+                        ? 'border-emerald-400/60 bg-emerald-500/12 text-emerald-700 dark:border-emerald-500/45 dark:bg-emerald-500/18 dark:text-emerald-300'
                         : 'border-zinc-300/80 bg-white/90 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-600/80 dark:bg-zinc-800/90 dark:text-zinc-300 dark:hover:bg-zinc-700/90' }}"
                     :class="displayFilters.showCompleted
-                        ? 'border-emerald-400/60 bg-emerald-500/12 text-emerald-700 shadow-sm dark:border-emerald-500/45 dark:bg-emerald-500/18 dark:text-emerald-300'
+                        ? 'border-emerald-400/60 bg-emerald-500/12 text-emerald-700 dark:border-emerald-500/45 dark:bg-emerald-500/18 dark:text-emerald-300'
                         : 'border-zinc-300/80 bg-white/90 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-600/80 dark:bg-zinc-800/90 dark:text-zinc-300 dark:hover:bg-zinc-700/90'"
-                    :aria-pressed="displayFilters.showCompleted"
-                    aria-label="{{ __('Toggle completed items visibility') }}"
                 >
-                    <flux:icon name="check-badge" class="size-4" />
-                </button>
+                    <button
+                        type="button"
+                        @click="toggleShowCompleted()"
+                        class="workspace-filter-pill-trigger"
+                        :aria-pressed="displayFilters.showCompleted"
+                        aria-label="{{ __('Toggle completed items visibility') }}"
+                    >
+                        <flux:icon name="check-badge" class="size-4 shrink-0" />
+                        <span class="truncate">{{ __('Show Done') }}</span>
+                    </button>
+                </span>
             </flux:tooltip>
             {{-- Show pill: same palette as list-item-card _item-type-pill (lic-item-type-pill--*) --}}
             <span
@@ -423,6 +466,57 @@
             </span>
         </flux:tooltip>
     @endif
+
+    <span
+        class="lic-item-type-pill max-w-full {{ $initialDueStateClass }}"
+        :class="pillClassesDueState()"
+    >
+        <div class="relative min-w-0" @click.outside="closePillMenu('dueState')">
+            <button
+                type="button"
+                class="workspace-filter-pill-trigger"
+                @click.stop="togglePillMenu('dueState')"
+                :aria-expanded="menus.dueState"
+                aria-haspopup="menu"
+            >
+                <span
+                    class="truncate"
+                    x-text="pillLabels.dueState + ': ' + (displayFilters.dueState ? (labels.dueState[displayFilters.dueState] || displayFilters.dueState) : '{{ __('Any') }}')"
+                >{{ $pillLabels['dueState'] }}: {{ $filters['dueState'] ? ($dueStateLabels[$filters['dueState']] ?? __('Any')) : __('Any') }}</span>
+                <svg class="size-3.5 shrink-0 opacity-70" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                </svg>
+            </button>
+            <div
+                x-cloak
+                x-show="menus.dueState"
+                x-transition
+                class="workspace-filter-panel workspace-filter-panel--start top-full z-[60] mt-1"
+                role="menu"
+            >
+                @foreach ($dueStateLabels as $optValue => $optLabel)
+                    <label
+                        wire:key="pill-due-{{ $optValue === '' ? 'all' : $optValue }}"
+                        class="workspace-filter-option"
+                        @click="closePillMenu('dueState')"
+                    >
+                        <input
+                            type="radio"
+                            class="sr-only"
+                            wire:model.live="filterDueState"
+                            value="{{ $optValue }}"
+                            @click="
+                                const v = '{{ $optValue }}' || null;
+                                displayFilters.dueState = (v === '' || v === null) ? null : v;
+                                window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'dueState', value: (v === '' || v === null) ? null : v } }));
+                            "
+                        />
+                        <span class="min-w-0 flex-1">{{ $optLabel }}</span>
+                    </label>
+                @endforeach
+            </div>
+        </div>
+    </span>
 
     <span
         class="text-[11px] leading-snug text-muted-foreground/80 sm:text-xs dark:text-zinc-500/90"

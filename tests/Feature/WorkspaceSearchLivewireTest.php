@@ -18,6 +18,7 @@ beforeEach(function (): void {
 test('search query filters tasks by title', function (): void {
     Task::factory()->for($this->user)->create([
         'title' => 'UniqueSearchableTask',
+        'status' => TaskStatus::ToDo->value,
         'start_datetime' => null,
         'end_datetime' => null,
     ]);
@@ -98,6 +99,7 @@ test('search query matches task by description', function (): void {
     Task::factory()->for($this->user)->create([
         'title' => 'PlainTitleForDescSearch',
         'description' => 'UniqueDescriptionPhraseAlpha99',
+        'status' => TaskStatus::ToDo->value,
         'start_datetime' => null,
         'end_datetime' => null,
     ]);
@@ -117,6 +119,7 @@ test('search query matches task by tag name', function (): void {
     $task = Task::factory()->for($this->user)->create([
         'title' => 'TitleWithoutTagToken',
         'description' => null,
+        'status' => TaskStatus::ToDo->value,
         'start_datetime' => null,
         'end_datetime' => null,
     ]);
@@ -135,6 +138,7 @@ test('search query matches task by teacher_name', function (): void {
     Task::factory()->for($this->user)->create([
         'title' => 'HomeworkItemGamma',
         'description' => null,
+        'status' => TaskStatus::ToDo->value,
         'teacher_name' => 'Prof UniqueTeacherGamma44',
         'subject_name' => null,
         'start_datetime' => null,
@@ -160,6 +164,7 @@ test('search query matches task by school class teacher when task teacher_name i
     Task::factory()->for($this->user)->create([
         'title' => 'LinkedTeacherSearchTask',
         'description' => null,
+        'status' => TaskStatus::ToDo->value,
         'school_class_id' => $class->id,
         'subject_name' => $class->subject_name,
         'teacher_name' => null,
@@ -200,6 +205,7 @@ test('search uses OR across tokens: matches when only one token hits', function 
     Task::factory()->for($this->user)->create([
         'title' => 'OrTokenTaskTitle',
         'description' => 'containsfirsttokenonly',
+        'status' => TaskStatus::ToDo->value,
         'start_datetime' => null,
         'end_datetime' => null,
     ]);

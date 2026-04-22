@@ -52,6 +52,7 @@
 
     $schoolClassStatePill = static function (string $state): array {
         return match ($state) {
+            'past' => ['label' => __('Past'), 'class' => 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200'],
             'now' => ['label' => __('Now'), 'class' => 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200'],
             'next' => ['label' => __('Next'), 'class' => 'bg-blue-100 text-blue-800 dark:bg-blue-950/50 dark:text-blue-200'],
             default => ['label' => __('Later'), 'class' => 'bg-muted text-muted-foreground'],
@@ -76,7 +77,7 @@
 
         return (int) min(100, max(0, round(($spentSeconds / $targetSeconds) * 100)));
     };
-    $doingDisplayLimit = 3;
+    $doingDisplayLimit = $this->dashboardListCardRowLimit();
     $doingTasksForDisplay = $this->dashboardDoingTasks
         ->map(function (\App\Models\Task $task) use ($taskFocusProgressPercent): array {
             return [
@@ -88,7 +89,7 @@
         ->take($doingDisplayLimit)
         ->values();
     $doingTasksHasMore = $this->dashboardDoingTasksCount > $doingDisplayLimit;
-    $noDateBacklogDisplayLimit = $this->noDateBacklogDisplayLimit();
+    $noDateBacklogDisplayLimit = $this->dashboardListCardRowLimit();
     $noDateBacklogHasMore = $this->dashboardNoDateBacklogCount > $noDateBacklogDisplayLimit;
     $dashboardPanelShell = [
         'default' => 'rounded-xl border border-border/70 bg-background shadow-sm ring-1 ring-black/5 dark:border-zinc-800 dark:bg-zinc-900/50 dark:ring-white/5',
@@ -156,7 +157,7 @@
                                         class="inline-flex items-center gap-2 rounded-xl bg-brand-blue px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-blue/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/50"
                                     >
                                         <flux:icon name="sparkles" class="size-4" />
-                                        <span>{{ __('Ask AI assistant') }}</span>
+                                        <span>{{ __('Use AI assistant') }}</span>
                                     </button>
                                 </flux:modal.trigger>
                             @endauth
@@ -196,6 +197,11 @@
                             </div>
                         @endforeach
                     </div>
+
+                    <x-workspace.scheduled-focus-plan
+                        :groups="$this->scheduledFocusPlanGroups"
+                        :total-count="$this->scheduledFocusPlanTotalCount"
+                    />
 
                     @auth
                         <div class="grid grid-cols-1 gap-4 xl:grid-cols-3">

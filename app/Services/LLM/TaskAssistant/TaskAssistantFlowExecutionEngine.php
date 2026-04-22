@@ -8,14 +8,17 @@ use App\Models\Task;
 use App\Models\TaskAssistantMessage;
 use App\Models\TaskAssistantThread;
 use App\Models\User;
+use App\Services\LLM\Prioritization\AssistantCandidateProvider;
 use Illuminate\Support\Facades\Log;
 
 final class TaskAssistantFlowExecutionEngine
 {
     public function __construct(
         private readonly TaskAssistantResponseProcessor $responseProcessor,
-        private readonly TaskAssistantSnapshotService $snapshotService,
-        private readonly TaskAssistantToolEventPersister $toolEventPersister,
+        private readonly AssistantCandidateProvider $candidateProvider,
+        private readonly AssistantMetadataGateway $metadataGateway,
+        private readonly TaskAssistantProcessingGuard $processingGuard,
+        private readonly TaskAssistantQuickChipResolver $quickChipResolver,
     ) {}
 
     /**
@@ -58,7 +61,7 @@ final class TaskAssistantFlowExecutionEngine
             'generation_data_keys' => array_keys(is_array($generationResult['data'] ?? null) ? $generationResult['data'] : []),
         ]);
 
-        if ($this->isStopped($assistantMessage)) {
+        if ($this->processingGuard->isMessageStopped($assistantMessage)) {
             Log::info('task-assistant.flow_execution', [
                 'layer' => 'flow_execution',
                 'run_id' => $runId,
@@ -85,25 +88,6 @@ final class TaskAssistantFlowExecutionEngine
             // Snapshot is already built for validation in buildSnapshotForFlow().
         }
 
-        $toolCalls = $generationResult['tool_calls'] ?? [];
-        $toolResults = $generationResult['tool_results'] ?? [];
-
-        if ($toolCalls !== [] || $toolResults !== []) {
-            $toolCalls = $toolCalls instanceof \Illuminate\Support\Collection
-                ? $toolCalls->all()
-                : (is_array($toolCalls) ? $toolCalls : iterator_to_array($toolCalls));
-
-            $toolResults = $toolResults instanceof \Illuminate\Support\Collection
-                ? $toolResults->all()
-                : (is_array($toolResults) ? $toolResults : iterator_to_array($toolResults));
-
-            $this->toolEventPersister->persistToolCallsAndResults(
-                assistantMessage: $assistantMessage,
-                toolCalls: $toolCalls,
-                toolResults: $toolResults
-            );
-        }
-
         $generationValid = (bool) ($generationResult['valid'] ?? false);
         $generationErrors = $generationResult['errors'] ?? [];
 
@@ -117,13 +101,13 @@ final class TaskAssistantFlowExecutionEngine
         $finalValid = $generationValid && $processedValid;
         $structuredData = $finalValid
             ? (is_array($processedResponse['structured_data'] ?? null) ? $processedResponse['structured_data'] : [])
-            : $this->minimalStructuredDataForInvalidFlow($flow, $payload);
+            : $this->minimalStructuredDataForInvalidFlow($flow, $payload, $thread->user);
 
         $assistantContent = $finalValid
             ? (string) ($processedResponse['formatted_content'] ?? '')
-            : $assistantFallbackContent;
+            : $this->buildInvalidFlowFallbackContent($flow, $payload, $assistantFallbackContent);
 
-        if ($this->isStopped($assistantMessage)) {
+        if ($this->processingGuard->isMessageStopped($assistantMessage)) {
             Log::info('task-assistant.flow_execution', [
                 'layer' => 'flow_execution',
                 'run_id' => $runId,
@@ -144,14 +128,14 @@ final class TaskAssistantFlowExecutionEngine
             ];
         }
 
-        $assistantMessage->update([
-            'content' => $assistantContent,
-            'metadata' => array_merge($assistantMessage->metadata ?? [], [
-                $metadataKey => $payload,
-                'processed' => $processedValid,
-                'validation_errors' => $processedResponse['errors'],
-            ]),
-        ]);
+        $assistantMessage->update(['content' => $assistantContent]);
+        $this->metadataGateway->updateProcessedPayload(
+            assistantMessage: $assistantMessage,
+            metadataKey: $metadataKey,
+            payload: $payload,
+            processed: $processedValid,
+            errors: is_array($processedResponse['errors'] ?? null) ? $processedResponse['errors'] : [],
+        );
 
         $mergedErrors = array_values(array_unique(array_merge($generationErrors, $processedResponse['errors'] ?? [])));
         $elapsedMs = (int) ((hrtime(true) - $startNs) / 1_000_000);
@@ -187,7 +171,7 @@ final class TaskAssistantFlowExecutionEngine
      * @param  array<string, mixed>  $payload
      * @return array<string, mixed>
      */
-    private function minimalStructuredDataForInvalidFlow(string $flow, array $payload): array
+    private function minimalStructuredDataForInvalidFlow(string $flow, array $payload, User $user): array
     {
         return match ($flow) {
             'prioritize' => [
@@ -201,6 +185,8 @@ final class TaskAssistantFlowExecutionEngine
                 'reasoning' => 'I could not validate a ranked list this time.',
                 'next_options' => 'If you want, ask me to prioritize again or schedule one task.',
                 'next_options_chip_texts' => [],
+                'ranking_method_summary' => 'I could not verify a full ranking explanation for this response.',
+                'ordering_rationale' => [],
                 'filter_interpretation' => null,
                 'count_mismatch_explanation' => null,
             ],
@@ -209,6 +195,10 @@ final class TaskAssistantFlowExecutionEngine
                 'items' => [],
                 'blocks' => [],
                 'schedule_variant' => (string) ($payload['schedule_variant'] ?? 'daily'),
+                'window_selection_explanation' => '',
+                'ordering_rationale' => [],
+                'blocking_reasons' => [],
+                'fallback_choice_explanation' => null,
                 'confirmation_required' => false,
                 'awaiting_user_decision' => false,
                 'confirmation_context' => null,
@@ -236,36 +226,107 @@ final class TaskAssistantFlowExecutionEngine
                     'Share when you want to schedule work',
                 ],
                 'next_options' => (string) config('task-assistant.general_guidance.default_next_options', 'If you want, I can help you decide what to do first or schedule time for your work.'),
-                'next_options_chip_texts' => $this->generalGuidanceDefaultChips(),
+                'next_options_chip_texts' => $this->generalGuidanceDefaultChips($user),
             ],
             default => [],
         };
     }
 
     /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function buildInvalidFlowFallbackContent(string $flow, array $payload, string $assistantFallbackContent): string
+    {
+        $segments = match ($flow) {
+            'daily_schedule' => $this->collectDailyScheduleFallbackSegments($payload),
+            'prioritize' => $this->collectPrioritizeFallbackSegments($payload),
+            default => [],
+        };
+
+        if ($segments === []) {
+            return $assistantFallbackContent;
+        }
+
+        $combined = trim(implode("\n\n", $segments));
+        if ($combined === '') {
+            return $assistantFallbackContent;
+        }
+
+        if (mb_strlen($combined) > 1800) {
+            return trim(mb_substr($combined, 0, 1799)).'…';
+        }
+
+        return $combined;
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
      * @return list<string>
      */
-    private function generalGuidanceDefaultChips(): array
+    private function collectDailyScheduleFallbackSegments(array $payload): array
     {
-        $raw = config('task-assistant.general_guidance.next_options_chip_texts', []);
-        if (! is_array($raw) || $raw === []) {
-            return ['What should I do first', 'Schedule my most important task'];
+        $segments = [];
+        foreach (['framing', 'reasoning', 'confirmation'] as $key) {
+            $value = trim((string) ($payload[$key] ?? ''));
+            if ($value !== '') {
+                $segments[] = $value;
+            }
         }
 
-        $chips = array_values(array_filter(array_map(
-            static fn (mixed $value): string => trim((string) $value),
-            $raw
-        ), static fn (string $value): bool => $value !== ''));
-
-        if ($chips === []) {
-            return ['What should I do first', 'Schedule my most important task'];
+        if ($segments === []) {
+            $prompt = trim((string) data_get($payload, 'confirmation_context.prompt', ''));
+            if ($prompt !== '') {
+                $segments[] = $prompt;
+            }
         }
 
-        if (count($chips) === 1) {
-            return [$chips[0], 'Schedule my most important task'];
+        return $segments;
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return list<string>
+     */
+    private function collectPrioritizeFallbackSegments(array $payload): array
+    {
+        $segments = [];
+        foreach (['acknowledgment', 'framing', 'reasoning', 'next_options'] as $key) {
+            $value = trim((string) ($payload[$key] ?? ''));
+            if ($value !== '') {
+                $segments[] = $value;
+            }
         }
 
-        return array_slice($chips, 0, 2);
+        return $segments;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function generalGuidanceDefaultChips(User $user): array
+    {
+        $chips = $this->quickChipResolver->resolveForEmptyState(
+            user: $user,
+            thread: null,
+            limit: 4,
+        );
+        $chips = $this->quickChipResolver->filterContinueStyleQuickChips($chips);
+        $chips = array_values(array_slice($chips, 0, 3));
+
+        if (count($chips) === 3) {
+            return $chips;
+        }
+
+        $fallbacks = [
+            'What should I do first',
+            'Schedule my most important task',
+            'Create a plan for today',
+        ];
+        while (count($chips) < 3) {
+            $chips[] = $fallbacks[count($chips)];
+        }
+
+        return array_slice($chips, 0, 3);
     }
 
     /**
@@ -281,12 +342,26 @@ final class TaskAssistantFlowExecutionEngine
     private function buildSnapshotForFlow(string $flow, User $user, array $payload): array
     {
         if ($flow !== 'daily_schedule') {
-            return $this->snapshotService->buildForUser($user);
+            return $this->candidateProvider->candidatesForUser(
+                user: $user,
+                taskLimit: 20,
+                eventHoursAhead: 168,
+                eventHoursBack: 24,
+                eventLimit: 30,
+                projectLimit: 20,
+            );
         }
 
         $proposals = is_array($payload['proposals'] ?? null) ? $payload['proposals'] : [];
         if ($proposals === []) {
-            return $this->snapshotService->buildForUser($user);
+            return $this->candidateProvider->candidatesForUser(
+                user: $user,
+                taskLimit: 20,
+                eventHoursAhead: 168,
+                eventHoursBack: 24,
+                eventLimit: 30,
+                projectLimit: 20,
+            );
         }
 
         $taskIds = [];
@@ -360,20 +435,6 @@ final class TaskAssistantFlowExecutionEngine
             'events' => $events,
             'projects' => $projects,
         ];
-    }
-
-    private function isStopped(TaskAssistantMessage $assistantMessage): bool
-    {
-        $fresh = TaskAssistantMessage::query()
-            ->whereKey($assistantMessage->id)
-            ->where('role', \App\Enums\MessageRole::Assistant)
-            ->first();
-
-        if (! $fresh) {
-            return false;
-        }
-
-        return data_get($fresh->metadata, 'stream.status') === 'stopped';
     }
 
     /**

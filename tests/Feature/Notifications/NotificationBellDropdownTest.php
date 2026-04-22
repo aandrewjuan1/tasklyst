@@ -6,6 +6,7 @@ use App\Models\CollaborationInvitation;
 use App\Models\DatabaseNotification;
 use App\Models\Task;
 use App\Models\User;
+use App\Notifications\AssistantResponseReadyNotification;
 use App\Notifications\CollaborationInvitationReceivedNotification;
 use App\Support\NotificationBellState;
 use App\Support\WorkspaceAgendaFocusUrl;
@@ -58,6 +59,78 @@ test('bell exposes notifications and unreadCount with expected types', function 
         ->and($component->get('unreadCount'))->toBeInt()
         ->and($component->get('panelOpen'))->toBeBool()
         ->and($component->get('hasMoreNotifications'))->toBeBool();
+});
+
+test('notification created event payload updates unread count without full list refresh while panel is closed', function (): void {
+    $user = $this->user;
+
+    DatabaseNotification::query()->create([
+        'id' => (string) \Illuminate\Support\Str::uuid(),
+        'type' => 'App\\Notifications\\TestNotification',
+        'notifiable_type' => User::class,
+        'notifiable_id' => $user->id,
+        'data' => [
+            'title' => 'Initial',
+            'message' => 'Initial message',
+            'route' => 'dashboard',
+            'params' => [],
+        ],
+        'read_at' => null,
+    ]);
+
+    $component = Livewire::actingAs($user)->test('notifications.bell-dropdown');
+
+    expect($component->get('unreadCount'))->toBe(1)
+        ->and($component->get('notifications'))->toHaveCount(1)
+        ->and($component->get('panelOpen'))->toBeFalse();
+
+    DatabaseNotification::query()->create([
+        'id' => (string) \Illuminate\Support\Str::uuid(),
+        'type' => 'App\\Notifications\\TestNotification',
+        'notifiable_type' => User::class,
+        'notifiable_id' => $user->id,
+        'data' => [
+            'title' => 'New unseen',
+            'message' => 'Should appear after open',
+            'route' => 'dashboard',
+            'params' => [],
+        ],
+        'read_at' => null,
+    ]);
+
+    $component->call('onNotificationCreated', ['unread_count' => 2]);
+
+    expect($component->get('unreadCount'))->toBe(2)
+        ->and($component->get('notifications'))->toHaveCount(1);
+
+    $component->call('togglePanel');
+
+    expect($component->get('notifications'))->toHaveCount(2);
+});
+
+test('notification bell fallback polling refreshes unread state from database without realtime events', function (): void {
+    $user = $this->user;
+
+    $component = Livewire::actingAs($user)->test('notifications.bell-dropdown');
+    expect($component->get('unreadCount'))->toBe(0);
+
+    DatabaseNotification::query()->create([
+        'id' => (string) \Illuminate\Support\Str::uuid(),
+        'type' => 'App\\Notifications\\TestNotification',
+        'notifiable_type' => User::class,
+        'notifiable_id' => $user->id,
+        'data' => [
+            'title' => 'Fallback notification',
+            'message' => 'DB-polled message',
+            'route' => 'dashboard',
+            'params' => [],
+        ],
+        'read_at' => null,
+    ]);
+
+    $component
+        ->call('pollNotificationFallback')
+        ->assertSet('unreadCount', 1);
 });
 
 test('close panel action closes the notification popover', function (): void {
@@ -324,6 +397,66 @@ test('assistant schedule accept success notification opens workspace row from be
 
     $target = NotificationBellState::workspaceFocusTargetFromNotificationData($data);
     expect($target)->toMatchArray(['kind' => 'task', 'id' => 123]);
+});
+
+test('assistant response ready notification exposes assistant click behavior', function (): void {
+    $user = $this->user;
+
+    $notification = DatabaseNotification::query()->create([
+        'id' => (string) \Illuminate\Support\Str::uuid(),
+        'type' => AssistantResponseReadyNotification::class,
+        'notifiable_type' => User::class,
+        'notifiable_id' => $user->id,
+        'data' => [
+            'type' => 'assistant_response_ready',
+            'title' => 'Assistant response ready',
+            'message' => 'Your task assistant response is ready to review.',
+            'route' => 'dashboard',
+            'params' => [],
+            'meta' => [
+                'thread_id' => 10,
+                'assistant_message_id' => 20,
+            ],
+        ],
+        'read_at' => null,
+    ]);
+
+    $component = Livewire::actingAs($user)->test('notifications.bell-dropdown');
+    $first = $component->get('notifications')[0] ?? null;
+
+    expect($first)->toBeArray()
+        ->and($first['id'] ?? null)->toBe((string) $notification->id)
+        ->and($first['click_behavior'] ?? null)->toBe('assistant_response_ready');
+});
+
+test('open assistant response ready notification marks read and dispatches flyout open event', function (): void {
+    $user = $this->user;
+
+    $notification = DatabaseNotification::query()->create([
+        'id' => (string) \Illuminate\Support\Str::uuid(),
+        'type' => AssistantResponseReadyNotification::class,
+        'notifiable_type' => User::class,
+        'notifiable_id' => $user->id,
+        'data' => [
+            'type' => 'assistant_response_ready',
+            'title' => 'Assistant response ready',
+            'message' => 'Your task assistant response is ready to review.',
+            'route' => 'dashboard',
+            'params' => [],
+            'meta' => [
+                'thread_id' => 10,
+                'assistant_message_id' => 20,
+            ],
+        ],
+        'read_at' => null,
+    ]);
+
+    Livewire::actingAs($user)
+        ->test('notifications.bell-dropdown')
+        ->call('openAssistantResponseReadyNotification', (string) $notification->id)
+        ->assertDispatched('assistant-chat-open-requested');
+
+    expect($notification->fresh()->read_at)->not->toBeNull();
 });
 
 test('school class notifications open workspace row from bell', function (): void {

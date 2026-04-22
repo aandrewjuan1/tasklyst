@@ -4,11 +4,16 @@ use App\Enums\EventStatus;
 use App\Enums\MessageRole;
 use App\Enums\TaskPriority;
 use App\Enums\TaskStatus;
+use App\Models\DatabaseNotification;
 use App\Models\Event;
+use App\Models\SchoolClass;
 use App\Models\Task;
 use App\Models\TaskAssistantThread;
 use App\Models\User;
+use App\Notifications\AssistantResponseReadyNotification;
+use App\Services\LLM\TaskAssistant\TaskAssistantQuickChipResolver;
 use App\Services\LLM\TaskAssistant\TaskAssistantService;
+use App\Support\LLM\TaskAssistantReasonCodes;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Log;
 use Prism\Prism\Enums\FinishReason;
@@ -243,6 +248,102 @@ test('prioritize_schedule schedules tasks only (events present)', function (): v
     expect($entityTypes)->toEqual(['task']);
 });
 
+test('prioritize_schedule schedules the top student-first task selection', function (): void {
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => 'Here is a focused schedule for your top task.',
+                'reasoning' => 'This keeps your strongest study priority in your next open block.',
+                'confirmation' => 'Do these times work for you?',
+            ])
+            ->withUsage(new Usage(5, 10)),
+    ]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+    $timezone = (string) config('app.timezone', 'UTC');
+    $tomorrow = CarbonImmutable::now($timezone)->addDay();
+
+    $academic = Task::factory()->for($user)->create([
+        'title' => 'Study calculus chapter 5',
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::Medium,
+        'start_datetime' => null,
+        'end_datetime' => $tomorrow->setTime(18, 0),
+        'duration' => 50,
+    ]);
+
+    Task::factory()->for($user)->create([
+        'title' => 'Clean desk drawer',
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::Medium,
+        'start_datetime' => null,
+        'end_datetime' => $tomorrow->setTime(18, 0),
+        'duration' => 50,
+    ]);
+
+    $userMessage = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'schedule my top 1 task for tomorrow',
+    ]);
+
+    $assistantMessage = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
+
+    $assistantMessage->refresh();
+    $proposals = $assistantMessage->metadata['schedule']['proposals'] ?? [];
+
+    expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('prioritize_schedule');
+    expect($proposals)->toBeArray();
+    expect(count($proposals))->toBeGreaterThan(0);
+    expect((string) ($proposals[0]['entity_type'] ?? ''))->toBe('task');
+    expect((int) ($proposals[0]['entity_id'] ?? 0))->toBe($academic->id);
+});
+
+test('prioritize_schedule with only doing tasks does not schedule and returns doing guidance', function (): void {
+    config([
+        'task-assistant.intent.use_llm' => false,
+    ]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    Task::factory()->for($user)->create([
+        'title' => 'Implement linked list lab exercises',
+        'status' => TaskStatus::Doing,
+        'priority' => TaskPriority::High,
+        'start_datetime' => null,
+        'end_datetime' => now()->addDay(),
+        'duration' => 240,
+    ]);
+
+    $userMessage = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'Schedule my top 1 for later',
+    ]);
+
+    $assistantMessage = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
+
+    $assistantMessage->refresh();
+    $proposals = $assistantMessage->metadata['schedule']['proposals'] ?? [];
+    $items = $assistantMessage->metadata['schedule']['items'] ?? [];
+
+    expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('prioritize_schedule');
+    expect($proposals)->toBeArray()->toHaveCount(0);
+    expect($items)->toBeArray()->toHaveCount(0);
+    expect((string) $assistantMessage->content)->toContain('I will not schedule tasks already marked as in progress');
+    expect((string) $assistantMessage->content)->toContain('Implement linked list lab exercises');
+});
+
 test('edit-like turn after pending schedule draft rewrites prioritize intent to schedule refinement', function (): void {
     config([
         'task-assistant.intent.use_llm' => false,
@@ -276,7 +377,7 @@ test('edit-like turn after pending schedule draft rewrites prioritize intent to 
                         'start_datetime' => '2026-04-02T08:00:00+08:00',
                         'end_datetime' => '2026-04-02T09:00:00+08:00',
                         'duration_minutes' => 60,
-                        'apply_payload' => ['tool' => 'update_task', 'arguments' => ['taskId' => 1, 'updates' => []]],
+                        'apply_payload' => ['action' => 'update_task', 'arguments' => ['taskId' => 1, 'updates' => []]],
                     ],
                     [
                         'proposal_id' => 'b',
@@ -287,7 +388,7 @@ test('edit-like turn after pending schedule draft rewrites prioritize intent to 
                         'start_datetime' => '2026-04-02T09:30:00+08:00',
                         'end_datetime' => '2026-04-02T10:00:00+08:00',
                         'duration_minutes' => 30,
-                        'apply_payload' => ['tool' => 'update_task', 'arguments' => ['taskId' => 2, 'updates' => []]],
+                        'apply_payload' => ['action' => 'update_task', 'arguments' => ['taskId' => 2, 'updates' => []]],
                     ],
                 ],
             ],
@@ -311,7 +412,7 @@ test('edit-like turn after pending schedule draft rewrites prioritize intent to 
     app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
 
     $assistantMessage->refresh();
-    expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('schedule');
+    expect(in_array((string) ($assistantMessage->metadata['structured']['flow'] ?? ''), ['schedule', 'prioritize_schedule'], true))->toBeTrue();
     expect($assistantMessage->metadata['schedule']['proposals'] ?? null)->toBeArray();
     expect($assistantMessage->metadata['schedule']['proposals'][0]['proposal_id'] ?? null)->toBe('b');
 });
@@ -354,7 +455,7 @@ test('schedule refinement without explicit day keeps edited item on its original
                         'start_datetime' => '2026-04-04T08:00:00+08:00',
                         'end_datetime' => '2026-04-04T09:00:00+08:00',
                         'duration_minutes' => 60,
-                        'apply_payload' => ['tool' => 'update_task', 'arguments' => ['taskId' => $taskA->id, 'updates' => []]],
+                        'apply_payload' => ['action' => 'update_task', 'arguments' => ['taskId' => $taskA->id, 'updates' => []]],
                     ],
                     [
                         'proposal_id' => 'b',
@@ -365,7 +466,7 @@ test('schedule refinement without explicit day keeps edited item on its original
                         'start_datetime' => '2026-04-04T10:00:00+08:00',
                         'end_datetime' => '2026-04-04T11:00:00+08:00',
                         'duration_minutes' => 60,
-                        'apply_payload' => ['tool' => 'update_task', 'arguments' => ['taskId' => $taskB->id, 'updates' => []]],
+                        'apply_payload' => ['action' => 'update_task', 'arguments' => ['taskId' => $taskB->id, 'updates' => []]],
                     ],
                     [
                         'proposal_id' => 'c',
@@ -376,7 +477,7 @@ test('schedule refinement without explicit day keeps edited item on its original
                         'start_datetime' => '2026-04-04T13:00:00+08:00',
                         'end_datetime' => '2026-04-04T14:30:00+08:00',
                         'duration_minutes' => 90,
-                        'apply_payload' => ['tool' => 'update_task', 'arguments' => ['taskId' => $taskC->id, 'updates' => []]],
+                        'apply_payload' => ['action' => 'update_task', 'arguments' => ['taskId' => $taskC->id, 'updates' => []]],
                     ],
                 ],
             ],
@@ -446,7 +547,7 @@ test('schedule refinement later today overrides only edited item day to today', 
                         'start_datetime' => '2026-04-04T08:00:00+08:00',
                         'end_datetime' => '2026-04-04T09:00:00+08:00',
                         'duration_minutes' => 60,
-                        'apply_payload' => ['tool' => 'update_task', 'arguments' => ['taskId' => $taskA->id, 'updates' => []]],
+                        'apply_payload' => ['action' => 'update_task', 'arguments' => ['taskId' => $taskA->id, 'updates' => []]],
                     ],
                     [
                         'proposal_id' => 'b',
@@ -457,7 +558,7 @@ test('schedule refinement later today overrides only edited item day to today', 
                         'start_datetime' => '2026-04-04T10:00:00+08:00',
                         'end_datetime' => '2026-04-04T11:00:00+08:00',
                         'duration_minutes' => 60,
-                        'apply_payload' => ['tool' => 'update_task', 'arguments' => ['taskId' => $taskB->id, 'updates' => []]],
+                        'apply_payload' => ['action' => 'update_task', 'arguments' => ['taskId' => $taskB->id, 'updates' => []]],
                     ],
                     [
                         'proposal_id' => 'c',
@@ -468,7 +569,7 @@ test('schedule refinement later today overrides only edited item day to today', 
                         'start_datetime' => '2026-04-04T13:00:00+08:00',
                         'end_datetime' => '2026-04-04T14:30:00+08:00',
                         'duration_minutes' => 90,
-                        'apply_payload' => ['tool' => 'update_task', 'arguments' => ['taskId' => $taskC->id, 'updates' => []]],
+                        'apply_payload' => ['action' => 'update_task', 'arguments' => ['taskId' => $taskC->id, 'updates' => []]],
                     ],
                 ],
             ],
@@ -545,7 +646,7 @@ test('fresh prioritize ask still stays prioritize even when pending schedule dra
                     'start_datetime' => '2026-04-02T08:00:00+08:00',
                     'end_datetime' => '2026-04-02T09:00:00+08:00',
                     'duration_minutes' => 60,
-                    'apply_payload' => ['tool' => 'update_task', 'arguments' => ['taskId' => 1, 'updates' => []]],
+                    'apply_payload' => ['action' => 'update_task', 'arguments' => ['taskId' => 1, 'updates' => []]],
                 ]],
             ],
             'structured' => ['flow' => 'schedule'],
@@ -600,7 +701,7 @@ test('prioritize_schedule stays fresh schedule when pending schedule draft exist
                     'start_datetime' => '2026-04-02T08:00:00+08:00',
                     'end_datetime' => '2026-04-02T09:00:00+08:00',
                     'duration_minutes' => 60,
-                    'apply_payload' => ['tool' => 'update_task', 'arguments' => ['taskId' => 1, 'updates' => []]],
+                    'apply_payload' => ['action' => 'update_task', 'arguments' => ['taskId' => 1, 'updates' => []]],
                 ]],
             ],
             'structured' => [
@@ -632,6 +733,72 @@ test('prioritize_schedule stays fresh schedule when pending schedule draft exist
 
     expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('prioritize_schedule');
     expect($assistantMessage->metadata['schedule']['proposals'] ?? null)->toBeArray();
+});
+
+test('whole-day fresh planning prompt does not rewrite to schedule_refinement when draft exists', function (): void {
+    config([
+        'task-assistant.intent.use_llm' => false,
+    ]);
+
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => 'Fresh schedule proposal.',
+                'reasoning' => 'Placed your top tasks into available time slots.',
+                'confirmation' => 'Do these times work?',
+            ])
+            ->withUsage(new Usage(5, 10)),
+    ]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => 'Draft schedule',
+        'metadata' => [
+            'schedule' => [
+                'proposals' => [[
+                    'proposal_id' => 'a',
+                    'status' => 'pending',
+                    'entity_type' => 'task',
+                    'entity_id' => 1,
+                    'title' => 'Task A',
+                    'start_datetime' => '2026-04-02T08:00:00+08:00',
+                    'end_datetime' => '2026-04-02T09:00:00+08:00',
+                    'duration_minutes' => 60,
+                    'apply_payload' => ['action' => 'update_task', 'arguments' => ['taskId' => 1, 'updates' => []]],
+                ]],
+            ],
+            'structured' => [
+                'flow' => 'schedule',
+            ],
+        ],
+    ]);
+
+    Task::factory()->for($user)->count(3)->create([
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::High,
+        'start_datetime' => null,
+        'end_datetime' => now()->addDay(),
+        'duration' => 45,
+    ]);
+
+    $userMessage = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'i said plan my whole day later schedule all important tasks that i need to do asap',
+    ]);
+    $assistantMessage = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
+
+    $assistantMessage->refresh();
+
+    expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('prioritize_schedule');
+    expect($assistantMessage->metadata['structured']['flow'] ?? null)->not->toBe('schedule_refinement');
 });
 
 test('processQueuedMessage clears task assistant container bindings after run', function (): void {
@@ -701,6 +868,9 @@ test('greeting is routed to general_guidance and persists structured metadata', 
     $assistantMessage->refresh();
 
     expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('general_guidance');
+    expect(data_get($assistantMessage->metadata, 'routing_trace.initial_flow'))->toBe('general_guidance');
+    expect(data_get($assistantMessage->metadata, 'routing_trace.final_flow'))->toBe('general_guidance');
+    expect(data_get($assistantMessage->metadata, 'routing_trace.rewrites'))->toBeArray();
     expect(trim((string) $assistantMessage->content))->not->toBe('');
 
     Log::shouldHaveReceived('info')->withArgs(function (string $message, array $context) use ($thread, $assistantMessage): bool {
@@ -710,6 +880,275 @@ test('greeting is routed to general_guidance and persists structured metadata', 
             && is_string($context['run_id'] ?? null)
             && ($context['flow'] ?? null) === 'general_guidance';
     })->atLeast()->once();
+});
+
+test('greeting-only prompt uses deterministic greeting guidance with three main-flow chips', function (): void {
+    config(['task-assistant.intent.use_llm' => false]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $userMessage = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'hi bro',
+    ]);
+    $assistantMessage = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
+
+    $assistantMessage->refresh();
+    $chips = data_get($assistantMessage->metadata, 'general_guidance.next_options_chip_texts', []);
+    $expectedDynamic = app(TaskAssistantQuickChipResolver::class)
+        ->filterContinueStyleQuickChips(
+            app(TaskAssistantQuickChipResolver::class)->resolveForEmptyState(
+                user: $user,
+                thread: $thread,
+                limit: 4
+            )
+        );
+    $expectedDynamic = array_values(array_slice($expectedDynamic, 0, 3));
+
+    expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('general_guidance');
+    expect(data_get($assistantMessage->metadata, 'general_guidance.subtype'))->toBe('greeting');
+    expect(data_get($assistantMessage->metadata, 'routing_trace.final_reason_codes', []))->toContain(
+        TaskAssistantReasonCodes::GENERAL_GUIDANCE_GREETING_ONLY_DETERMINISTIC
+    );
+    expect($chips)->toBeArray();
+    expect($chips)->toHaveCount(3);
+    expect($chips)->toBe($expectedDynamic);
+});
+
+test('greeting-only polite opener with name mention uses deterministic greeting guidance', function (): void {
+    config(['task-assistant.intent.use_llm' => false]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $userMessage = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'good morning tasklyst',
+    ]);
+    $assistantMessage = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
+
+    $assistantMessage->refresh();
+    expect(data_get($assistantMessage->metadata, 'general_guidance.subtype'))->toBe('greeting');
+});
+
+test('greeting-only hello there uses deterministic greeting guidance', function (): void {
+    config(['task-assistant.intent.use_llm' => false]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $userMessage = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'hello there',
+    ]);
+    $assistantMessage = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
+
+    $assistantMessage->refresh();
+    expect(data_get($assistantMessage->metadata, 'general_guidance.subtype'))->toBe('greeting');
+    expect(data_get($assistantMessage->metadata, 'routing_trace.final_reason_codes', []))->toContain(
+        TaskAssistantReasonCodes::GENERAL_GUIDANCE_GREETING_ONLY_DETERMINISTIC
+    );
+});
+
+test('mixed greeting plus actionable intent does not use deterministic greeting-only flow', function (): void {
+    config(['task-assistant.intent.use_llm' => false]);
+
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => 'Start with the most urgent task first.',
+                'acknowledgment' => null,
+                'reasoning' => 'These tasks matched the highest urgency.',
+                'next_options' => 'If you want, I can schedule these next.',
+                'next_options_chip_texts' => ['Schedule these next'],
+            ])
+            ->withUsage(new Usage(5, 10)),
+    ]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+    Task::factory()->for($user)->count(3)->create([
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::High,
+        'start_datetime' => null,
+        'end_datetime' => now()->addDay(),
+    ]);
+
+    $userMessage = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'hello schedule my tasks',
+    ]);
+    $assistantMessage = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
+
+    $assistantMessage->refresh();
+    expect(data_get($assistantMessage->metadata, 'general_guidance.subtype'))->not->toBe('greeting');
+    expect(data_get($assistantMessage->metadata, 'routing_trace.final_reason_codes', []))->not->toContain(
+        TaskAssistantReasonCodes::GENERAL_GUIDANCE_GREETING_ONLY_DETERMINISTIC
+    );
+});
+
+test('closing thanks message is short-circuited to deterministic general_guidance reply', function (): void {
+    config(['task-assistant.intent.use_llm' => false]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $userMessage = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'okay thank you so much',
+    ]);
+    $assistantMessage = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
+
+    $assistantMessage->refresh();
+
+    expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('general_guidance');
+    expect(data_get($assistantMessage->metadata, 'routing_trace.final_flow'))->toBe('general_guidance');
+    expect(data_get($assistantMessage->metadata, 'routing_trace.final_reason_codes', []))->toContain(
+        TaskAssistantReasonCodes::GENERAL_GUIDANCE_CLOSING_ONLY
+    );
+    expect(mb_strtolower((string) $assistantMessage->content))->toContain('you are welcome');
+    expect(data_get($assistantMessage->metadata, 'general_guidance.subtype'))->toBe('closing');
+});
+
+test('closing goodbye combo is short-circuited to deterministic closing guidance', function (): void {
+    config(['task-assistant.intent.use_llm' => false]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $userMessage = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'ok thanks bye',
+    ]);
+    $assistantMessage = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
+
+    $assistantMessage->refresh();
+    expect(data_get($assistantMessage->metadata, 'general_guidance.subtype'))->toBe('closing');
+    expect(data_get($assistantMessage->metadata, 'routing_trace.final_reason_codes', []))->toContain(
+        TaskAssistantReasonCodes::GENERAL_GUIDANCE_CLOSING_ONLY
+    );
+});
+
+test('short acknowledgement after planning context is routed as deterministic closing guidance', function (): void {
+    config(['task-assistant.intent.use_llm' => false]);
+
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => 'Start with the most urgent task first.',
+                'acknowledgment' => null,
+                'reasoning' => 'These tasks are due soonest.',
+                'next_options' => 'If you want, I can schedule these tasks for today.',
+                'next_options_chip_texts' => ['Schedule these tasks'],
+            ])
+            ->withUsage(new Usage(5, 10)),
+    ]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+    Task::factory()->for($user)->count(3)->create([
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::High,
+        'start_datetime' => null,
+        'end_datetime' => now()->addDay(),
+    ]);
+
+    $firstUser = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'list my top 3 tasks',
+    ]);
+    $firstAssistant = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $firstUser->id, $firstAssistant->id);
+
+    $secondUser = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'ok',
+    ]);
+    $secondAssistant = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $secondUser->id, $secondAssistant->id);
+
+    $secondAssistant->refresh();
+    expect($secondAssistant->metadata['structured']['flow'] ?? null)->toBe('general_guidance');
+    expect(data_get($secondAssistant->metadata, 'routing_trace.final_reason_codes', []))->toContain(
+        TaskAssistantReasonCodes::GENERAL_GUIDANCE_CLOSING_ONLY
+    );
+});
+
+test('closing-like prompt with actionable edit cue stays in scheduling flow', function (): void {
+    config(['task-assistant.intent.use_llm' => false]);
+
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => 'Here is your adjusted schedule.',
+                'reasoning' => 'I moved the block to match your requested time.',
+                'confirmation' => 'Does this revised time work for you?',
+            ])
+            ->withUsage(new Usage(5, 10)),
+    ]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+    Task::factory()->for($user)->count(3)->create([
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::High,
+        'start_datetime' => null,
+        'end_datetime' => now()->addDay(),
+        'duration' => 45,
+    ]);
+
+    $userMessage = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'thanks, move it to 6pm',
+    ]);
+    $assistantMessage = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
+
+    $assistantMessage->refresh();
+    expect(data_get($assistantMessage->metadata, 'routing_trace.final_reason_codes', []))->not->toContain(
+        TaskAssistantReasonCodes::GENERAL_GUIDANCE_CLOSING_ONLY
+    );
 });
 
 test('prioritize flow replaces last_listing with prioritize results for multiturn state', function (): void {
@@ -887,6 +1326,174 @@ test('today schedule does not place new blocks before now', function (): void {
     CarbonImmutable::setTestNow();
 });
 
+test('schedule my most important task defaults to same-day placement when a slot is available', function (): void {
+    config(['task-assistant.intent.use_llm' => false]);
+    $timezone = (string) config('app.timezone', 'UTC');
+    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-04-12 16:00:00', $timezone));
+
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => 'I scheduled your most important task.',
+                'reasoning' => 'I used the earliest open slot.',
+                'confirmation' => 'Want this adjusted?',
+            ])
+            ->withUsage(new Usage(5, 10)),
+    ]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+    Task::factory()->for($user)->create([
+        'title' => 'Most important task',
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::Urgent,
+        'start_datetime' => null,
+        'end_datetime' => CarbonImmutable::parse('2026-04-14 10:00:00', $timezone),
+        'duration' => 60,
+    ]);
+
+    $userMessage = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'Schedule my most important task',
+    ]);
+    $assistantMessage = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
+    $assistantMessage->refresh();
+
+    $proposal = $assistantMessage->metadata['schedule']['proposals'][0] ?? [];
+    expect((string) ($assistantMessage->metadata['structured']['flow'] ?? ''))->toBe('prioritize_schedule');
+    expect(str_starts_with((string) ($proposal['start_datetime'] ?? ''), '2026-04-12T'))->toBeTrue();
+
+    CarbonImmutable::setTestNow();
+});
+
+test('schedule my most important task falls back to tomorrow when today is fully blocked', function (): void {
+    config(['task-assistant.intent.use_llm' => false]);
+    $timezone = (string) config('app.timezone', 'UTC');
+    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-04-12 16:00:00', $timezone));
+
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => 'I scheduled your most important task.',
+                'reasoning' => 'Today is full, so I used the next open slot.',
+                'confirmation' => 'Want this adjusted?',
+            ])
+            ->withUsage(new Usage(5, 10)),
+    ]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+    Task::factory()->for($user)->create([
+        'title' => 'Most important task',
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::Urgent,
+        'start_datetime' => null,
+        'end_datetime' => CarbonImmutable::parse('2026-04-14 10:00:00', $timezone),
+        'duration' => 60,
+    ]);
+
+    Event::factory()->for($user)->create([
+        'status' => EventStatus::Scheduled,
+        'start_datetime' => CarbonImmutable::parse('2026-04-12 08:00:00', $timezone),
+        'end_datetime' => CarbonImmutable::parse('2026-04-12 22:00:00', $timezone),
+    ]);
+
+    $userMessage = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'Schedule my most important task',
+    ]);
+    $assistantMessage = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
+    $assistantMessage->refresh();
+
+    $proposal = $assistantMessage->metadata['schedule']['proposals'][0] ?? [];
+    expect((string) ($assistantMessage->metadata['structured']['flow'] ?? ''))->toBe('prioritize_schedule');
+    expect(str_starts_with((string) ($proposal['start_datetime'] ?? ''), '2026-04-13T'))->toBeTrue();
+
+    CarbonImmutable::setTestNow();
+});
+
+test('schedule proposals do not overlap buffered school class windows', function (): void {
+    config([
+        'task-assistant.intent.use_llm' => false,
+        'task-assistant.schedule.school_class_buffer_minutes' => 15,
+    ]);
+
+    $timezone = (string) config('app.timezone', 'UTC');
+    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-05-04 07:30:00', $timezone));
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+    $task = Task::factory()->for($user)->create([
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::High,
+        'duration' => 60,
+        'start_datetime' => null,
+        'end_datetime' => CarbonImmutable::parse('2026-05-05 21:00:00', $timezone),
+    ]);
+
+    expect($task->id)->toBeInt();
+
+    SchoolClass::factory()->for($user)->create([
+        'subject_name' => 'Calculus',
+        'start_datetime' => CarbonImmutable::parse('2026-05-05 10:00:00', $timezone),
+        'end_datetime' => CarbonImmutable::parse('2026-05-05 11:00:00', $timezone),
+        'start_time' => '10:00:00',
+        'end_time' => '11:00:00',
+    ]);
+
+    $userMessage = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'schedule my top task for tomorrow morning',
+    ]);
+    $assistantMessage = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
+
+    $assistantMessage->refresh();
+    $proposals = $assistantMessage->metadata['schedule']['proposals'] ?? [];
+    expect($proposals)->toBeArray();
+    expect($proposals)->not->toBeEmpty();
+
+    $blockedStart = CarbonImmutable::parse('2026-05-05 09:45:00', $timezone);
+    $blockedEnd = CarbonImmutable::parse('2026-05-05 11:15:00', $timezone);
+
+    foreach ($proposals as $proposal) {
+        if (! is_array($proposal)) {
+            continue;
+        }
+
+        $startRaw = (string) ($proposal['start_datetime'] ?? '');
+        $endRaw = (string) ($proposal['end_datetime'] ?? '');
+        if ($startRaw === '' || $endRaw === '') {
+            continue;
+        }
+
+        $start = CarbonImmutable::parse($startRaw, $timezone);
+        $end = CarbonImmutable::parse($endRaw, $timezone);
+        if ($end->lessThanOrEqualTo($start)) {
+            continue;
+        }
+
+        $overlapsBufferedClass = $start->lessThan($blockedEnd) && $end->greaterThan($blockedStart);
+        expect($overlapsBufferedClass)->toBeFalse();
+    }
+
+    CarbonImmutable::setTestNow();
+});
+
 test('non-ideal later scheduling emits confirmation-required fallback payload', function (): void {
     config(['task-assistant.intent.use_llm' => false]);
     CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-04-02 21:58:00', config('app.timezone', 'UTC')));
@@ -952,7 +1559,85 @@ test('non-ideal later scheduling emits confirmation-required fallback payload', 
     expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('schedule');
     expect($assistantMessage->metadata['schedule']['confirmation_required'] ?? null)->toBeTrue();
     expect($assistantMessage->metadata['schedule']['awaiting_user_decision'] ?? null)->toBeTrue();
+    expect($assistantMessage->metadata['schedule']['window_selection_explanation'] ?? null)->toBeString();
+    expect($assistantMessage->metadata['schedule']['ordering_rationale'] ?? null)->toBeArray();
+    expect($assistantMessage->metadata['schedule']['blocking_reasons'] ?? null)->toBeArray();
     expect($thread->metadata['conversation_state']['pending_schedule_fallback'] ?? null)->toBeArray();
+    CarbonImmutable::setTestNow();
+});
+
+test('robotic fallback narrative is rejected in favor of deterministic student-friendly confirmation copy', function (): void {
+    config(['task-assistant.intent.use_llm' => false]);
+    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-04-02 21:58:00', config('app.timezone', 'UTC')));
+
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => 'I prepared a schedule.',
+                'reasoning' => 'Using the available window.',
+                'confirmation' => 'Does this work?',
+            ])
+            ->withUsage(new Usage(5, 10)),
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => 'I understand that I could not find a suitable time slot.',
+                'reasoning' => 'Confidence: 0 of 1 open time slots were available for the horizon dates.',
+                'confirmation' => 'The request was made explicitly by the user.',
+                'reason_message' => 'Confidence: 0 of 1 open time slots were available.',
+            ])
+            ->withUsage(new Usage(3, 8)),
+    ]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+    $task = Task::factory()->for($user)->create([
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::High,
+        'duration' => 60,
+        'start_datetime' => null,
+        'end_datetime' => now()->addDay(),
+    ]);
+
+    $thread->update([
+        'metadata' => [
+            'conversation_state' => [
+                'last_listing' => [
+                    'source_flow' => 'prioritize',
+                    'items' => [[
+                        'entity_type' => 'task',
+                        'entity_id' => $task->id,
+                        'title' => $task->title,
+                        'position' => 0,
+                    ]],
+                ],
+            ],
+        ],
+    ]);
+
+    $userMessage = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'schedule top 1 for later',
+    ]);
+    $assistantMessage = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
+
+    $assistantMessage->refresh();
+
+    expect($assistantMessage->metadata['schedule']['confirmation_required'] ?? null)->toBeTrue();
+    expect($assistantMessage->metadata['schedule']['confirmation_context']['reason_details'] ?? [])->not->toBe([]);
+    $options = $assistantMessage->metadata['schedule']['confirmation_context']['options'] ?? [];
+    expect($options)->toContain('Schedule them later this week instead');
+    expect($options)->not->toBe([]);
+    expect($options)->not->toContain('Split it into shorter blocks today');
+    expect((string) $assistantMessage->content)->not->toContain('Confidence:');
+    expect((string) $assistantMessage->content)->not->toContain('explicitly by the user');
+    expect((string) $assistantMessage->content)->toContain('What blocked scheduling:');
+    expect((string) $assistantMessage->content)->toContain('I set up a draft, and I want your go-ahead before finalizing it.');
+
     CarbonImmutable::setTestNow();
 });
 
@@ -1114,6 +1799,67 @@ test('system default schedule count does not require confirmation when all avail
     CarbonImmutable::setTestNow();
 });
 
+test('generic top tasks schedule auto-spills to next days and does not require confirmation', function (): void {
+    config([
+        'task-assistant.intent.use_llm' => false,
+        'task-assistant.schedule.smart_default_spread_days' => 7,
+    ]);
+
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => 'I scheduled your top tasks in the nearest available blocks.',
+                'reasoning' => 'Today has no remaining window, so I used the next open day.',
+                'confirmation' => 'If you want, I can adjust the times.',
+            ])
+            ->withUsage(new Usage(5, 10)),
+    ]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+    $timezone = (string) config('app.timezone', 'UTC');
+    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-04-19 23:40:00', $timezone));
+
+    Task::factory()->for($user)->create([
+        'title' => 'Prepare calculus worksheet',
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::High,
+        'duration' => 60,
+        'start_datetime' => null,
+        'end_datetime' => CarbonImmutable::parse('2026-04-22 10:00:00', $timezone),
+    ]);
+
+    $userMessage = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'Schedule my top tasks',
+    ]);
+    $assistantMessage = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
+
+    $assistantMessage->refresh();
+    $thread->refresh();
+
+    $proposals = $assistantMessage->metadata['schedule']['proposals'] ?? [];
+    expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('prioritize_schedule');
+    expect($assistantMessage->metadata['schedule']['confirmation_required'] ?? null)->toBeFalse();
+    expect($assistantMessage->metadata['schedule']['awaiting_user_decision'] ?? null)->toBeFalse();
+    expect($thread->metadata['conversation_state']['pending_schedule_fallback'] ?? null)->toBeNull();
+    expect($proposals)->toBeArray()->not->toBeEmpty();
+    expect($assistantMessage->metadata['schedule']['placement_digest']['default_asap_mode'] ?? null)->toBeTrue();
+    expect($assistantMessage->metadata['schedule']['placement_digest']['attempted_horizon']['label'] ?? null)->toBe('default_asap_spread');
+
+    $firstStartRaw = (string) (($proposals[0]['start_datetime'] ?? ''));
+    expect($firstStartRaw)->not->toBe('');
+    $firstStart = CarbonImmutable::parse($firstStartRaw, $timezone);
+    expect($firstStart->toDateString())->toBe('2026-04-20');
+
+    CarbonImmutable::setTestNow();
+});
+
 test('explicit requested date no-fit requires confirmation instead of silent day widening', function (): void {
     config([
         'task-assistant.schedule.top_n_shortfall_policy' => 'confirm_if_shortfall',
@@ -1158,12 +1904,14 @@ test('explicit requested date no-fit requires confirmation instead of silent day
 
     $buildFallback = new ReflectionMethod(TaskAssistantService::class, 'buildScheduleFallbackConfirmationData');
     $buildFallback->setAccessible(true);
-    $converted = $buildFallback->invoke($service, $scheduleData, $thread, 'actually schedule them for april 20');
+    $converted = $buildFallback->invoke($service, $scheduleData, $thread, 'actually schedule them for april 20', $plan);
 
     expect($converted['confirmation_required'] ?? null)->toBeTrue();
     expect($converted['awaiting_user_decision'] ?? null)->toBeTrue();
     expect($converted['confirmation_context']['reason_code'] ?? null)->toBe('explicit_day_not_feasible');
-    expect($converted['confirmation_context']['options'] ?? [])->toContain('Widen to nearby days');
+    expect((array) ($converted['confirmation_context']['options'] ?? []))
+        ->toContain('Schedule for the closest available daypart')
+        ->toContain('Schedule them later this week instead');
 });
 
 test('fallback confirmation narrative does not claim explicit top-N for generic plan request', function (): void {
@@ -1181,6 +1929,19 @@ test('fallback confirmation narrative does not claim explicit top-N for generic 
     $thread = TaskAssistantThread::factory()->create(['user_id' => User::factory()->create()->id]);
     $service = app(TaskAssistantService::class);
 
+    $planForTopN = new \App\Services\LLM\TaskAssistant\ExecutionPlan(
+        flow: 'schedule',
+        confidence: 0.9,
+        clarificationNeeded: false,
+        clarificationQuestion: null,
+        reasonCodes: [],
+        constraints: [],
+        targetEntities: [],
+        timeWindowHint: null,
+        countLimit: 3,
+        generationProfile: 'schedule',
+    );
+
     $scheduleData = [
         'proposals' => [[
             'proposal_id' => 'p1',
@@ -1192,7 +1953,7 @@ test('fallback confirmation narrative does not claim explicit top-N for generic 
             'start_datetime' => '2026-04-18T20:50:56+08:00',
             'end_datetime' => '2026-04-18T21:10:56+08:00',
             'duration_minutes' => 20,
-            'apply_payload' => ['tool' => 'update_task', 'arguments' => ['taskId' => 1, 'updates' => []]],
+            'apply_payload' => ['action' => 'update_task', 'arguments' => ['taskId' => 1, 'updates' => []]],
         ]],
         'blocks' => [[
             'start_time' => '20:50',
@@ -1226,12 +1987,75 @@ test('fallback confirmation narrative does not claim explicit top-N for generic 
     $buildFallback = new ReflectionMethod(TaskAssistantService::class, 'buildScheduleFallbackConfirmationData');
     $buildFallback->setAccessible(true);
 
-    $converted = $buildFallback->invoke($service, $scheduleData, $thread, 'Create a plan for today');
+    $converted = $buildFallback->invoke($service, $scheduleData, $thread, 'Create a plan for today', $planForTopN);
 
     expect($converted['confirmation_context']['requested_count_source'] ?? null)->toBe('system_default');
     expect((string) ($converted['framing'] ?? ''))->not->toContain('you asked for top 3');
     expect((string) ($converted['reasoning'] ?? ''))->not->toContain('you asked for top 3');
     expect((string) ($converted['confirmation_context']['reason_message'] ?? ''))->not->toContain('You asked for top 3');
+});
+
+test('fallback confirmation keeps horizon wording for implicit tomorrow requests', function (): void {
+    $thread = TaskAssistantThread::factory()->create(['user_id' => User::factory()->create()->id]);
+    $service = app(TaskAssistantService::class);
+
+    $plan = new \App\Services\LLM\TaskAssistant\ExecutionPlan(
+        flow: 'prioritize_schedule',
+        confidence: 0.9,
+        clarificationNeeded: false,
+        clarificationQuestion: null,
+        reasonCodes: ['client_action_chip_prioritize_schedule'],
+        constraints: [],
+        targetEntities: [],
+        timeWindowHint: null,
+        countLimit: 3,
+        generationProfile: 'schedule',
+    );
+
+    $scheduleData = [
+        'schema_version' => 2,
+        'proposals' => [],
+        'blocks' => [],
+        'items' => [],
+        'framing' => 'Initial framing.',
+        'reasoning' => 'Initial reasoning.',
+        'confirmation' => 'Initial prompt.',
+        'requested_horizon_label' => 'tomorrow',
+        'requested_window_display_label' => 'tomorrow',
+        'has_explicit_clock_time' => false,
+        'blocking_section_title' => 'These items are already scheduled for tomorrow:',
+        'placement_digest' => [
+            'requested_count' => 3,
+            'requested_count_source' => 'system_default',
+            'placement_dates' => ['2026-04-23'],
+            'days_used' => ['2026-04-23'],
+            'confirmation_signals' => [
+                'triggers' => ['empty_placement'],
+                'nearest_available_window' => [
+                    'date' => '2026-04-24',
+                    'date_label' => 'Apr 24, 2026',
+                    'chip_label' => 'Apr 24',
+                    'daypart' => 'afternoon',
+                    'start_time' => '13:00',
+                    'end_time' => '16:00',
+                    'window_label' => 'afternoon',
+                    'display_label' => 'Apr 24, 2026 afternoon',
+                ],
+            ],
+        ],
+    ];
+
+    $buildFallback = new ReflectionMethod(TaskAssistantService::class, 'buildScheduleFallbackConfirmationData');
+    $buildFallback->setAccessible(true);
+    $converted = $buildFallback->invoke($service, $scheduleData, $thread, 'Create a plan for tomorrow', $plan);
+
+    expect((string) ($converted['requested_window_display_label'] ?? ''))->toBe('tomorrow');
+    expect((string) ($converted['confirmation_context']['requested_window_display_label'] ?? ''))->toBe('tomorrow');
+    expect((string) ($converted['confirmation_context']['reason_message'] ?? ''))->not->toContain('8:00 AM');
+    expect((string) ($converted['confirmation_context']['reason_message'] ?? ''))->not->toContain('22 hours');
+    expect((string) ($converted['confirmation_context']['requested_horizon_label'] ?? ''))->toBe('tomorrow');
+    expect((string) ($converted['confirmation_context']['option_actions'][0]['label'] ?? ''))->toBe('Schedule for Apr 24 afternoon');
+    expect((string) ($converted['confirmation_context']['option_actions'][0]['label'] ?? ''))->not->toContain('PM');
 });
 
 test('pending schedule fallback proceeds on affirmative follow-up', function (): void {
@@ -1263,7 +2087,7 @@ test('pending schedule fallback proceeds on affirmative follow-up', function ():
             'duration_minutes' => 60,
             'conflict_notes' => [],
             'apply_payload' => [
-                'tool' => 'update_task',
+                'action' => 'update_task',
                 'arguments' => [
                     'taskId' => $task->id,
                     'updates' => [
@@ -1370,7 +2194,7 @@ test('pending schedule fallback decline asks for alternate window and clears pen
                             'start_datetime' => '2026-04-03T08:00:00+08:00',
                             'end_datetime' => '2026-04-03T09:00:00+08:00',
                             'duration_minutes' => 60,
-                            'apply_payload' => ['tool' => 'update_task', 'arguments' => ['taskId' => $task->id, 'updates' => []]],
+                            'apply_payload' => ['action' => 'update_task', 'arguments' => ['taskId' => $task->id, 'updates' => []]],
                         ]],
                     ],
                     'time_window_hint' => 'later',
@@ -1446,7 +2270,7 @@ test('pending schedule fallback accepts natural window-adjustment reply and re-r
             'duration_minutes' => 180,
             'conflict_notes' => [],
             'apply_payload' => [
-                'tool' => 'update_task',
+                'action' => 'update_task',
                 'arguments' => [
                     'taskId' => $tasks[0]->id,
                     'updates' => [
@@ -1620,7 +2444,7 @@ test('pending schedule fallback fit-all follow-ups reroute instead of looping cl
                 'duration_minutes' => 120,
                 'conflict_notes' => [],
                 'apply_payload' => [
-                    'tool' => 'update_task',
+                    'action' => 'update_task',
                     'arguments' => [
                         'taskId' => $task->id,
                         'updates' => [
@@ -1710,4 +2534,420 @@ test('pending schedule fallback fit-all follow-ups reroute instead of looping cl
     }
 
     CarbonImmutable::setTestNow();
+});
+
+test('pending schedule fallback releases when user pivots to fresh prioritize request', function (): void {
+    config([
+        'task-assistant.intent.use_llm' => false,
+    ]);
+
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'items' => [[
+                    'entity_type' => 'task',
+                    'entity_id' => 1,
+                    'title' => 'Top task',
+                    'reason' => 'Most urgent right now.',
+                ]],
+                'limit_used' => 1,
+                'doing_progress_coach' => false,
+                'focus' => 'Start with the highest urgency.',
+                'acknowledgment' => 'Got it.',
+                'framing' => 'Here is your top priority.',
+                'reasoning' => 'I ranked by urgency and due pressure.',
+                'next_options' => [],
+                'next_options_chip_texts' => [],
+                'filter_interpretation' => null,
+                'assumptions' => [],
+                'count_mismatch_explanation' => null,
+                'prioritize_variant' => 'rank',
+            ])
+            ->withUsage(new Usage(5, 10)),
+    ]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    Task::factory()->for($user)->count(3)->create([
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::High,
+        'start_datetime' => null,
+    ]);
+
+    $thread->update([
+        'metadata' => [
+            'conversation_state' => [
+                'pending_schedule_fallback' => [
+                    'time_window_hint' => 'later',
+                    'initial_user_message' => 'schedule my top 3 later',
+                    'schedule_data' => [
+                        'schema_version' => 2,
+                        'proposals' => [],
+                        'blocks' => [],
+                        'items' => [],
+                        'confirmation_required' => true,
+                        'awaiting_user_decision' => true,
+                        'confirmation_context' => [
+                            'requested_count' => 3,
+                            'prompt' => 'Keep draft or adjust window?',
+                            'options' => ['Use this draft', 'Pick another time window', 'Cancel scheduling for now'],
+                        ],
+                        'placement_digest' => [
+                            'requested_count' => 3,
+                            'top_n_shortfall' => true,
+                        ],
+                    ],
+                ],
+            ],
+        ],
+    ]);
+
+    $userMessage = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'what should i do first right now',
+    ]);
+    $assistantMessage = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
+
+    $assistantMessage->refresh();
+    $thread->refresh();
+
+    expect((string) $assistantMessage->content)->not->toContain('Please confirm first');
+    expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('prioritize');
+    expect($thread->metadata['conversation_state']['pending_schedule_fallback'] ?? null)->toBeNull();
+});
+
+test('pending fallback chip action try_tomorrow_morning executes deterministic schedule path', function (): void {
+    config(['task-assistant.intent.use_llm' => false]);
+    $timezone = (string) config('app.timezone', 'UTC');
+    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-04-17 21:30:00', $timezone));
+
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => 'I prepared a schedule for tomorrow morning.',
+                'reasoning' => 'I used your selected fallback option and placed what could fit.',
+                'confirmation' => 'Want me to adjust anything else?',
+            ])
+            ->withUsage(new Usage(5, 10)),
+    ]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+    $task = Task::factory()->for($user)->create([
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::High,
+        'duration' => 30,
+        'start_datetime' => null,
+        'end_datetime' => CarbonImmutable::parse('2026-04-18 18:00:00', $timezone),
+    ]);
+
+    $thread->update([
+        'metadata' => [
+            'conversation_state' => [
+                'pending_schedule_fallback' => [
+                    'time_window_hint' => 'later',
+                    'schedule_data' => [
+                        'schema_version' => 2,
+                        'proposals' => [],
+                        'blocks' => [],
+                        'items' => [],
+                        'placement_digest' => [
+                            'requested_count' => 1,
+                        ],
+                        'confirmation_context' => [
+                            'requested_count' => 1,
+                            'option_actions' => [
+                                ['id' => 'try_tomorrow_morning', 'label' => 'Try tomorrow morning'],
+                                ['id' => 'pick_another_time_window', 'label' => 'Pick another time window'],
+                                ['id' => 'cancel_scheduling', 'label' => 'Cancel scheduling for now'],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ],
+    ]);
+
+    $userMessage = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'Try tomorrow morning',
+        'metadata' => [
+            'client_action' => [
+                'id' => 'try_tomorrow_morning',
+                'source' => 'fallback_option_chip',
+            ],
+        ],
+    ]);
+    $assistantMessage = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
+
+    $assistantMessage->refresh();
+    $thread->refresh();
+
+    expect($thread->metadata['conversation_state']['pending_schedule_fallback'] ?? null)->toBeNull();
+    expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('schedule');
+    expect($assistantMessage->metadata['routing_trace']['final_flow'] ?? null)->toBe('schedule');
+    expect($assistantMessage->metadata['routing_trace']['initial_reason_codes'] ?? [])
+        ->toContain('fallback_action_try_closest_available_window');
+
+    CarbonImmutable::setTestNow();
+});
+
+test('pending fallback chip action pick_another_time_window executes deterministic prioritize_schedule path', function (): void {
+    config(['task-assistant.intent.use_llm' => false]);
+    $timezone = (string) config('app.timezone', 'UTC');
+    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-04-17 21:30:00', $timezone));
+
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => 'I prioritized and placed your top tasks later this week.',
+                'reasoning' => 'I ranked the best candidates first, then scheduled them into nearby open windows.',
+                'confirmation' => 'If you want, I can refine this schedule.',
+            ])
+            ->withUsage(new Usage(5, 10)),
+    ]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+    Task::factory()->for($user)->count(3)->create([
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::High,
+        'duration' => 45,
+        'start_datetime' => null,
+    ]);
+
+    $thread->update([
+        'metadata' => [
+            'conversation_state' => [
+                'pending_schedule_fallback' => [
+                    'time_window_hint' => 'later',
+                    'schedule_data' => [
+                        'schema_version' => 2,
+                        'proposals' => [],
+                        'blocks' => [],
+                        'items' => [],
+                        'placement_digest' => [
+                            'requested_count' => 3,
+                        ],
+                        'confirmation_context' => [
+                            'requested_count' => 3,
+                            'option_actions' => [
+                                ['id' => 'pick_another_time_window', 'label' => 'Schedule them later this week instead'],
+                                ['id' => 'cancel_scheduling', 'label' => 'Cancel scheduling for now'],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ],
+    ]);
+
+    $userMessage = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'Schedule them later this week instead',
+        'metadata' => [
+            'client_action' => [
+                'id' => 'pick_another_time_window',
+                'source' => 'fallback_option_chip',
+            ],
+        ],
+    ]);
+    $assistantMessage = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
+
+    $assistantMessage->refresh();
+    $thread->refresh();
+
+    expect($thread->metadata['conversation_state']['pending_schedule_fallback'] ?? null)->toBeNull();
+    expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('prioritize_schedule');
+    expect($assistantMessage->metadata['routing_trace']['final_flow'] ?? null)->toBe('prioritize_schedule');
+    expect($assistantMessage->metadata['routing_trace']['initial_reason_codes'] ?? [])
+        ->toContain('fallback_action_prioritize_schedule_later_this_week');
+
+    CarbonImmutable::setTestNow();
+});
+
+test('processQueuedMessage creates one assistant response ready notification and avoids duplicates on rerun', function (): void {
+    config(['task-assistant.intent.use_llm' => false]);
+
+    Prism::fake([
+        TextResponseFake::make()
+            ->withText('Here is your plan.')
+            ->withFinishReason(FinishReason::Stop)
+            ->withToolCalls([])
+            ->withToolResults([])
+            ->withUsage(new Usage(1, 2))
+            ->withMeta(new Meta('fake', 'fake')),
+    ]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $userMessage = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'help me prioritize',
+    ]);
+    $assistantMessage = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    $service = app(TaskAssistantService::class);
+    $service->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
+
+    $assistantMessage->refresh();
+    expect(data_get($assistantMessage->metadata, 'notifications.assistant_response_ready_at'))->toBeString();
+
+    $countAfterFirstRun = DatabaseNotification::query()
+        ->where('notifiable_type', User::class)
+        ->where('notifiable_id', $user->id)
+        ->where('type', AssistantResponseReadyNotification::class)
+        ->count();
+
+    expect($countAfterFirstRun)->toBe(1);
+
+    $service->processQueuedMessage($thread->fresh(), $userMessage->id, $assistantMessage->id);
+
+    $countAfterSecondRun = DatabaseNotification::query()
+        ->where('notifiable_type', User::class)
+        ->where('notifiable_id', $user->id)
+        ->where('type', AssistantResponseReadyNotification::class)
+        ->count();
+
+    expect($countAfterSecondRun)->toBe(1);
+});
+
+test('processQueuedMessage routes prioritize top-three chip actions deterministically without intent inference', function (): void {
+    config(['task-assistant.intent.use_llm' => true]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $userMessage = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'Show next 3',
+        'metadata' => [
+            'client_action' => [
+                'id' => 'chip_prioritize_top_three',
+                'source' => 'next_option_chip',
+            ],
+        ],
+    ]);
+    $assistantMessage = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
+
+    $assistantMessage->refresh();
+
+    expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('prioritize');
+    expect($assistantMessage->metadata['routing_trace']['initial_reason_codes'] ?? [])
+        ->toContain('client_action_chip_prioritize_top_three');
+});
+
+test('processQueuedMessage routes prioritize-schedule top-one chip actions deterministically without intent inference', function (): void {
+    config(['task-assistant.intent.use_llm' => true]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $userMessage = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'Schedule top 1 for later',
+        'metadata' => [
+            'client_action' => [
+                'id' => 'chip_prioritize_schedule_top_one',
+                'source' => 'next_option_chip',
+            ],
+        ],
+    ]);
+    $assistantMessage = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
+
+    $assistantMessage->refresh();
+
+    expect($assistantMessage->metadata['routing_trace']['initial_flow'] ?? null)->toBe('prioritize_schedule');
+    expect($assistantMessage->metadata['routing_trace']['initial_reason_codes'] ?? [])
+        ->toContain('client_action_chip_prioritize_schedule_top_one');
+});
+
+test('processQueuedMessage routes ranked-set schedule chip actions deterministically', function (): void {
+    config(['task-assistant.intent.use_llm' => true]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $userMessage = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'Schedule all ranked tasks for later today',
+        'metadata' => [
+            'client_action' => [
+                'id' => 'chip_schedule_ranked_set',
+                'source' => 'next_option_chip',
+            ],
+        ],
+    ]);
+    $assistantMessage = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
+
+    $assistantMessage->refresh();
+
+    expect($assistantMessage->metadata['routing_trace']['initial_flow'] ?? null)->toBe('schedule');
+    expect($assistantMessage->metadata['routing_trace']['initial_reason_codes'] ?? [])
+        ->toContain('client_action_chip_schedule_ranked_set');
+});
+
+test('processQueuedMessage routes ranked-top-one schedule chip actions deterministically', function (): void {
+    config(['task-assistant.intent.use_llm' => true]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $userMessage = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'Schedule the ranked task for later today',
+        'metadata' => [
+            'client_action' => [
+                'id' => 'chip_schedule_ranked_top_one',
+                'source' => 'next_option_chip',
+            ],
+        ],
+    ]);
+    $assistantMessage = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
+
+    $assistantMessage->refresh();
+
+    expect($assistantMessage->metadata['routing_trace']['initial_flow'] ?? null)->toBe('schedule');
+    expect($assistantMessage->metadata['routing_trace']['initial_reason_codes'] ?? [])
+        ->toContain('client_action_chip_schedule_ranked_top_one');
 });

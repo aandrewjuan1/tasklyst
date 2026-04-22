@@ -2,6 +2,7 @@
 
 use App\Models\Event;
 use App\Models\Project;
+use App\Models\SchoolClass;
 use App\Models\Task;
 use App\Models\User;
 use App\Support\WorkspaceListAggregator;
@@ -90,7 +91,77 @@ test('sorts projects and events in day strip by start or end datetime', function
     $events = collect([$event]);
     $tasks = collect();
 
-    $result = WorkspaceListAggregator::mergeOrderAndDedupe($overdue, $projects, $events, $tasks, collect());
+    $result = WorkspaceListAggregator::mergeOrderAndDedupe(
+        $overdue,
+        $projects,
+        $events,
+        $tasks,
+        collect(),
+        now()->toDateString(),
+    );
 
     expect($result->pluck('kind')->all())->toBe(['event', 'project']);
+});
+
+test('places school classes before tasks and tail-tier projects when list anchor is set', function (): void {
+    $user = User::factory()->create();
+    $anchor = '2026-06-10';
+
+    $task = Task::factory()->for($user)->create([
+        'title' => 'MorningTask',
+        'start_datetime' => \Carbon\Carbon::parse('2026-06-10 09:00:00'),
+        'end_datetime' => null,
+    ]);
+    $longProject = Project::factory()->for($user)->create([
+        'name' => 'SpanningProject',
+        'start_datetime' => \Carbon\Carbon::parse('2026-06-01 08:00:00'),
+        'end_datetime' => \Carbon\Carbon::parse('2026-06-30 18:00:00'),
+    ]);
+    $schoolClass = SchoolClass::factory()->for($user)->create([
+        'subject_name' => 'AfternoonClass',
+        'start_datetime' => \Carbon\Carbon::parse('2026-06-10 14:00:00'),
+        'end_datetime' => \Carbon\Carbon::parse('2026-06-10 15:00:00'),
+    ]);
+
+    $result = WorkspaceListAggregator::mergeOrderAndDedupe(
+        collect(),
+        collect([$longProject]),
+        collect(),
+        collect([$task]),
+        collect([$schoolClass]),
+        $anchor,
+    );
+
+    expect($result->pluck('kind')->all())->toBe(['schoolClass', 'task', 'project']);
+});
+
+test('orders anchor-day projects with tasks by anchor-relevant time', function (): void {
+    $user = User::factory()->create();
+    $anchor = '2026-06-10';
+
+    $task = Task::factory()->for($user)->create([
+        'title' => 'NoonTask',
+        'start_datetime' => \Carbon\Carbon::parse('2026-06-10 12:00:00'),
+        'end_datetime' => null,
+    ]);
+    $dueProject = Project::factory()->for($user)->create([
+        'name' => 'EndsAnchorDay',
+        'start_datetime' => \Carbon\Carbon::parse('2026-06-01 08:00:00'),
+        'end_datetime' => \Carbon\Carbon::parse('2026-06-10 17:00:00'),
+    ]);
+
+    $result = WorkspaceListAggregator::mergeOrderAndDedupe(
+        collect(),
+        collect([$dueProject]),
+        collect(),
+        collect([$task]),
+        collect(),
+        $anchor,
+    );
+
+    expect($result->map(fn (array $e): string => match ($e['kind']) {
+        'task' => $e['item']->title,
+        'project' => $e['item']->name,
+        default => '',
+    })->all())->toBe(['NoonTask', 'EndsAnchorDay']);
 });

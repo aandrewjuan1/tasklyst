@@ -265,3 +265,38 @@ test('non collaborator edit does not notify owner as collaborator activity', fun
         ->where('type', CollaboratorActivityOnItemNotification::class)
         ->count())->toBe($before);
 });
+
+test('a second invitation can be declined after the first was declined for the same task and invitee', function (): void {
+    $owner = User::factory()->create();
+    $invitee = User::factory()->create();
+    $task = Task::factory()->for($owner)->create([
+        'title' => 'Re-invite flow',
+        'end_datetime' => now()->addDay(),
+    ]);
+
+    $first = CollaborationInvitation::factory()->create([
+        'collaboratable_type' => Task::class,
+        'collaboratable_id' => $task->id,
+        'inviter_id' => $owner->id,
+        'invitee_email' => $invitee->email,
+        'invitee_user_id' => $invitee->id,
+        'permission' => CollaborationPermission::View,
+        'status' => 'pending',
+    ]);
+
+    expect(app(DeclineCollaborationInvitationAction::class)->execute($first, $invitee))->toBeTrue()
+        ->and($first->fresh()->status)->toBe('declined');
+
+    $second = CollaborationInvitation::factory()->create([
+        'collaboratable_type' => Task::class,
+        'collaboratable_id' => $task->id,
+        'inviter_id' => $owner->id,
+        'invitee_email' => $invitee->email,
+        'invitee_user_id' => $invitee->id,
+        'permission' => CollaborationPermission::View,
+        'status' => 'pending',
+    ]);
+
+    expect(app(DeclineCollaborationInvitationAction::class)->execute($second, $invitee))->toBeTrue()
+        ->and($second->fresh()->status)->toBe('declined');
+});

@@ -2,11 +2,13 @@
 
 use App\Services\LLM\Prioritization\TaskAssistantTaskChoiceConstraintsExtractor;
 use App\Services\LLM\Prioritization\TaskPrioritizationService;
+use App\Services\LLM\Scheduling\ScheduleConfirmationSignalsBuilder;
 use App\Services\LLM\Scheduling\SchedulingIntentInterpreter;
 use App\Services\LLM\Scheduling\TaskAssistantScheduleContextBuilder;
 use App\Services\LLM\Scheduling\TaskAssistantScheduleDbContextBuilder;
 use App\Services\LLM\Scheduling\TaskAssistantScheduleHorizonResolver;
 use App\Services\LLM\Scheduling\TaskAssistantStructuredFlowGenerator;
+use App\Services\LLM\Scheduling\TaskAssistantWindowPlacementService;
 use App\Services\LLM\TaskAssistant\TaskAssistantHybridNarrativeService;
 use App\Services\LLM\TaskAssistant\TaskAssistantPromptData;
 
@@ -19,10 +21,12 @@ test('scheduler enforces monotonic placement order to avoid priority inversion',
 
     $gen = new TaskAssistantStructuredFlowGenerator(
         promptData: new TaskAssistantPromptData,
-        dbContextBuilder: new TaskAssistantScheduleDbContextBuilder($scheduleContextBuilder),
+        dbContextBuilder: app(TaskAssistantScheduleDbContextBuilder::class),
         scheduleContextBuilder: $scheduleContextBuilder,
         prioritizationService: new TaskPrioritizationService,
         hybridNarrative: new TaskAssistantHybridNarrativeService,
+        windowPlacementService: new TaskAssistantWindowPlacementService,
+        confirmationSignalsBuilder: new ScheduleConfirmationSignalsBuilder,
     );
 
     $method = new ReflectionMethod(TaskAssistantStructuredFlowGenerator::class, 'generateProposalsChunkedSpillCore');

@@ -2,19 +2,23 @@
 
 use App\Enums\AssistantSchedulePlanItemStatus;
 use App\Enums\MessageRole;
+use App\Actions\Assistant\AcceptScheduleProposalsAction;
 use App\Jobs\BroadcastTaskAssistantStreamJob;
 use App\Models\AssistantSchedulePlan;
 use App\Models\AssistantSchedulePlanItem;
+use App\Models\Event;
+use App\Models\Project;
+use App\Models\Task;
 use App\Models\TaskAssistantMessage;
 use App\Models\TaskAssistantThread;
 use App\Notifications\AssistantScheduleAcceptedNotification;
+use App\Services\EventService;
 use App\Services\LLM\Scheduling\ScheduleDraftMetadataNormalizer;
+use App\Services\ProjectService;
+use App\Services\TaskService;
 use App\Services\LLM\TaskAssistant\TaskAssistantQuickChipResolver;
+use App\Support\LLM\SchedulableProposalPolicy;
 use App\Services\UserNotificationBroadcastService;
-use App\Tools\LLM\TaskAssistant\CreateEventTool;
-use App\Tools\LLM\TaskAssistant\UpdateEventTool;
-use App\Tools\LLM\TaskAssistant\UpdateProjectTool;
-use App\Tools\LLM\TaskAssistant\UpdateTaskTool;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
@@ -52,6 +56,12 @@ new class extends Component
 
     public bool $showWorking = false;
 
+    public ?string $pendingClientActionId = null;
+
+    public ?string $pendingClientActionSource = null;
+
+    public ?string $pendingClientActionPrompt = null;
+
     public ?string $streamingCorrelationId = null;
 
     public ?string $streamingTimedOutAt = null;
@@ -87,7 +97,6 @@ new class extends Component
             $this->thread = $existingEmptyThread;
         } else {
             $this->thread = $user->taskAssistantThreads()->create([
-                'title' => null,
                 'metadata' => [],
             ]);
         }
@@ -104,6 +113,9 @@ new class extends Component
         $this->showWorking = false;
         $this->streamingCorrelationId = null;
         $this->streamingTimedOutAt = null;
+        $this->pendingClientActionId = null;
+        $this->pendingClientActionSource = null;
+        $this->pendingClientActionPrompt = null;
         $this->refreshEmptyStateQuickChips();
     }
 
@@ -121,6 +133,30 @@ new class extends Component
         // UX: quick prompt chips should *replace* the current draft input,
         // not append/stack lines.
         $this->newMessage = $value;
+        $this->pendingClientActionId = $this->deriveDeterministicChipActionId($value);
+        $this->pendingClientActionSource = $this->pendingClientActionId !== null
+            ? 'next_option_chip'
+            : null;
+        $this->pendingClientActionPrompt = $this->pendingClientActionId !== null
+            ? $value
+            : null;
+    }
+
+    public function updatedNewMessage(string $value): void
+    {
+        if ($this->pendingClientActionId === null) {
+            return;
+        }
+
+        $pendingPrompt = trim((string) ($this->pendingClientActionPrompt ?? ''));
+        $currentPrompt = trim($value);
+        if ($pendingPrompt !== '' && $currentPrompt === $pendingPrompt) {
+            return;
+        }
+
+        $this->pendingClientActionId = null;
+        $this->pendingClientActionSource = null;
+        $this->pendingClientActionPrompt = null;
     }
 
     /**
@@ -186,16 +222,37 @@ new class extends Component
         $this->refreshMessages();
     }
 
-    #[On('echo-private:task-assistant.user.{userId},.tool_call')]
-    public function onToolCall(): void
+    public function pollStreamingFallback(): void
     {
-        $this->showWorking = true;
+        if (! $this->isStreaming || ! $this->streamingMessageId || ! $this->thread) {
+            return;
+        }
+
+        $assistant = $this->thread->messages()
+            ->whereKey($this->streamingMessageId)
+            ->where('role', MessageRole::Assistant)
+            ->first();
+
+        if (! $assistant) {
+            $this->refreshMessages();
+
+            return;
+        }
+
+        $isStopped = data_get($assistant->metadata, 'stream.status') === 'stopped';
+        $isStreamed = (bool) data_get($assistant->metadata, 'streamed', false);
+        $hasFinalContent = trim((string) ($assistant->content ?? '')) !== '';
+
+        if ($isStopped || $isStreamed || $hasFinalContent) {
+            $this->refreshMessages();
+        }
     }
 
-    #[On('echo-private:task-assistant.user.{userId},.tool_result')]
-    public function onToolResult(): void
+    #[On('assistant-chat-open-requested')]
+    public function onAssistantChatOpenRequested(): void
     {
-        $this->showWorking = false;
+        $this->ensureThread();
+        $this->refreshMessages(true);
     }
 
     public function checkStreamingTimeout(): void
@@ -267,10 +324,29 @@ new class extends Component
         $this->cancelPreviousActiveAssistantRuns();
 
         // Always async: create messages then dispatch one job, which decides the flow and streams output.
+        $userMessageMetadata = null;
+        $pendingActionId = trim((string) ($this->pendingClientActionId ?? ''));
+        $pendingPrompt = trim((string) ($this->pendingClientActionPrompt ?? ''));
+        if ($pendingActionId !== '' && $pendingPrompt !== '' && $pendingPrompt === $content) {
+            $actionSource = trim((string) ($this->pendingClientActionSource ?? ''));
+            if ($actionSource === '') {
+                $actionSource = 'next_option_chip';
+            }
+            $userMessageMetadata = [
+                'client_action' => [
+                    'id' => $pendingActionId,
+                    'source' => $actionSource,
+                ],
+            ];
+        }
         $userMessage = $this->thread->messages()->create([
             'role' => MessageRole::User,
             'content' => $content,
+            'metadata' => $userMessageMetadata,
         ]);
+        $this->pendingClientActionId = null;
+        $this->pendingClientActionSource = null;
+        $this->pendingClientActionPrompt = null;
         $assistantMessage = $this->thread->messages()->create([
             'role' => MessageRole::Assistant,
             'content' => '',
@@ -331,6 +407,25 @@ new class extends Component
             return;
         }
 
+        $chipActions = $this->resolveFallbackOptionActionsForMessage($assistantMessage);
+        if (array_key_exists($chipIndex, $chipActions)) {
+            $actionId = trim((string) data_get($chipActions[$chipIndex], 'id', ''));
+            $this->pendingClientActionId = $actionId !== '' ? $actionId : null;
+            $this->pendingClientActionSource = $this->pendingClientActionId !== null
+                ? 'fallback_option_chip'
+                : null;
+            $this->pendingClientActionPrompt = null;
+        } else {
+            $content = trim((string) $nextOptionChips[$chipIndex]);
+            $this->pendingClientActionId = $this->deriveDeterministicChipActionId($content);
+            $this->pendingClientActionSource = $this->pendingClientActionId !== null
+                ? 'next_option_chip'
+                : null;
+            $this->pendingClientActionPrompt = $this->pendingClientActionId !== null
+                ? $content
+                : null;
+        }
+
         $content = trim((string) $nextOptionChips[$chipIndex]);
         if ($content === '') {
             return;
@@ -351,6 +446,13 @@ new class extends Component
         $scheduleChips = data_get($assistantMessage->metadata, 'schedule.next_options_chip_texts', []);
         $listingFollowupChips = data_get($assistantMessage->metadata, 'listing_followup.next_options_chip_texts', []);
         $structuredChips = data_get($assistantMessage->metadata, 'structured.data.next_options_chip_texts', []);
+        $fallbackOptionActions = $this->resolveFallbackOptionActionsForMessage($assistantMessage);
+        if ($fallbackOptionActions !== []) {
+            return array_values(array_map(
+                static fn (array $action): string => trim((string) ($action['label'] ?? '')),
+                $fallbackOptionActions
+            ));
+        }
 
         $nextOptionChips = is_array($prioritizeChips) && count($prioritizeChips) > 0
             ? $prioritizeChips
@@ -362,10 +464,87 @@ new class extends Component
                         ? $listingFollowupChips
                         : (is_array($structuredChips) ? $structuredChips : []))));
 
-        return array_values(array_filter(
+        $trimmed = array_values(array_filter(
             array_map(static fn (mixed $chip): string => trim((string) $chip), is_array($nextOptionChips) ? $nextOptionChips : []),
             static fn (string $chip): bool => $chip !== ''
         ));
+
+        return $this->filterContinueStyleQuickChips($trimmed);
+    }
+
+    /**
+     * @return array<int, array{id: string, label: string}>
+     */
+    private function resolveFallbackOptionActionsForMessage(TaskAssistantMessage $assistantMessage): array
+    {
+        $optionActions = data_get($assistantMessage->metadata, 'schedule.confirmation_context.option_actions', []);
+        if (! is_array($optionActions)) {
+            return [];
+        }
+
+        $normalized = [];
+        foreach ($optionActions as $optionAction) {
+            if (! is_array($optionAction)) {
+                continue;
+            }
+            $id = trim((string) ($optionAction['id'] ?? ''));
+            $label = trim((string) ($optionAction['label'] ?? ''));
+            if ($id === '' || $label === '') {
+                continue;
+            }
+            $normalized[] = [
+                'id' => $id,
+                'label' => $label,
+            ];
+        }
+
+        return $normalized;
+    }
+
+    private function deriveDeterministicChipActionId(string $chipText): ?string
+    {
+        $normalized = mb_strtolower(trim(preg_replace('/\s+/u', ' ', $chipText) ?? $chipText));
+        if ($normalized === '') {
+            return null;
+        }
+
+        return match (true) {
+            str_contains($normalized, 'prioritize then schedule') => 'chip_prioritize_schedule',
+            str_contains($normalized, 'schedule the ranked task for'),
+            str_contains($normalized, 'schedule the ranked top task for'),
+            str_contains($normalized, 'schedule the top ranked task for'),
+            str_contains($normalized, 'schedule this ranked task for') => 'chip_schedule_ranked_top_one',
+            str_contains($normalized, 'schedule all ranked tasks'),
+            str_contains($normalized, 'schedule the ranked tasks'),
+            str_contains($normalized, 'schedule all ranked items'),
+            str_contains($normalized, 'schedule the ranked list'),
+            str_contains($normalized, 'schedule these ranked tasks'),
+            str_contains($normalized, 'schedule these for') => 'chip_schedule_ranked_set',
+            str_contains($normalized, 'what should i do first'),
+            str_contains($normalized, 'top 3 tasks'),
+            str_contains($normalized, 'show my next 3 priorities'),
+            str_contains($normalized, 'show next 3'),
+            str_contains($normalized, 'top tasks') => 'chip_prioritize_top_three',
+            str_contains($normalized, 'what should i focus on today') => 'chip_prioritize_top_one',
+            str_contains($normalized, 'schedule my most important task'),
+            str_contains($normalized, 'schedule top 1 for later'),
+            str_contains($normalized, 'schedule my top 1 task for later') => 'chip_prioritize_schedule_top_one',
+            str_contains($normalized, 'schedule') => 'chip_schedule',
+            str_contains($normalized, 'plan my day'),
+            str_contains($normalized, 'create a plan for today'),
+            str_contains($normalized, 'create a plan for tomorrow'),
+            str_contains($normalized, 'plan tomorrow for me') => 'chip_prioritize_schedule',
+            default => null,
+        };
+    }
+
+    /**
+     * @param  array<int, string>  $chips
+     * @return array<int, string>
+     */
+    public function filterContinueStyleQuickChips(array $chips): array
+    {
+        return app(TaskAssistantQuickChipResolver::class)->filterContinueStyleQuickChips($chips);
     }
 
     public function requestStopStreaming(): void
@@ -422,7 +601,6 @@ new class extends Component
 
         if (! $this->thread) {
             $this->thread = $user->taskAssistantThreads()->create([
-                'title' => null,
                 'metadata' => [],
             ]);
         }
@@ -489,73 +667,25 @@ new class extends Component
      */
     public function acceptAllScheduleProposals(int $assistantMessageId): void
     {
-        if (! $this->thread) {
+        $user = Auth::user();
+        if (! $this->thread || ! $user) {
             return;
         }
 
-        if ($this->latestAssistantMessageId === null || $assistantMessageId !== $this->latestAssistantMessageId) {
-            return;
-        }
-
-        /** @var TaskAssistantMessage|null $message */
-        $message = $this->thread->messages()
-            ->where('id', $assistantMessageId)
-            ->where('role', MessageRole::Assistant)
-            ->first();
-
-        if (! $message) {
-            return;
-        }
-
-        $resolved = $this->resolveScheduleProposalsBucket($message);
-        if ($resolved === null) {
-            return;
-        }
-
-        [$fullPath, $count] = $resolved;
-        $pendingSchedulableCount = 0;
-        $acceptedCount = 0;
-        $failedCount = 0;
-        $acceptedProposals = [];
-
-        for ($index = 0; $index < $count; $index++) {
-            $message->refresh();
-            $proposal = $this->proposalAtIndex($message, $fullPath, $index);
-            if ($proposal === null || ! $this->isSchedulablePendingProposal($proposal)) {
-                continue;
-            }
-            $pendingSchedulableCount++;
-
-            try {
-                $this->applyScheduleProposal($proposal);
-                $message->refresh();
-                $this->setProposalStatus($message, $fullPath, $index, 'accepted');
-                $acceptedCount++;
-                $acceptedProposals[] = $proposal;
-            } catch (\Throwable $e) {
-                Log::warning('task-assistant.proposal.accept_all_failed', [
-                    'layer' => 'ui',
-                    'message_id' => $assistantMessageId,
-                    'proposal_index' => $index,
-                    'proposal_id' => $proposal['proposal_id'] ?? null,
-                    'error' => $e->getMessage(),
-                ]);
-                $message->refresh();
-                $this->setProposalStatus($message, $fullPath, $index, 'failed');
-                $failedCount++;
-
-                break;
-            }
-        }
+        $result = app(AcceptScheduleProposalsAction::class)->execute(
+            thread: $this->thread,
+            user: $user,
+            assistantMessageId: $assistantMessageId,
+            latestAssistantMessageId: $this->latestAssistantMessageId,
+        );
 
         $this->refreshMessages();
 
-        $isFullSuccess = $pendingSchedulableCount > 0
-            && $acceptedCount === $pendingSchedulableCount
-            && $failedCount === 0;
-        if (! $isFullSuccess) {
+        if (! ($result['is_full_success'] ?? false)) {
             return;
         }
+
+        $acceptedCount = (int) ($result['accepted_count'] ?? 0);
 
         $toastMessage = trans_choice(
             'Accepted :count proposal.|Accepted :count proposals.',
@@ -563,23 +693,12 @@ new class extends Component
             ['count' => $acceptedCount]
         );
         $this->dispatch('toast', type: 'success', message: $toastMessage);
-
-        $user = Auth::user();
-        if ($user) {
-            $this->persistAcceptedSchedulePlan(
-                user: $user,
-                assistantMessage: $message,
-                acceptedProposals: $acceptedProposals,
-            );
-            $user->notify(new AssistantScheduleAcceptedNotification(
-                threadId: (int) $this->thread->id,
-                assistantMessageId: $assistantMessageId,
-                acceptedCount: $acceptedCount,
-            ));
-            app(UserNotificationBroadcastService::class)->broadcastInboxUpdated($user);
-        }
-
-        $this->dispatch('assistant-schedule-plan-updated');
+        $user->notify(new AssistantScheduleAcceptedNotification(
+            threadId: (int) $this->thread->id,
+            assistantMessageId: $assistantMessageId,
+            acceptedCount: $acceptedCount,
+        ));
+        app(UserNotificationBroadcastService::class)->broadcastInboxUpdated($user);
     }
 
     /**
@@ -781,59 +900,90 @@ new class extends Component
         $durationMinutes = (int) ($proposal['duration_minutes'] ?? 0);
 
         if ($entityType === 'task' && $entityId > 0 && $startDatetime !== '') {
-            /** @var UpdateTaskTool $tool */
-            $tool = app()->make(UpdateTaskTool::class, ['user' => $user]);
-            $tool(['taskId' => $entityId, 'property' => 'startDatetime', 'value' => $startDatetime]);
+            $task = Task::query()
+                ->forUser($user->id)
+                ->whereKey($entityId)
+                ->first();
+            if (! $task) {
+                return;
+            }
+
+            $attributes = [
+                'start_datetime' => $startDatetime,
+            ];
 
             if ($durationMinutes > 0) {
-                $tool(['taskId' => $entityId, 'property' => 'duration', 'value' => (string) $durationMinutes]);
+                $attributes['duration'] = $durationMinutes;
             }
+
+            app(TaskService::class)->updateTask($task, $attributes);
 
             return;
         }
 
         if ($entityType === 'event' && $entityId > 0 && $startDatetime !== '' && $endDatetime !== '') {
-            /** @var UpdateEventTool $tool */
-            $tool = app()->make(UpdateEventTool::class, ['user' => $user]);
-            $tool(['eventId' => $entityId, 'property' => 'startDatetime', 'value' => $startDatetime]);
-            $tool(['eventId' => $entityId, 'property' => 'endDatetime', 'value' => $endDatetime]);
+            $event = Event::query()
+                ->forUser($user->id)
+                ->whereKey($entityId)
+                ->first();
+            if (! $event) {
+                return;
+            }
 
-            return;
-        }
-
-        if ($entityType === 'project' && $entityId > 0 && $startDatetime !== '') {
-            /** @var UpdateProjectTool $tool */
-            $tool = app()->make(UpdateProjectTool::class, ['user' => $user]);
-            $tool(['projectId' => $entityId, 'property' => 'startDatetime', 'value' => $startDatetime]);
-        }
-    }
-
-    private function applyFromPayload(\App\Models\User $user, array $applyPayload): void
-    {
-        $toolName = (string) ($applyPayload['tool'] ?? '');
-        $arguments = is_array($applyPayload['arguments'] ?? null) ? $applyPayload['arguments'] : [];
-        $updates = is_array($arguments['updates'] ?? null) ? $arguments['updates'] : [];
-
-        if ($toolName === 'create_event') {
-            /** @var CreateEventTool $tool */
-            $tool = app()->make(CreateEventTool::class, ['user' => $user]);
-            $tool([
-                'title' => (string) ($arguments['title'] ?? ''),
-                'description' => isset($arguments['description']) ? (string) $arguments['description'] : null,
-                'startDatetime' => $arguments['startDatetime'] ?? null,
-                'endDatetime' => $arguments['endDatetime'] ?? null,
+            app(EventService::class)->updateEvent($event, [
+                'start_datetime' => $startDatetime,
+                'end_datetime' => $endDatetime,
             ]);
 
             return;
         }
 
-        if ($toolName === 'update_task') {
+        if ($entityType === 'project' && $entityId > 0 && $startDatetime !== '') {
+            $project = Project::query()
+                ->forUser($user->id)
+                ->whereKey($entityId)
+                ->first();
+            if (! $project) {
+                return;
+            }
+
+            app(ProjectService::class)->updateProject($project, [
+                'start_datetime' => $startDatetime,
+            ]);
+        }
+    }
+
+    private function applyFromPayload(\App\Models\User $user, array $applyPayload): void
+    {
+        $applyAction = (string) ($applyPayload['action'] ?? $applyPayload['tool'] ?? '');
+        $arguments = is_array($applyPayload['arguments'] ?? null) ? $applyPayload['arguments'] : [];
+        $updates = is_array($arguments['updates'] ?? null) ? $arguments['updates'] : [];
+
+        if ($applyAction === 'create_event') {
+            app(EventService::class)->createEvent($user, [
+                'title' => (string) ($arguments['title'] ?? ''),
+                'description' => isset($arguments['description']) ? (string) $arguments['description'] : null,
+                'start_datetime' => $arguments['startDatetime'] ?? null,
+                'end_datetime' => $arguments['endDatetime'] ?? null,
+            ]);
+
+            return;
+        }
+
+        if ($applyAction === 'update_task') {
             $taskId = (int) ($arguments['taskId'] ?? 0);
             if ($taskId <= 0) {
                 return;
             }
-            /** @var UpdateTaskTool $tool */
-            $tool = app()->make(UpdateTaskTool::class, ['user' => $user]);
+            $task = Task::query()
+                ->forUser($user->id)
+                ->whereKey($taskId)
+                ->first();
+            if (! $task) {
+                return;
+            }
+
+            $attributes = [];
             foreach ($updates as $update) {
                 if (! is_array($update)) {
                     continue;
@@ -843,19 +993,34 @@ new class extends Component
                 if ($property === '' || $value === null) {
                     continue;
                 }
-                $tool(['taskId' => $taskId, 'property' => $property, 'value' => (string) $value]);
+                if ($property === 'startDatetime') {
+                    $attributes['start_datetime'] = (string) $value;
+                } elseif ($property === 'duration') {
+                    $attributes['duration'] = (int) $value;
+                }
+            }
+
+            if ($attributes !== []) {
+                app(TaskService::class)->updateTask($task, $attributes);
             }
 
             return;
         }
 
-        if ($toolName === 'update_event') {
+        if ($applyAction === 'update_event') {
             $eventId = (int) ($arguments['eventId'] ?? 0);
             if ($eventId <= 0) {
                 return;
             }
-            /** @var UpdateEventTool $tool */
-            $tool = app()->make(UpdateEventTool::class, ['user' => $user]);
+            $event = Event::query()
+                ->forUser($user->id)
+                ->whereKey($eventId)
+                ->first();
+            if (! $event) {
+                return;
+            }
+
+            $attributes = [];
             foreach ($updates as $update) {
                 if (! is_array($update)) {
                     continue;
@@ -865,19 +1030,34 @@ new class extends Component
                 if ($property === '' || $value === null) {
                     continue;
                 }
-                $tool(['eventId' => $eventId, 'property' => $property, 'value' => (string) $value]);
+                if ($property === 'startDatetime') {
+                    $attributes['start_datetime'] = (string) $value;
+                } elseif ($property === 'endDatetime') {
+                    $attributes['end_datetime'] = (string) $value;
+                }
+            }
+
+            if ($attributes !== []) {
+                app(EventService::class)->updateEvent($event, $attributes);
             }
 
             return;
         }
 
-        if ($toolName === 'update_project') {
+        if ($applyAction === 'update_project') {
             $projectId = (int) ($arguments['projectId'] ?? 0);
             if ($projectId <= 0) {
                 return;
             }
-            /** @var UpdateProjectTool $tool */
-            $tool = app()->make(UpdateProjectTool::class, ['user' => $user]);
+            $project = Project::query()
+                ->forUser($user->id)
+                ->whereKey($projectId)
+                ->first();
+            if (! $project) {
+                return;
+            }
+
+            $attributes = [];
             foreach ($updates as $update) {
                 if (! is_array($update)) {
                     continue;
@@ -887,7 +1067,13 @@ new class extends Component
                 if ($property === '' || $value === null) {
                     continue;
                 }
-                $tool(['projectId' => $projectId, 'property' => $property, 'value' => (string) $value]);
+                if ($property === 'startDatetime') {
+                    $attributes['start_datetime'] = (string) $value;
+                }
+            }
+
+            if ($attributes !== []) {
+                app(ProjectService::class)->updateProject($project, $attributes);
             }
         }
     }
@@ -926,30 +1112,7 @@ new class extends Component
      */
     private function isSchedulablePendingProposal(array $proposal): bool
     {
-        if (($proposal['status'] ?? 'pending') !== 'pending') {
-            return false;
-        }
-        if (trim((string) ($proposal['title'] ?? '')) === 'No schedulable items found') {
-            return false;
-        }
-        $payload = $proposal['apply_payload'] ?? null;
-        if (is_array($payload) && $payload !== []) {
-            return true;
-        }
-
-        $entityType = (string) ($proposal['entity_type'] ?? '');
-        $entityId = (int) ($proposal['entity_id'] ?? 0);
-        $start = (string) ($proposal['start_datetime'] ?? '');
-        $end = (string) ($proposal['end_datetime'] ?? '');
-
-        if ($entityType === 'task' && $entityId > 0 && $start !== '') {
-            return true;
-        }
-        if ($entityType === 'event' && $entityId > 0 && $start !== '' && $end !== '') {
-            return true;
-        }
-
-        return $entityType === 'project' && $entityId > 0 && $start !== '';
+        return SchedulableProposalPolicy::isPendingSchedulable($proposal);
     }
 
     private function setProposalStatus(TaskAssistantMessage $message, string $path, int $index, string $status): void
@@ -1081,12 +1244,14 @@ new class extends Component
             return;
         }
 
-        $this->emptyStateQuickChips = app(TaskAssistantQuickChipResolver::class)
-            ->resolveForEmptyState(
-                user: $user,
-                thread: $this->thread,
-                limit: 4,
-            );
+        $this->emptyStateQuickChips = $this->filterContinueStyleQuickChips(
+            app(TaskAssistantQuickChipResolver::class)
+                ->resolveForEmptyState(
+                    user: $user,
+                    thread: $this->thread,
+                    limit: 4,
+                )
+        );
     }
 
     private function cancelPreviousActiveAssistantRuns(): void

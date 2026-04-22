@@ -44,8 +44,13 @@ final class TaskAssistantScheduleContextBuilder
     {
         $extracted = $this->constraintsExtractor->extract($userMessage);
         $normalized = $this->buildScheduleContext($userMessage, $extracted);
+        $defaultAsapMode = $this->shouldUseDefaultAsapMode($userMessage, $extracted);
+        $normalized['default_asap_mode'] = $defaultAsapMode;
+        if ($defaultAsapMode) {
+            $normalized['schedule_intent_reason_codes'] = ['intent_default_asap_mode'];
+        }
 
-        $timezone = (string) ($snapshot['timezone'] ?? config('app.timezone', 'UTC'));
+        $timezone = (string) ($snapshot['timezone'] ?? config('app.timezone', 'Asia/Manila'));
         $todayStr = (string) ($snapshot['today'] ?? now($timezone)->format('Y-m-d'));
         $nowRaw = is_string($snapshot['now'] ?? null) ? trim((string) $snapshot['now']) : '';
         if ($nowRaw !== '') {
@@ -59,7 +64,12 @@ final class TaskAssistantScheduleContextBuilder
         }
         $normalized['schedule_horizon'] = $this->horizonResolver->resolve($userMessage, $timezone, $now);
 
-        $intent = $this->intentInterpreter->interpret($userMessage, $timezone, $now);
+        $intent = $this->intentInterpreter->interpret(
+            $userMessage,
+            $timezone,
+            $now,
+            $this->resolveDayBoundsFromSnapshot($snapshot)
+        );
         $intentReasonCodes = is_array($intent['reason_codes'] ?? null) ? $intent['reason_codes'] : [];
         $horizonResolved = is_array($normalized['schedule_horizon'] ?? null) ? $normalized['schedule_horizon'] : [];
         $normalized['schedule_horizon'] = $this->maybeWidenSmartDefaultHorizon(
@@ -67,6 +77,7 @@ final class TaskAssistantScheduleContextBuilder
             (string) ($normalized['time_constraint'] ?? 'none'),
             $intentReasonCodes,
             $timezone,
+            $defaultAsapMode,
         );
 
         $explicitOverrideRaw = is_string($snapshot['refinement_explicit_day_override'] ?? null)
@@ -118,10 +129,32 @@ final class TaskAssistantScheduleContextBuilder
         }
         $normalized['time_window'] = $intent['time_window'] ?? null;
         $normalized['time_window_strict'] = (bool) ($intent['strict_window'] ?? false);
+        $normalized['has_explicit_clock_time'] = (bool) ($intent['has_explicit_clock_time'] ?? false);
         $normalized['schedule_intent_flags'] = is_array($intent['intent_flags'] ?? null)
             ? $intent['intent_flags']
             : [];
         $normalized['schedule_intent_reason_codes'] = $intent['reason_codes'] ?? [];
+        $normalized['requested_horizon_label'] = $this->resolveRequestedHorizonLabel(
+            is_array($normalized['schedule_horizon'] ?? null) ? $normalized['schedule_horizon'] : []
+        );
+        $normalized['requested_window_display_label'] = $this->resolveRequestedWindowDisplayLabel(
+            is_array($normalized['schedule_horizon'] ?? null) ? $normalized['schedule_horizon'] : [],
+            (bool) ($normalized['has_explicit_clock_time'] ?? false),
+            is_array($normalized['time_window'] ?? null) ? $normalized['time_window'] : []
+        );
+        if ($defaultAsapMode) {
+            $reasonCodes = is_array($normalized['schedule_intent_reason_codes'] ?? null)
+                ? $normalized['schedule_intent_reason_codes']
+                : [];
+            if (! in_array('intent_default_asap_mode', $reasonCodes, true)) {
+                $reasonCodes[] = 'intent_default_asap_mode';
+            }
+            if (($normalized['schedule_horizon']['label'] ?? null) === 'default_asap_spread'
+                && ! in_array('intent_default_asap_horizon_spread', $reasonCodes, true)) {
+                $reasonCodes[] = 'intent_default_asap_horizon_spread';
+            }
+            $normalized['schedule_intent_reason_codes'] = $reasonCodes;
+        }
 
         Log::info('task-assistant.schedule_context_deterministic', [
             'layer' => 'structured_generation',
@@ -197,6 +230,7 @@ final class TaskAssistantScheduleContextBuilder
         string $timeConstraint,
         array $intentReasonCodes,
         string $timezone,
+        bool $defaultAsapMode = false,
     ): array {
         $label = (string) ($horizon['label'] ?? '');
         if ($this->isExplicitDateLikeHorizonLabel($label)) {
@@ -219,7 +253,7 @@ final class TaskAssistantScheduleContextBuilder
         }
 
         $maxDays = max(1, (int) config('task-assistant.schedule.max_horizon_days', 14));
-        $spread = max(1, (int) config('task-assistant.schedule.smart_default_spread_days', 3));
+        $spread = max(1, (int) config('task-assistant.schedule.smart_default_spread_days', 7));
         $spanDays = min($spread, $maxDays);
 
         try {
@@ -234,7 +268,7 @@ final class TaskAssistantScheduleContextBuilder
             'mode' => 'range',
             'start_date' => $start->toDateString(),
             'end_date' => $end->toDateString(),
-            'label' => 'smart_default_spread',
+            'label' => $defaultAsapMode ? 'default_asap_spread' : 'smart_default_spread',
         ];
     }
 
@@ -296,5 +330,108 @@ final class TaskAssistantScheduleContextBuilder
         return str_starts_with($label, 'explicit_date_')
             || str_starts_with($label, 'relative_days_')
             || str_starts_with($label, 'qualified_weekday_');
+    }
+
+    /**
+     * @param  array<string, mixed>  $snapshot
+     * @return array{start?: string, end?: string}
+     */
+    private function resolveDayBoundsFromSnapshot(array $snapshot): array
+    {
+        $preferences = is_array($snapshot['schedule_preferences'] ?? null)
+            ? $snapshot['schedule_preferences']
+            : [];
+        $dayBounds = is_array($preferences['day_bounds'] ?? null)
+            ? $preferences['day_bounds']
+            : [];
+
+        $start = is_string($dayBounds['start'] ?? null) ? trim((string) $dayBounds['start']) : '';
+        $end = is_string($dayBounds['end'] ?? null) ? trim((string) $dayBounds['end']) : '';
+
+        return array_filter([
+            'start' => $start !== '' ? $start : null,
+            'end' => $end !== '' ? $end : null,
+        ], static fn (mixed $value): bool => $value !== null);
+    }
+
+    /**
+     * @param  array<string, mixed>  $extracted
+     */
+    private function shouldUseDefaultAsapMode(string $userMessage, array $extracted): bool
+    {
+        $lower = mb_strtolower(trim($userMessage));
+        if ($lower === '') {
+            return false;
+        }
+
+        $hasExplicitDateLike = preg_match(
+            '/\b(today|tomorrow|tonight|this\s+week|next\s+week|this\s+weekend|next\s+weekend|monday|tuesday|wednesday|thursday|friday|saturday|sunday|\d{4}-\d{2}-\d{2}|\d{1,2}\/\d{1,2})\b/u',
+            $lower
+        ) === 1;
+        if ($hasExplicitDateLike) {
+            return false;
+        }
+
+        $hasClockOrDaypart = preg_match(
+            '/\b(\d{1,2}(:\d{2})?\s*(am|pm)|morning|afternoon|evening|night|later|onward(s)?|after\s+(lunch|dinner|class|school|work|office|home|gym|breakfast))\b/u',
+            $lower
+        ) === 1;
+        if ($hasClockOrDaypart) {
+            return false;
+        }
+
+        $timeConstraintRaw = (string) ($extracted['time_constraint'] ?? 'none');
+        if ($timeConstraintRaw !== 'none') {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * @param  array{mode?:string,start_date?:string,end_date?:string,label?:string}  $horizon
+     */
+    private function resolveRequestedHorizonLabel(array $horizon): string
+    {
+        $label = trim((string) ($horizon['label'] ?? ''));
+
+        return match (true) {
+            $label === 'tomorrow' => 'tomorrow',
+            $label === 'today',
+            $label === 'default_today' => 'today',
+            $label === 'this week' => 'this week',
+            $label === 'next week' => 'next week',
+            str_starts_with($label, 'qualified_weekday_') => trim(str_replace('qualified_weekday_', '', $label)),
+            str_starts_with($label, 'relative_days_') => 'the selected day',
+            str_starts_with($label, 'explicit_date_') => 'the selected day',
+            ($horizon['mode'] ?? '') === 'range' => 'this window',
+            default => 'your requested window',
+        };
+    }
+
+    /**
+     * @param  array{mode?:string,start_date?:string,end_date?:string,label?:string}  $horizon
+     * @param  array{start?:string,end?:string}  $timeWindow
+     */
+    private function resolveRequestedWindowDisplayLabel(array $horizon, bool $hasExplicitClockTime, array $timeWindow): string
+    {
+        if ($hasExplicitClockTime) {
+            $start = trim((string) ($timeWindow['start'] ?? ''));
+            $end = trim((string) ($timeWindow['end'] ?? ''));
+            if ($start !== '' && $end !== '') {
+                return $start.'-'.$end;
+            }
+        }
+
+        $horizonLabel = $this->resolveRequestedHorizonLabel($horizon);
+
+        return match (true) {
+            $horizonLabel === 'today' => 'today',
+            $horizonLabel === 'tomorrow' => 'tomorrow',
+            $horizonLabel === 'this week' => 'this week',
+            $horizonLabel === 'next week' => 'next week',
+            ($horizon['mode'] ?? '') === 'range' => "this week's window",
+            default => 'your requested window',
+        };
     }
 }

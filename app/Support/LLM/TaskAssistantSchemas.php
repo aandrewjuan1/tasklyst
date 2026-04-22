@@ -54,6 +54,38 @@ final class TaskAssistantSchemas
                                 nullable: true
                             ),
                             new StringSchema(
+                                name: 'reason_code_primary',
+                                description: 'Primary deterministic reason code for this proposal placement.',
+                                nullable: true
+                            ),
+                            new ArraySchema(
+                                name: 'reason_codes_secondary',
+                                description: 'Secondary deterministic reason codes for this proposal.',
+                                items: new StringSchema(name: 'reason_code', description: 'One reason code.'),
+                                nullable: true
+                            ),
+                            new ArraySchema(
+                                name: 'explainability_facts',
+                                description: 'Structured key/value facts used by narrative synthesis.',
+                                items: new ObjectSchema(
+                                    name: 'explainability_fact',
+                                    description: 'Explainability fact key/value pair.',
+                                    properties: [
+                                        new StringSchema(name: 'key', description: 'Fact key.'),
+                                        new StringSchema(name: 'value', description: 'Fact value.'),
+                                    ],
+                                    requiredFields: ['key', 'value']
+                                ),
+                                nullable: true
+                            ),
+                            new ObjectSchema(
+                                name: 'narrative_anchor',
+                                description: 'Structured anchor values for student-facing explanation.',
+                                properties: [],
+                                requiredFields: [],
+                                nullable: true
+                            ),
+                            new StringSchema(
                                 name: 'start_datetime',
                                 description: 'Proposed ISO start datetime.'
                             ),
@@ -75,16 +107,16 @@ final class TaskAssistantSchemas
                             ),
                             new ObjectSchema(
                                 name: 'apply_payload',
-                                description: 'Tool payload used when user accepts this item.',
+                                description: 'Apply payload used when user accepts this item.',
                                 nullable: true,
                                 properties: [
                                     new StringSchema(
-                                        name: 'tool',
-                                        description: 'Tool name to apply.'
+                                        name: 'action',
+                                        description: 'Apply action name.'
                                     ),
                                     new ObjectSchema(
                                         name: 'arguments',
-                                        description: 'Tool arguments.',
+                                        description: 'Apply action arguments.',
                                         properties: [],
                                         requiredFields: []
                                     ),
@@ -177,6 +209,141 @@ final class TaskAssistantSchemas
                     items: new StringSchema(name: 'assumption', description: 'Assumption item.'),
                     nullable: true
                 ),
+                new StringSchema(
+                    name: 'requested_horizon_label',
+                    description: 'User-facing horizon label (for example: today, tomorrow, this week).',
+                    nullable: true
+                ),
+                new StringSchema(
+                    name: 'requested_window_display_label',
+                    description: 'User-facing requested window label used in fallback and blocker headings.',
+                    nullable: true
+                ),
+                new StringSchema(
+                    name: 'blocking_section_title',
+                    description: 'Optional fully formed blocker section heading for display.',
+                    nullable: true
+                ),
+                new StringSchema(
+                    name: 'window_selection_explanation',
+                    description: 'Short plain-language explanation of why these time windows were chosen.',
+                    nullable: true
+                ),
+                new ObjectSchema(
+                    name: 'window_selection_struct',
+                    description: 'Deterministic structured explanation for window selection decisions.',
+                    nullable: true,
+                    properties: [
+                        new StringSchema(name: 'window_mode', description: 'window selection mode, e.g. requested_window or earliest_conflict_free.', nullable: true),
+                        new ObjectSchema(
+                            name: 'window_used',
+                            description: 'Requested window used by scheduler when applicable.',
+                            nullable: true,
+                            properties: [
+                                new StringSchema(name: 'start', description: 'Window start time.', nullable: true),
+                                new StringSchema(name: 'end', description: 'Window end time.', nullable: true),
+                            ],
+                            requiredFields: []
+                        ),
+                        new ObjectSchema(
+                            name: 'horizon_span',
+                            description: 'Schedule horizon span used during planning.',
+                            nullable: true,
+                            properties: [
+                                new StringSchema(name: 'start_date', description: 'Horizon start date.', nullable: true),
+                                new StringSchema(name: 'end_date', description: 'Horizon end date.', nullable: true),
+                            ],
+                            requiredFields: []
+                        ),
+                        new StringSchema(name: 'reason_code_primary', description: 'Primary deterministic reason code for window choice.', nullable: true),
+                    ],
+                    requiredFields: []
+                ),
+                new ArraySchema(
+                    name: 'ordering_rationale',
+                    description: 'One concise explanation per shown schedule row, matching the displayed order.',
+                    items: new StringSchema(name: 'ordering_reason', description: 'One per-row rationale line.'),
+                    nullable: true
+                ),
+                new ArraySchema(
+                    name: 'ordering_rationale_struct',
+                    description: 'Structured per-row rationale records for schedule ordering.',
+                    items: new ObjectSchema(
+                        name: 'ordering_rationale_struct_row',
+                        description: 'Structured explanation row for one scheduled item.',
+                        properties: [
+                            new NumberSchema(name: 'rank', description: '1-based row rank.', nullable: true),
+                            new StringSchema(name: 'title', description: 'Row title.', nullable: true),
+                            new StringSchema(name: 'slot_start', description: 'Slot start datetime.', nullable: true),
+                            new StringSchema(name: 'fit_reason_code', description: 'Deterministic fit reason code.', nullable: true),
+                            new ArraySchema(
+                                name: 'fit_facts',
+                                description: 'Structured fit facts for downstream narrative rendering.',
+                                items: new ObjectSchema(
+                                    name: 'fit_fact',
+                                    description: 'Fit fact key/value pair.',
+                                    properties: [
+                                        new StringSchema(name: 'key', description: 'Fact key.'),
+                                        new StringSchema(name: 'value', description: 'Fact value.'),
+                                    ],
+                                    requiredFields: ['key', 'value']
+                                ),
+                                nullable: true
+                            ),
+                        ],
+                        requiredFields: []
+                    ),
+                    nullable: true
+                ),
+                new ArraySchema(
+                    name: 'blocking_reasons',
+                    description: 'Specific blockers when requested windows are not available.',
+                    items: new ObjectSchema(
+                        name: 'blocking_reason',
+                        description: 'One blocking row containing title, window, and plain reason.',
+                        properties: [
+                            new StringSchema(name: 'title', description: 'Blocking item title.'),
+                            new StringSchema(name: 'blocked_window', description: 'Blocked time window label.'),
+                            new StringSchema(name: 'reason', description: 'Why this item blocks placement.'),
+                        ],
+                        requiredFields: ['title', 'blocked_window', 'reason']
+                    ),
+                    nullable: true
+                ),
+                new ArraySchema(
+                    name: 'blocking_reasons_struct',
+                    description: 'Structured blocker rows with deterministic reason codes.',
+                    items: new ObjectSchema(
+                        name: 'blocking_reason_struct',
+                        description: 'Structured blocker row with deterministic reason code.',
+                        properties: [
+                            new StringSchema(name: 'title', description: 'Blocking item title.', nullable: true),
+                            new StringSchema(name: 'blocked_window', description: 'Blocked time window label.', nullable: true),
+                            new StringSchema(name: 'block_reason_code', description: 'Deterministic blocker reason code.', nullable: true),
+                            new ArraySchema(
+                                name: 'reason_facts',
+                                description: 'Structured facts explaining the blocker.',
+                                items: new ObjectSchema(
+                                    name: 'reason_fact',
+                                    description: 'Blocker reason fact key/value pair.',
+                                    properties: [
+                                        new StringSchema(name: 'key', description: 'Fact key.'),
+                                        new StringSchema(name: 'value', description: 'Fact value.'),
+                                    ],
+                                    requiredFields: ['key', 'value']
+                                ),
+                                nullable: true
+                            ),
+                        ],
+                        requiredFields: []
+                    ),
+                    nullable: true
+                ),
+                new StringSchema(
+                    name: 'fallback_choice_explanation',
+                    description: 'Optional explanation of why fallback placement mode was used.',
+                    nullable: true
+                ),
             ],
             requiredFields: [
                 'blocks',
@@ -191,7 +358,7 @@ final class TaskAssistantSchemas
     {
         return new ObjectSchema(
             name: 'prioritize_narrative',
-            description: 'Role: student task coach and motivator—warm, concise, practical (not a dry narrator). Student-visible order is OUTPUT_FIELD_ORDER in the user message: intro (framing) → Doing coach when required → app-rendered ranked list → filter_interpretation → reasoning (coach/why) → next_options last. Hermes/small models: keep strings short; one main idea per field; follow field order; spread empathy and tips across fields. Never mention snapshot, JSON, ITEMS_JSON, FILTER_CONTEXT, backend, or database.',
+            description: 'Role: student task coach and motivator—warm, concise, practical (not a dry narrator). Student-visible order is OUTPUT_FIELD_ORDER in the user message: intro (framing) → Doing coach when required → app-rendered ranked list → filter_interpretation → reasoning (coach/why) → next_options last. The ranked list is already deterministic and student-first (task-first with configured event override policy; then task tiering/scoring), so explain rank #1 from provided rows rather than inventing a new ordering logic. Hermes/small models: keep strings short; one main idea per field; follow field order; spread empathy and tips across fields. Never mention snapshot, JSON, ITEMS_JSON, FILTER_CONTEXT, backend, or database.',
             properties: [
                 new StringSchema(
                     name: 'filter_interpretation',
@@ -239,6 +406,17 @@ final class TaskAssistantSchemas
                     name: 'reasoning',
                     description: 'Required: appears after filter_interpretation and before next_options—main coaching paragraph: motivation, empathy, why row #1 is first using ITEMS_JSON when LISTED_ITEM_COUNT >= 1, and one concrete micro-step or habit when helpful. Mention the first row\'s exact title at least once. Describe the work using words grounded in that row\'s title and fields (priority, due_phrase, complexity_label)—do not invent assignment types (e.g. "programming exercise", "lab hand-in") not supported by the title. When LISTED_ITEM_COUNT is 1 and DOING_COACH_REQUIRED is true, do not drag in other task titles from in-progress work; stay on row #1. Do not repeat the same overdue/complex/status points as framing or filter_interpretation; do not repeat scheduling lines that belong in next_options. When LISTED_ITEM_COUNT > 1, add one short phrase for row 2\'s role vs row 1 using only entity_type, titles, and due fields—no invented times. Direct address (I/You/Let\'s); no "the user". Singular grammar when LISTED_ITEM_COUNT is 1. Avoid rhetorical "Today," unless due_phrase supports calendar-today wording. No "ordered list" boilerplate.',
                     nullable: false
+                ),
+                new StringSchema(
+                    name: 'ranking_method_summary',
+                    description: 'Required: one short, student-friendly sentence that explains the ranking method in plain language (urgency -> priority -> practical effort).',
+                    nullable: true
+                ),
+                new ArraySchema(
+                    name: 'ordering_rationale',
+                    description: 'Required: one short explanation line per displayed row, grounded in the exact row title/priority/due data. No invented subjects.',
+                    items: new StringSchema(name: 'ordering_reason_line', description: 'One grounded per-rank explanation line.'),
+                    nullable: true
                 ),
             ],
             requiredFields: [

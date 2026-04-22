@@ -115,10 +115,25 @@ return [
     */
     'streaming' => [
         'chunk_size' => (int) env('TASK_ASSISTANT_STREAM_CHUNK_SIZE', 40),
-        'enable_typing_effect' => (bool) env('TASK_ASSISTANT_ENABLE_TYPING_EFFECT', true),
+        'enable_typing_effect' => (bool) env('TASK_ASSISTANT_ENABLE_TYPING_EFFECT', false),
         'inter_chunk_delay_ms' => (int) env('TASK_ASSISTANT_INTER_CHUNK_DELAY_MS', 24),
         'max_typing_effect_ms' => (int) env('TASK_ASSISTANT_MAX_TYPING_EFFECT_MS', 900),
         'health_timeout_seconds' => (int) env('TASK_ASSISTANT_STREAM_HEALTH_TIMEOUT_SECONDS', 20),
+        // Fallback polling cadence when realtime broadcast is unavailable.
+        'fallback_poll_initial_ms' => (int) env('TASK_ASSISTANT_FALLBACK_POLL_INITIAL_MS', 2000),
+        'fallback_poll_mid_ms' => (int) env('TASK_ASSISTANT_FALLBACK_POLL_MID_MS', 3500),
+        'fallback_poll_slow_ms' => (int) env('TASK_ASSISTANT_FALLBACK_POLL_SLOW_MS', 5000),
+        // Escalation windows for adaptive fallback polling.
+        'fallback_poll_mid_after_ms' => (int) env('TASK_ASSISTANT_FALLBACK_POLL_MID_AFTER_MS', 10000),
+        'fallback_poll_slow_after_ms' => (int) env('TASK_ASSISTANT_FALLBACK_POLL_SLOW_AFTER_MS', 25000),
+        // Health timeout checks should run less frequently than fallback polling.
+        'timeout_poll_ms' => (int) env('TASK_ASSISTANT_TIMEOUT_POLL_MS', 10000),
+        // Re-check "stop streaming" signal every N chunks (reduces DB pressure during long streams).
+        'stop_check_interval_chunks' => (int) env('TASK_ASSISTANT_STREAM_STOP_CHECK_INTERVAL_CHUNKS', 4),
+        // Minimum elapsed time between cancellation checks to avoid query bursts on very fast chunk loops.
+        'stop_check_min_interval_ms' => (int) env('TASK_ASSISTANT_STREAM_STOP_CHECK_MIN_INTERVAL_MS', 120),
+        // Logging full structured envelope can be expensive/noisy in production.
+        'log_structured_envelope' => (bool) env('TASK_ASSISTANT_STREAM_LOG_STRUCTURED_ENVELOPE', false),
     ],
 
     /*
@@ -141,10 +156,55 @@ return [
         // top1_only allows partial fit only for highest-priority item.
         'partial_policy' => env('TASK_ASSISTANT_SCHEDULE_PARTIAL_POLICY', 'top1_only'),
         /**
+         * When {@see ScheduleConfirmationSignalsBuilder} sets triggers, require user confirmation if
+         * any trigger is listed here. Legacy digest without confirmation_signals still uses
+         * {@see ScheduleFallbackPolicy::legacyShouldRequireConfirmation}.
+         */
+        'confirmation_triggers' => [
+            'empty_placement',
+            'unplaced_units',
+            'adaptive_relaxed_placement',
+            'strict_window_no_fit',
+            'requested_window_unsatisfied',
+            'hinted_window_unsatisfied',
+            'placement_outside_horizon',
+            'top_n_shortfall',
+        ],
+        /**
          * When the user gives a vague schedule request (horizon label default_today), search this many
          * consecutive local days starting from today, capped by max_horizon_days.
          */
-        'smart_default_spread_days' => (int) env('TASK_ASSISTANT_SCHEDULE_SMART_DEFAULT_SPREAD_DAYS', 3),
+        'smart_default_spread_days' => (int) env('TASK_ASSISTANT_SCHEDULE_SMART_DEFAULT_SPREAD_DAYS', 7),
+        /**
+         * Hard-block buffer (minutes) around effective SchoolClass intervals when placing schedule proposals.
+         * Set to 0 to disable the extra prep/travel margin.
+         */
+        'school_class_buffer_minutes' => (int) env('TASK_ASSISTANT_SCHOOL_CLASS_BUFFER_MINUTES', 15),
+        /**
+         * Fallback duration for timed events missing an explicit end datetime.
+         */
+        'event_fallback_duration_minutes' => (int) env('TASK_ASSISTANT_SCHEDULE_EVENT_FALLBACK_DURATION_MINUTES', 60),
+        /**
+         * Default lunch block applied as busy time during placement.
+         * Can be overridden per-user via users.schedule_preferences.lunch_block.
+         */
+        'lunch_block' => [
+            'enabled' => (bool) env('TASK_ASSISTANT_SCHEDULE_LUNCH_BLOCK_ENABLED', true),
+            'start' => (string) env('TASK_ASSISTANT_SCHEDULE_LUNCH_BLOCK_START', '12:00'),
+            'end' => (string) env('TASK_ASSISTANT_SCHEDULE_LUNCH_BLOCK_END', '13:00'),
+        ],
+        /**
+         * Candidate start-time scoring weights for deterministic window placement.
+         */
+        'window_scoring' => [
+            'weights' => [
+                'earlier_start_bonus' => (float) env('TASK_ASSISTANT_SCHEDULE_WEIGHT_EARLIER_START', 1.0),
+                'due_soon_multiplier' => (float) env('TASK_ASSISTANT_SCHEDULE_WEIGHT_DUE_SOON', 1.0),
+                'complexity_fit_multiplier' => (float) env('TASK_ASSISTANT_SCHEDULE_WEIGHT_COMPLEXITY_FIT', 1.0),
+                'class_adjacency_multiplier' => (float) env('TASK_ASSISTANT_SCHEDULE_WEIGHT_CLASS_ADJACENCY', 1.0),
+                'energy_bias_multiplier' => (float) env('TASK_ASSISTANT_SCHEDULE_WEIGHT_ENERGY_BIAS', 1.0),
+            ],
+        ],
         /**
          * When the deterministic planner cannot place real tasks (calendar full, no candidates, etc.).
          * Tone aligns with listing.empty_workspace (@see TaskAssistantStructuredFlowGenerator).
@@ -162,14 +222,25 @@ return [
             'llm_fallback_enabled' => (bool) env('TASK_ASSISTANT_SCHEDULE_REFINEMENT_LLM_FALLBACK', true),
         ],
     ],
-    'tools' => [
-        'routes' => [
-            'listing' => [],
-            'schedule' => ['list_tasks'],
-            'prioritize' => [],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Prioritization (student-first defaults)
+    |--------------------------------------------------------------------------
+    */
+    'prioritization' => [
+        // When true, mixed prioritize requests default to task-led ordering.
+        'student_first_global_task_dominance' => (bool) env('TASK_ASSISTANT_STUDENT_FIRST_GLOBAL_TASK_DOMINANCE', true),
+        // Events can only outrank tasks if ongoing or starting within this window.
+        'event_override_window_minutes' => (int) env('TASK_ASSISTANT_EVENT_OVERRIDE_WINDOW_MINUTES', 45),
+        // Tier weights for deterministic student-first ranking.
+        'student_focus_tier' => [
+            'non_recurring_academic' => (int) env('TASK_ASSISTANT_TIER_NON_RECURRING_ACADEMIC', 400),
+            'non_recurring_general' => (int) env('TASK_ASSISTANT_TIER_NON_RECURRING_GENERAL', 300),
+            'recurring_academic' => (int) env('TASK_ASSISTANT_TIER_RECURRING_ACADEMIC', 200),
+            'recurring_general' => (int) env('TASK_ASSISTANT_TIER_RECURRING_GENERAL', 100),
         ],
     ],
-
     /*
     |--------------------------------------------------------------------------
     | Intent routing (LLM + heuristic validation)
@@ -325,11 +396,11 @@ TXT,
             'signal_only_clarify_margin' => (float) env('TASK_ASSISTANT_INTENT_SIGNAL_CLARIFY_MARGIN', 0.15),
             // When the confidence gap between the top two candidate composites
             // is small, prefer general guidance to avoid wrong hard routing.
-            'ambiguity_gap_min' => (float) env('TASK_ASSISTANT_INTENT_AMBIGUITY_GAP_MIN', 0.15),
+            'ambiguity_gap_min' => (float) env('TASK_ASSISTANT_INTENT_AMBIGUITY_GAP_MIN', 0.18),
             // Require the second-best composite to be meaningfully non-zero.
             'ambiguity_second_composite_min' => (float) env('TASK_ASSISTANT_INTENT_AMBIGUITY_SECOND_COMPOSITE_MIN', 0.12),
             // Keep general-guidance override limited to medium confidence.
-            'ambiguity_top_composite_max' => (float) env('TASK_ASSISTANT_INTENT_AMBIGUITY_TOP_COMPOSITE_MAX', 0.65),
+            'ambiguity_top_composite_max' => (float) env('TASK_ASSISTANT_INTENT_AMBIGUITY_TOP_COMPOSITE_MAX', 0.75),
             /**
              * Minimum min(prioritization, scheduling) before non-pattern hybrid signal blends apply
              * (@see TaskAssistantIntentHybridCue::scoreHybridSignal).
@@ -339,12 +410,86 @@ TXT,
              * When the top two merged composites are prioritize vs schedule with a small margin,
              * route to prioritize_schedule if the hybrid composite meets this floor.
              */
-            'hybrid_ambiguity_resolution_min' => (float) env('TASK_ASSISTANT_INTENT_HYBRID_AMBIGUITY_RESOLUTION_MIN', 0.47),
+            'hybrid_ambiguity_resolution_min' => (float) env('TASK_ASSISTANT_INTENT_HYBRID_AMBIGUITY_RESOLUTION_MIN', 0.42),
+            /**
+             * When both prioritize and scheduling signals are each meaningfully strong, this allows
+             * a hybrid promotion to prioritize_schedule even when a single-flow composite narrowly wins.
+             */
+            'hybrid_dual_signal_min' => (float) env('TASK_ASSISTANT_INTENT_HYBRID_DUAL_SIGNAL_MIN', 0.5),
             /**
              * When the LLM says prioritize_schedule but scheduling heuristics are weaker than this,
              * demote to prioritize unless the message matches a combined rank+time pattern.
              */
             'prioritize_schedule_min_schedule_signal' => (float) env('TASK_ASSISTANT_PRIORITIZE_SCHEDULE_MIN_SCHEDULE_SIGNAL', 0.35),
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Deterministic closing detection
+    |--------------------------------------------------------------------------
+    |
+    | Matches thanks/goodbye/short acknowledgements so we can reply warmly and
+    | avoid accidentally triggering planning flows.
+    |
+    */
+    'closing' => [
+        'default_min_confidence' => (float) env('TASK_ASSISTANT_CLOSING_DEFAULT_MIN_CONFIDENCE', 0.88),
+        'context_weighted_min_confidence' => (float) env('TASK_ASSISTANT_CLOSING_CONTEXT_MIN_CONFIDENCE', 0.70),
+        'thanks_patterns' => [
+            '/^(ok(?:ay)?\s+)?(thanks|thank\s*you|thankyou|thx|ty|salamat)(\s+so\s+much)?[!. ]*$/iu',
+            '/^(ok(?:ay)?\s+)?(thanks|thank\s*u|thankyou|thx|ty|tysm|salamat)(\s+(for\s+your\s+help|so\s+much|a\s+lot))?[!. ]*$/iu',
+            '/^(got\s*it|gotcha|copy|noted)[,\s]+(thanks|thank\s*you|thank\s*u|thx|ty)[!. ]*$/iu',
+            '/^(ok(?:ay)?\s+)?(thanks|thank\s*you|thank\s*u|thx|ty|tysm|salamat)\b.*$/iu',
+            '/\b(maraming\s+salamat)\b/iu',
+        ],
+        'goodbye_patterns' => [
+            '/^(ok(?:ay)?\s+)?(bye|goodbye|see\s*ya|see\s+you|cya|later|good\s*night|take\s*care)[!. ]*$/iu',
+            '/^(ok(?:ay)?\s+)?(bye\s*bye|see\s+you\s+later|see\s*ya\s+later|catch\s+you\s+later)[!. ]*$/iu',
+            '/^(ok(?:ay)?\s+)?(thanks|thank\s*you|thank\s*u|thx|ty)\s+(bye|goodbye|see\s*ya|see\s+you|later)[!. ]*$/iu',
+        ],
+        'short_ack_patterns' => [
+            '/^(ok|okay|got\s*it|noted|nice|alright|all\s*right|copy|understood|sige|ige)[!. ]*$/iu',
+            '/^(kk|k|aight|gotcha|cool|sounds\s+good|all\s+good)[!. ]*$/iu',
+        ],
+        'actionable_guard_patterns' => [
+            '/\b(schedule|reschedule|priorit(?:ize|y)|move|shift|swap|plan|block|set|remind|tomorrow|today|tonight|later|morning|afternoon|evening|next\s+week|at\s+\d{1,2}(:\d{2})?\s*(am|pm)?)\b/iu',
+        ],
+        'response' => [
+            'acknowledgement' => 'You are welcome.',
+            'goodbye_acknowledgement' => 'Take care, and great job today.',
+            'message' => 'Nice work staying consistent today. You are building momentum one step at a time.',
+            'message_after_planning' => 'You have a clear plan now. Keep going one block at a time and you will make steady progress.',
+            'next_options' => 'If you want, I can help again anytime to prioritize your next tasks or block time for them.',
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Deterministic greeting-only detection
+    |--------------------------------------------------------------------------
+    */
+    'greeting' => [
+        'allow_name_mentions' => (bool) env('TASK_ASSISTANT_GREETING_ALLOW_NAME_MENTIONS', true),
+        'patterns' => [
+            '/^(hi|hii|hello|helloo|hey|yow|yo|hiya|kumusta|kamusta|good\s+morning|good\s+afternoon|good\s+evening)(\s+(bro|bruh|boss|tasklyst|andrew))?[!?. ]*$/iu',
+            '/^(hi|hii|hello|helloo|hey|yo|hiya)(\s+(there|bro|bruh|boss|man|tasklyst|andrew|yo))?[!?. ]*$/iu',
+        ],
+        'allowed_name_patterns' => [
+            '/\b(tasklyst|andrew)\b/iu',
+        ],
+        'actionable_guard_patterns' => [
+            '/\b(help|priorit(?:ize|y)|schedule|reschedule|what\s+should\s+i\s+do|plan|task|tasks|move|shift|later|today|tomorrow)\b/iu',
+        ],
+        'response' => [
+            'acknowledgement' => "Hi, I'm TaskLyst—your task assistant.",
+            'message' => 'Great to have you here. Small focused steps today can build strong momentum.',
+            'next_options' => 'If you want, we can rank what to do first, schedule your tasks, or do both in one pass.',
+            'next_options_chip_texts' => [
+                'What should I do first',
+                'Schedule my tasks',
+                'Prioritize then schedule my tasks',
+            ],
         ],
     ],
 

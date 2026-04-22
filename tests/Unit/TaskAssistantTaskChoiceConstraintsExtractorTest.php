@@ -75,3 +75,24 @@ it('detects recurring intent when user mentions recurring tasks', function (): v
 
     expect($context['recurring_requested'])->toBeTrue();
 });
+
+it('detects school domain for study and revision language', function (): void {
+    $extractor = app(TaskAssistantTaskChoiceConstraintsExtractor::class);
+
+    $context = $extractor->extract('I need to study and revise for my midterm this week.');
+
+    expect($context['domain_focus'])->toBe('school');
+    expect($context['task_keywords'])->toContain('study');
+    expect($context['task_keywords'])->toContain('revise');
+    expect($context['time_constraint'])->toBe('this_week');
+});
+
+it('detects coursework cues like syllabus and modules', function (): void {
+    $extractor = app(TaskAssistantTaskChoiceConstraintsExtractor::class);
+
+    $context = $extractor->extract('Help me prioritize tasks from my syllabus and module review.');
+
+    expect($context['domain_focus'])->toBe('school');
+    expect($context['task_keywords'])->toContain('syllabus');
+    expect($context['task_keywords'])->toContain('module');
+});

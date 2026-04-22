@@ -6,7 +6,6 @@ use App\Enums\MessageRole;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class TaskAssistantMessage extends Model
 {
@@ -16,7 +15,6 @@ class TaskAssistantMessage extends Model
         'thread_id',
         'role',
         'content',
-        'tool_calls',
         'metadata',
     ];
 
@@ -24,7 +22,6 @@ class TaskAssistantMessage extends Model
     {
         return [
             'role' => MessageRole::class,
-            'tool_calls' => 'array',
             'metadata' => 'array',
         ];
     }
@@ -34,12 +31,7 @@ class TaskAssistantMessage extends Model
         return $this->belongsTo(TaskAssistantThread::class);
     }
 
-    public function toolCalls(): HasMany
-    {
-        return $this->hasMany(LlmToolCall::class, 'message_id');
-    }
-
-    public function schedulePlans(): HasMany
+    public function schedulePlans(): \Illuminate\Database\Eloquent\Relations\HasMany
     {
         return $this->hasMany(AssistantSchedulePlan::class, 'assistant_message_id');
     }

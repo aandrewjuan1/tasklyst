@@ -204,19 +204,38 @@ final class TaskAssistantConversationStateService
      * @param  array<int, array{entity_type: string, entity_id: int, title: string}>  $targetEntities
      * @param  list<string>  $referencedProposalUuids
      */
-    public function rememberScheduleContext(TaskAssistantThread $thread, array $targetEntities, ?string $timeWindowHint, array $referencedProposalUuids = []): void
-    {
+    public function rememberScheduleContext(
+        TaskAssistantThread $thread,
+        array $targetEntities,
+        ?string $timeWindowHint,
+        array $referencedProposalUuids = [],
+        ?int $sourceAssistantMessageId = null,
+    ): void {
         $state = $this->get($thread);
         $state['last_flow'] = 'schedule';
         $state['last_schedule'] = [
             'target_entities' => $targetEntities,
             'time_window_hint' => $timeWindowHint,
+            'source_assistant_message_id' => $sourceAssistantMessageId,
             'last_referenced_proposal_uuids' => array_values(array_filter(array_map(
                 static fn (mixed $uuid): string => trim((string) $uuid),
                 $referencedProposalUuids
             ), static fn (string $uuid): bool => $uuid !== '')),
         ];
         $this->put($thread, $state);
+    }
+
+    public function lastScheduleSourceAssistantMessageId(TaskAssistantThread $thread): ?int
+    {
+        $state = $this->get($thread);
+        $schedule = $state['last_schedule'] ?? null;
+        if (! is_array($schedule)) {
+            return null;
+        }
+
+        $messageId = (int) ($schedule['source_assistant_message_id'] ?? 0);
+
+        return $messageId > 0 ? $messageId : null;
     }
 
     /**

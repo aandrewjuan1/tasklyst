@@ -23,5 +23,4 @@ enum ReminderType: string
     case FocusSessionCompleted = 'focus_session_completed';
     case FocusDriftWeekly = 'focus_drift_weekly';
     case AssistantActionRequired = 'assistant_action_required';
-    case AssistantToolCallFailed = 'assistant_tool_call_failed';
 }

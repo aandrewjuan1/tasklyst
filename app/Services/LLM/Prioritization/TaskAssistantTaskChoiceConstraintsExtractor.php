@@ -57,18 +57,27 @@ final class TaskAssistantTaskChoiceConstraintsExtractor
             'code',
             'programming',
             'math',
+            'mathematics',
             'science',
             'biology',
             'chemistry',
             'physics',
             'study',
+            'studying',
+            'revision',
+            'revise',
             'reading',
             'review',
             'writing',
             'essay',
+            'thesis',
+            'capstone',
             'report',
             'slides',
             'lab',
+            'lesson',
+            'module',
+            'syllabus',
             'interview',
             'homework',
             'assignment',
@@ -163,7 +172,13 @@ final class TaskAssistantTaskChoiceConstraintsExtractor
         if (preg_match('/\b(homework|assignments?|coursework|classwork|schoolwork)\b/i', $message) === 1) {
             return true;
         }
+        if (preg_match('/\b(study|studying|revision|revise|thesis|capstone)\b/i', $message) === 1) {
+            return true;
+        }
         if (preg_match('/\b(my\s+)?(classes|subjects|courses)\b/i', $message) === 1) {
+            return true;
+        }
+        if (preg_match('/\b(lesson|module|syllabus)\b/i', $message) === 1) {
             return true;
         }
         if (preg_match('/\b(exams?|quizzes?|midterm|finals?)\b/i', $message) === 1) {

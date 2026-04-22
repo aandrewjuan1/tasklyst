@@ -5,6 +5,9 @@ namespace App\Services\LLM\TaskAssistant;
 use App\Events\TaskAssistantJsonDelta;
 use App\Events\TaskAssistantStreamEnd;
 use App\Models\TaskAssistantMessage;
+use App\Models\User;
+use App\Notifications\AssistantResponseReadyNotification;
+use App\Services\UserNotificationBroadcastService;
 use Illuminate\Support\Facades\Log;
 
 final class TaskAssistantStreamingBroadcaster
@@ -20,8 +23,14 @@ final class TaskAssistantStreamingBroadcaster
      */
     public function streamFinalAssistantJson(int $userId, TaskAssistantMessage $assistantMessage, array $envelope, ?int $chunkSize = null): void
     {
+        if ($this->alreadyStreamed($assistantMessage)) {
+            $this->dispatchBroadcastEvent(new TaskAssistantStreamEnd($userId, $assistantMessage->id));
+
+            return;
+        }
+
         if ($this->isMessageStopped($assistantMessage)) {
-            broadcast(new TaskAssistantStreamEnd($userId, $assistantMessage->id));
+            $this->dispatchBroadcastEvent(new TaskAssistantStreamEnd($userId, $assistantMessage->id));
 
             return;
         }
@@ -31,6 +40,9 @@ final class TaskAssistantStreamingBroadcaster
         $interChunkDelayMs = max(0, (int) config('task-assistant.streaming.inter_chunk_delay_ms', 0));
         $maxTypingEffectMs = max(0, (int) config('task-assistant.streaming.max_typing_effect_ms', 0));
         $enableTypingEffect = (bool) config('task-assistant.streaming.enable_typing_effect', false);
+        $stopCheckIntervalChunks = max(1, (int) config('task-assistant.streaming.stop_check_interval_chunks', 4));
+        $stopCheckMinIntervalMs = max(0, (int) config('task-assistant.streaming.stop_check_min_interval_ms', 120));
+        $logStructuredEnvelope = (bool) config('task-assistant.streaming.log_structured_envelope', false);
 
         $assistantMessage->update([
             'metadata' => array_merge($assistantMessage->metadata ?? [], [
@@ -38,26 +50,40 @@ final class TaskAssistantStreamingBroadcaster
                 'streamed' => true,
             ]),
         ]);
+        $assistantMessage->refresh();
+
+        $this->notifyAssistantResponseReady($userId, $assistantMessage);
 
         $content = $assistantMessage->content ?? '';
         $chunkCount = 0;
         $streamStartNs = hrtime(true);
+        $lastStopCheckNs = 0;
         $firstDeltaMarked = false;
         foreach (mb_str_split($content, $chunkSize) as $chunk) {
-            if ($this->isCancellationRequested($assistantMessage) || $this->isMessageStopped($assistantMessage)) {
-                $this->markCancelled($assistantMessage);
-                break;
+            $chunkCount++;
+            if ($chunkCount % $stopCheckIntervalChunks === 0) {
+                $nowNs = hrtime(true);
+                $elapsedSinceStopCheckMs = $lastStopCheckNs > 0
+                    ? (int) (($nowNs - $lastStopCheckNs) / 1_000_000)
+                    : PHP_INT_MAX;
+
+                if ($stopCheckMinIntervalMs === 0 || $elapsedSinceStopCheckMs >= $stopCheckMinIntervalMs) {
+                    $lastStopCheckNs = $nowNs;
+                    if ($this->isCancellationRequested($assistantMessage)) {
+                        $this->markCancelled($assistantMessage);
+                        break;
+                    }
+                }
             }
 
             if ($chunk === '') {
                 continue;
             }
-            $chunkCount++;
             if (! $firstDeltaMarked) {
                 $firstDeltaMarked = true;
                 $this->markStreamPhase($assistantMessage, 'first_delta');
             }
-            broadcast(new TaskAssistantJsonDelta($userId, $assistantMessage->id, $chunk));
+            $this->dispatchBroadcastEvent(new TaskAssistantJsonDelta($userId, $assistantMessage->id, $chunk));
 
             if (! $enableTypingEffect || $interChunkDelayMs <= 0) {
                 continue;
@@ -78,12 +104,15 @@ final class TaskAssistantStreamingBroadcaster
             }
         }
 
-        $envelopeJson = json_encode($envelope, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
-        $envelopeJson = is_string($envelopeJson) ? $envelopeJson : '';
+        $envelopeJson = null;
         $truncated = false;
-        if (strlen($envelopeJson) > self::LOG_ENVELOPE_JSON_MAX) {
-            $envelopeJson = substr($envelopeJson, 0, self::LOG_ENVELOPE_JSON_MAX).'…';
-            $truncated = true;
+        if ($logStructuredEnvelope) {
+            $serialized = json_encode($envelope, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            $envelopeJson = is_string($serialized) ? $serialized : '';
+            if (strlen($envelopeJson) > self::LOG_ENVELOPE_JSON_MAX) {
+                $envelopeJson = substr($envelopeJson, 0, self::LOG_ENVELOPE_JSON_MAX).'…';
+                $truncated = true;
+            }
         }
 
         Log::debug('task-assistant.broadcast', [
@@ -99,6 +128,8 @@ final class TaskAssistantStreamingBroadcaster
             'typing_effect_enabled' => $enableTypingEffect,
             'inter_chunk_delay_ms' => $interChunkDelayMs,
             'max_typing_effect_ms' => $maxTypingEffectMs,
+            'stop_check_interval_chunks' => $stopCheckIntervalChunks,
+            'stop_check_min_interval_ms' => $stopCheckMinIntervalMs,
             'assistant_text_bytes' => mb_strlen($content),
             'structured_envelope_json' => $envelopeJson,
             'structured_envelope_truncated' => $truncated,
@@ -106,7 +137,50 @@ final class TaskAssistantStreamingBroadcaster
         ]);
 
         $this->markStreamPhase($assistantMessage, 'stream_end');
-        broadcast(new TaskAssistantStreamEnd($userId, $assistantMessage->id));
+        $this->dispatchBroadcastEvent(new TaskAssistantStreamEnd($userId, $assistantMessage->id));
+    }
+
+    private function dispatchBroadcastEvent(object $event): void
+    {
+        try {
+            broadcast($event);
+        } catch (\Throwable $exception) {
+            Log::warning('task-assistant.broadcast.dispatch_failed', [
+                'layer' => 'broadcast',
+                'event' => $event::class,
+                'error' => $exception->getMessage(),
+            ]);
+        }
+    }
+
+    private function notifyAssistantResponseReady(int $userId, TaskAssistantMessage $assistantMessage): void
+    {
+        $metadata = is_array($assistantMessage->metadata ?? null) ? $assistantMessage->metadata : [];
+        if (is_string(data_get($metadata, 'notifications.assistant_response_ready_at'))) {
+            return;
+        }
+
+        /** @var User|null $user */
+        $user = User::query()->find($userId);
+        if ($user === null) {
+            return;
+        }
+
+        $threadId = (int) $assistantMessage->thread_id;
+        if ($threadId <= 0) {
+            return;
+        }
+
+        $user->notify(new AssistantResponseReadyNotification(
+            threadId: $threadId,
+            assistantMessageId: (int) $assistantMessage->id,
+        ));
+        app(UserNotificationBroadcastService::class)->broadcastInboxUpdated($user);
+
+        data_set($metadata, 'notifications.assistant_response_ready_at', now()->toIso8601String());
+        $assistantMessage->update([
+            'metadata' => $metadata,
+        ]);
     }
 
     private function isCancellationRequested(TaskAssistantMessage $assistantMessage): bool
@@ -156,5 +230,20 @@ final class TaskAssistantStreamingBroadcaster
         data_set($metadata, 'stream.phase', $phase);
         data_set($metadata, 'stream.phase_at', now()->toIso8601String());
         $assistantMessage->update(['metadata' => $metadata]);
+    }
+
+    private function alreadyStreamed(TaskAssistantMessage $assistantMessage): bool
+    {
+        $fresh = TaskAssistantMessage::query()
+            ->whereKey($assistantMessage->id)
+            ->where('role', \App\Enums\MessageRole::Assistant)
+            ->first();
+
+        if (! $fresh) {
+            return false;
+        }
+
+        return (bool) data_get($fresh->metadata, 'streamed', false)
+            && is_array(data_get($fresh->metadata, 'structured'));
     }
 }

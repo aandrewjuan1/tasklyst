@@ -67,6 +67,10 @@ trait HandlesSchoolClasses
     #[Computed]
     public function schoolClassesForWorkspaceList(): Collection
     {
+        if (method_exists($this, 'isOverdueStateFilterActive') && $this->isOverdueStateFilterActive()) {
+            return collect();
+        }
+
         $filterItemType = property_exists($this, 'filterItemType')
             ? $this->normalizeFilterValue($this->filterItemType)
             : null;

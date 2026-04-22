@@ -26,7 +26,7 @@ final class TaskAssistantScheduleHorizonResolver
     {
         $maxDays = max(1, (int) config('task-assistant.schedule.max_horizon_days', 14));
         $lower = mb_strtolower($userMessage);
-        $tz = $timezone !== '' ? $timezone : (string) config('app.timezone', 'UTC');
+        $tz = $timezone !== '' ? $timezone : (string) config('app.timezone', 'Asia/Manila');
         $local = $now->setTimezone($tz);
 
         $explicitDate = $this->resolveExplicitCalendarDate($userMessage, $tz, $local);

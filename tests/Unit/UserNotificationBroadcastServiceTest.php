@@ -3,6 +3,7 @@
 use App\Events\UserNotificationCreated;
 use App\Models\User;
 use App\Services\UserNotificationBroadcastService;
+use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
 use Illuminate\Contracts\Events\Dispatcher;
 
 test('broadcast inbox updated dispatches user notification created event', function (): void {
@@ -37,4 +38,10 @@ test('broadcast inbox updated does not throw when dispatcher fails', function ()
     $service->broadcastInboxUpdated($user);
 
     expect(true)->toBeTrue();
+});
+
+test('user notification created event is queued broadcast', function (): void {
+    $event = new UserNotificationCreated(userId: 1, unreadCount: 2);
+
+    expect($event)->toBeInstanceOf(ShouldBroadcast::class);
 });

@@ -42,7 +42,6 @@ use App\Actions\Task\CreateTaskExceptionAction;
 use App\Actions\Task\DeleteTaskAction;
 use App\Actions\Task\DeleteTaskExceptionAction;
 use App\Actions\Task\UpdateTaskPropertyAction;
-use App\Actions\Workspace\AlignWorkspaceForScheduledPlanItemAction;
 use App\Enums\AssistantSchedulePlanItemStatus;
 use App\Enums\EventStatus;
 use App\Enums\TaskSourceType;
@@ -77,13 +76,11 @@ use App\Services\TagService;
 use App\Services\TeacherService;
 use App\Services\TaskService;
 use App\Support\WorkspaceListAggregator;
-use Carbon\CarbonImmutable;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Str;
 use Livewire\Attributes\Async;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\On;
@@ -610,12 +607,6 @@ class extends Component
         $this->refreshWorkspaceListInPlace();
     }
 
-    #[On('assistant-schedule-plan-updated')]
-    public function onAssistantSchedulePlanUpdated(): void
-    {
-        $this->refreshWorkspaceListInPlace();
-    }
-
     /**
      * When the selected date changes, reset pagination so we show page 1 for the new date.
      * Also clear the cached parsed date so it gets re-parsed.
@@ -718,6 +709,7 @@ class extends Component
             $this->events,
             $this->tasks,
             $this->schoolClassesForWorkspaceList,
+            $this->selectedDate,
         );
     }
 
@@ -785,413 +777,43 @@ class extends Component
         $this->dispatch('toast', type: 'info', message: $message);
     }
 
-    /**
-     * @return Collection<int, array<string, mixed>>
-     */
-    #[Computed]
-    public function scheduledFocusPlanEntries(): Collection
+    public function dismissScheduledFocusForEntity(string $entityType, int $entityId, string $reason = 'entity_datetime_updated'): void
     {
-        $userId = Auth::id();
-        if ($userId === null) {
-            return collect();
+        if (! in_array($entityType, ['task', 'event', 'project'], true) || $entityId < 1) {
+            return;
         }
 
-        $timezone = (string) config('app.timezone', 'UTC');
-        $todayStart = \Carbon\CarbonImmutable::now($timezone)->startOfDay();
+        $this->deactivateScheduledFocusForEntity($entityType, $entityId, $reason);
+    }
 
-        return AssistantSchedulePlanItem::query()
+    protected function deactivateScheduledFocusForEntity(string $entityType, int $entityId, string $reason = 'entity_updated'): void
+    {
+        $userId = Auth::id();
+        if ($userId === null || $entityId < 1) {
+            return;
+        }
+        if (! in_array($entityType, ['task', 'event', 'project'], true)) {
+            return;
+        }
+
+        AssistantSchedulePlanItem::query()
             ->forUser($userId)
             ->active()
-            ->where('planned_start_at', '>=', $todayStart)
-            ->orderBy('planned_start_at')
-            ->limit(50)
-            ->get([
-                'id',
-                'entity_type',
-                'entity_id',
-                'title',
-                'planned_start_at',
-                'planned_end_at',
-                'planned_duration_minutes',
-                'status',
-                'metadata',
-            ])
-            ->map(function (AssistantSchedulePlanItem $item) use ($timezone): array {
-                $startAt = $item->planned_start_at?->setTimezone($timezone);
-                $endAt = $item->planned_end_at?->setTimezone($timezone);
-                $entityType = (string) $item->entity_type;
-                $metadata = is_array($item->metadata ?? null) ? $item->metadata : [];
-                $lastAction = strtolower(trim((string) data_get($metadata, 'actions.last_action', '')));
-                $supersededCount = (int) data_get($metadata, 'rescheduled_from_previous_plan_item_count', 0);
-                $isRescheduled = $lastAction === 'rescheduled' || $supersededCount > 0;
+            ->where('entity_type', $entityType)
+            ->where('entity_id', $entityId)
+            ->get()
+            ->each(function (AssistantSchedulePlanItem $planItem) use ($reason): void {
+                $metadata = is_array($planItem->metadata ?? null) ? $planItem->metadata : [];
+                data_set($metadata, 'actions.last_action', 'dismissed');
+                data_set($metadata, 'actions.last_action_reason', $reason);
+                data_set($metadata, 'actions.last_action_at', now()->toIso8601String());
 
-                $bucket = 'upcoming';
-                if ($startAt?->isToday()) {
-                    $bucket = 'today';
-                } elseif ($startAt?->isTomorrow()) {
-                    $bucket = 'tomorrow';
-                }
-
-                $entityTypePillClass = match ($entityType) {
-                    'event' => 'lic-item-type-pill--event',
-                    'project' => 'lic-item-type-pill--project',
-                    default => 'lic-item-type-pill--task',
-                };
-
-                $surfaceClass = match ($entityType) {
-                    'event' => 'lic-surface-event',
-                    'project' => 'lic-surface-project',
-                    default => 'lic-surface-task-todo',
-                };
-
-                return [
-                    'id' => $item->id,
-                    'entity_type' => $entityType,
-                    'entity_id' => (int) $item->entity_id,
-                    'entity_label' => Str::headline($entityType),
-                    'entity_type_pill_class' => $entityTypePillClass,
-                    'surface_class' => $surfaceClass,
-                    'title' => (string) $item->title,
-                    'planned_start_at' => $startAt?->toIso8601String(),
-                    'planned_end_at' => $endAt?->toIso8601String(),
-                    'planned_duration_minutes' => $item->planned_duration_minutes,
-                    'status' => $item->status?->value ?? AssistantSchedulePlanItemStatus::Planned->value,
-                    'bucket' => $bucket,
-                    'time_range_label' => $this->formatScheduledFocusTimeRange($startAt, $endAt),
-                    'duration_label' => $this->formatDurationHumanReadable($item->planned_duration_minutes),
-                    'is_rescheduled' => $isRescheduled,
-                ];
-            })
-            ->values();
-    }
-
-    /**
-     * @return array{today: array<int, array<string, mixed>>, tomorrow: array<int, array<string, mixed>>, upcoming: array<int, array<string, mixed>>}
-     */
-    #[Computed]
-    public function scheduledFocusPlanGroups(): array
-    {
-        $entries = $this->scheduledFocusPlanEntries;
-
-        return [
-            'today' => $entries->where('bucket', 'today')->values()->all(),
-            'tomorrow' => $entries->where('bucket', 'tomorrow')->values()->all(),
-            'upcoming' => $entries->where('bucket', 'upcoming')->values()->all(),
-        ];
-    }
-
-    #[Computed]
-    public function scheduledFocusPlanTotalCount(): int
-    {
-        return $this->scheduledFocusPlanEntries->count();
-    }
-
-    /**
-     * Focus the linked workspace row from a scheduled plan item: align calendar date and filters, then scroll/highlight.
-     */
-    public function focusFromScheduledPlanItem(int $planItemId): void
-    {
-        $planItem = $this->resolveScheduledFocusPlanItem($planItemId);
-        if (! $planItem) {
-            return;
-        }
-
-        $kind = (string) $planItem->entity_type;
-        if (! in_array($kind, ['task', 'event', 'project'], true)) {
-            return;
-        }
-
-        $alignment = app(AlignWorkspaceForScheduledPlanItemAction::class)->execute($planItem, $this->selectedDate);
-
-        if ($alignment['new_date'] !== null) {
-            $this->selectedDate = $alignment['new_date'];
-        }
-
-        $this->clearAllFilters();
-
-        if ($alignment['date_changed'] && $alignment['new_date'] !== null) {
-            $this->dispatch('toast', type: 'info', message: __('Switched to :date for this plan item.', [
-                'date' => \Carbon\Carbon::parse($alignment['new_date'])->translatedFormat('l, F j, Y'),
-            ]));
-        }
-
-        $this->focusCalendarAgendaItem($kind, (int) $planItem->entity_id);
-    }
-
-    public function markScheduledFocusInProgress(int $planItemId): void
-    {
-        $planItem = $this->resolveScheduledFocusPlanItem($planItemId);
-        if (! $planItem) {
-            return;
-        }
-
-        $entityUpdated = $this->applyScheduledFocusStatusToEntity($planItem, AssistantSchedulePlanItemStatus::InProgress);
-        if (! $entityUpdated) {
-            $this->dispatch('toast', type: 'error', message: __('Could not update the linked item.'));
-
-            return;
-        }
-
-        $this->updatePlanItemStatus($planItem, AssistantSchedulePlanItemStatus::InProgress);
-        $this->refreshWorkspaceListInPlace();
-        $this->dispatch('toast', type: 'success', message: __('Marked as in progress.'));
-    }
-
-    public function markScheduledFocusDone(int $planItemId): void
-    {
-        $planItem = $this->resolveScheduledFocusPlanItem($planItemId);
-        if (! $planItem) {
-            return;
-        }
-
-        $entityUpdated = $this->applyScheduledFocusStatusToEntity($planItem, AssistantSchedulePlanItemStatus::Completed);
-        if (! $entityUpdated) {
-            $this->dispatch('toast', type: 'error', message: __('Could not update the linked item.'));
-
-            return;
-        }
-
-        $this->updatePlanItemStatus($planItem, AssistantSchedulePlanItemStatus::Completed);
-        $this->refreshWorkspaceListInPlace();
-        $this->dispatch('toast', type: 'success', message: __('Marked as done.'));
-    }
-
-    public function dismissScheduledFocusItem(int $planItemId): void
-    {
-        $planItem = $this->resolveScheduledFocusPlanItem($planItemId);
-        if (! $planItem) {
-            return;
-        }
-
-        $this->updatePlanItemStatus($planItem, AssistantSchedulePlanItemStatus::Dismissed);
-        $this->refreshWorkspaceListInPlace();
-        $this->dispatch('toast', type: 'success', message: __('Removed from scheduled focus.'));
-    }
-
-    public function rescheduleScheduledFocusItem(int $planItemId, ?string $startAt, ?string $endAt = null): void
-    {
-        $planItem = $this->resolveScheduledFocusPlanItem($planItemId);
-        if (! $planItem) {
-            return;
-        }
-
-        $start = $this->parseScheduledFocusDatetime($startAt);
-        if (! $start) {
-            $this->dispatch('toast', type: 'error', message: __('Please provide a valid start time.'));
-
-            return;
-        }
-
-        $end = $this->parseScheduledFocusDatetime($endAt);
-        if (! $end) {
-            $existingDuration = (int) ($planItem->planned_duration_minutes ?? 0);
-            $minutes = $existingDuration > 0 ? $existingDuration : 60;
-            $end = $start->addMinutes($minutes);
-        }
-        if ($end->lessThanOrEqualTo($start)) {
-            $this->dispatch('toast', type: 'error', message: __('End time must be after start time.'));
-
-            return;
-        }
-
-        $entityUpdated = $this->applyScheduledFocusRescheduleToEntity($planItem, $start, $end);
-        if (! $entityUpdated) {
-            $this->dispatch('toast', type: 'error', message: __('Could not reschedule the linked item.'));
-
-            return;
-        }
-
-        $durationMinutes = $start->diffInMinutes($end);
-        $metadata = is_array($planItem->metadata ?? null) ? $planItem->metadata : [];
-        data_set($metadata, 'actions.last_action', 'rescheduled');
-        data_set($metadata, 'actions.last_action_at', now()->toIso8601String());
-        data_set($metadata, 'actions.last_start_at', $start->toIso8601String());
-        data_set($metadata, 'actions.last_end_at', $end->toIso8601String());
-
-        $planItem->update([
-            'planned_start_at' => $start,
-            'planned_end_at' => $end,
-            'planned_duration_minutes' => $durationMinutes,
-            'metadata' => $metadata,
-        ]);
-
-        $this->refreshWorkspaceListInPlace();
-        $this->dispatch('toast', type: 'success', message: __('Rescheduled successfully.'));
-    }
-
-    private function resolveScheduledFocusPlanItem(int $planItemId): ?AssistantSchedulePlanItem
-    {
-        $userId = Auth::id();
-        if ($userId === null || $planItemId <= 0) {
-            return null;
-        }
-
-        return AssistantSchedulePlanItem::query()
-            ->forUser($userId)
-            ->whereKey($planItemId)
-            ->first();
-    }
-
-    private function applyScheduledFocusStatusToEntity(AssistantSchedulePlanItem $planItem, AssistantSchedulePlanItemStatus $status): bool
-    {
-        $entityType = (string) $planItem->entity_type;
-        $entityId = (int) $planItem->entity_id;
-        $userId = (int) $planItem->user_id;
-
-        if ($entityType === 'task') {
-            $task = Task::query()->forUser($userId)->whereKey($entityId)->first();
-            if (! $task) {
-                return false;
-            }
-            if ($status === AssistantSchedulePlanItemStatus::InProgress) {
-                $task->update([
-                    'status' => TaskStatus::Doing,
-                    'start_datetime' => $task->start_datetime ?? now(),
+                $planItem->update([
+                    'status' => AssistantSchedulePlanItemStatus::Dismissed,
+                    'dismissed_at' => now(),
+                    'metadata' => $metadata,
                 ]);
-            } elseif ($status === AssistantSchedulePlanItemStatus::Completed) {
-                $task->update([
-                    'status' => TaskStatus::Done,
-                    'completed_at' => now(),
-                ]);
-            }
-
-            return true;
-        }
-
-        if ($entityType === 'event') {
-            $event = Event::query()->forUser($userId)->whereKey($entityId)->first();
-            if (! $event) {
-                return false;
-            }
-            if ($status === AssistantSchedulePlanItemStatus::InProgress) {
-                $event->update([
-                    'status' => EventStatus::Ongoing,
-                ]);
-            } elseif ($status === AssistantSchedulePlanItemStatus::Completed) {
-                $event->update([
-                    'status' => EventStatus::Completed,
-                ]);
-            }
-
-            return true;
-        }
-
-        if ($entityType === 'project') {
-            $project = Project::query()->forUser($userId)->whereKey($entityId)->first();
-            if (! $project) {
-                return false;
-            }
-            if ($status === AssistantSchedulePlanItemStatus::InProgress) {
-                $project->update([
-                    'start_datetime' => $project->start_datetime ?? now(),
-                ]);
-            } elseif ($status === AssistantSchedulePlanItemStatus::Completed) {
-                $project->update([
-                    'end_datetime' => now(),
-                ]);
-            }
-
-            return true;
-        }
-
-        return false;
-    }
-
-    private function applyScheduledFocusRescheduleToEntity(
-        AssistantSchedulePlanItem $planItem,
-        CarbonImmutable $start,
-        CarbonImmutable $end
-    ): bool {
-        $entityType = (string) $planItem->entity_type;
-        $entityId = (int) $planItem->entity_id;
-        $userId = (int) $planItem->user_id;
-
-        if ($entityType === 'task') {
-            $task = Task::query()->forUser($userId)->whereKey($entityId)->first();
-            if (! $task) {
-                return false;
-            }
-            $task->update([
-                'start_datetime' => $start,
-                'duration' => $start->diffInMinutes($end),
-            ]);
-
-            return true;
-        }
-
-        if ($entityType === 'event') {
-            $event = Event::query()->forUser($userId)->whereKey($entityId)->first();
-            if (! $event) {
-                return false;
-            }
-            $event->update([
-                'start_datetime' => $start,
-                'end_datetime' => $end,
-            ]);
-
-            return true;
-        }
-
-        if ($entityType === 'project') {
-            $project = Project::query()->forUser($userId)->whereKey($entityId)->first();
-            if (! $project) {
-                return false;
-            }
-            $project->update([
-                'start_datetime' => $start,
-                'end_datetime' => $end,
-            ]);
-
-            return true;
-        }
-
-        return false;
-    }
-
-    private function updatePlanItemStatus(AssistantSchedulePlanItem $planItem, AssistantSchedulePlanItemStatus $status): void
-    {
-        $metadata = is_array($planItem->metadata ?? null) ? $planItem->metadata : [];
-        data_set($metadata, 'actions.last_action', $status->value);
-        data_set($metadata, 'actions.last_action_at', now()->toIso8601String());
-
-        $planItem->update([
-            'status' => $status,
-            'completed_at' => $status === AssistantSchedulePlanItemStatus::Completed ? now() : null,
-            'dismissed_at' => $status === AssistantSchedulePlanItemStatus::Dismissed ? now() : null,
-            'metadata' => $metadata,
-        ]);
-    }
-
-    private function parseScheduledFocusDatetime(?string $value): ?CarbonImmutable
-    {
-        $normalized = trim((string) $value);
-        if ($normalized === '') {
-            return null;
-        }
-
-        $timezone = (string) config('app.timezone', 'UTC');
-        try {
-            return CarbonImmutable::parse($normalized, $timezone);
-        } catch (\Throwable) {
-            return null;
-        }
-    }
-
-    private function formatScheduledFocusTimeRange(?\Carbon\CarbonInterface $startAt, ?\Carbon\CarbonInterface $endAt): string
-    {
-        if (! $startAt) {
-            return (string) __('No time set');
-        }
-
-        $prefix = $startAt->isToday()
-            ? __('Today')
-            : ($startAt->isTomorrow() ? __('Tomorrow') : $startAt->translatedFormat('M j, Y'));
-        $time = $startAt->format('g:i A');
-        if (! $endAt) {
-            return sprintf('%s %s %s', $prefix, __('at'), $time);
-        }
-
-        return sprintf('%s %s %s - %s', $prefix, __('at'), $time, $endAt->format('g:i A'));
+            });
     }
 
     private function formatDurationHumanReadable(?int $minutes): ?string
@@ -1531,8 +1153,16 @@ class extends Component
             return collect();
         }
 
+        if (method_exists($this, 'isDueStateFilterActive') && $this->isDueStateFilterActive()) {
+            return collect();
+        }
+
         // When search scope is "all items", main list shows all matching items; skip overdue bucket to avoid duplicates.
-        if (method_exists($this, 'shouldSearchAllItems') && $this->shouldSearchAllItems()) {
+        if (
+            method_exists($this, 'shouldSearchAllItems')
+            && $this->shouldSearchAllItems()
+            && (! method_exists($this, 'isOverdueStateFilterActive') || ! $this->isOverdueStateFilterActive())
+        ) {
             return collect();
         }
 

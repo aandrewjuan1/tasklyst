@@ -6,6 +6,7 @@ use App\Models\Event;
 use App\Models\Project;
 use App\Models\Task;
 use App\Models\User;
+use App\Services\Scheduling\SchoolClassBusyIntervalResolver;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Str;
@@ -25,6 +26,7 @@ final class TaskAssistantScheduleDbContextBuilder
 {
     public function __construct(
         private readonly TaskAssistantScheduleContextBuilder $scheduleContextBuilder,
+        private readonly SchoolClassBusyIntervalResolver $schoolClassBusyIntervalResolver,
     ) {}
 
     /**
@@ -39,7 +41,7 @@ final class TaskAssistantScheduleDbContextBuilder
         string $userMessageContent,
         array $options = [],
     ): array {
-        $timezone = (string) config('app.timezone', 'UTC');
+        $timezone = $this->resolveUserTimezone($user);
         $now = CarbonImmutable::now($timezone);
         $today = $now->toDateString();
 
@@ -50,6 +52,7 @@ final class TaskAssistantScheduleDbContextBuilder
                 'timezone' => $timezone,
                 'today' => $today,
                 'now' => $now->toIso8601String(),
+                'schedule_preferences' => is_array($user->schedule_preferences) ? $user->schedule_preferences : [],
                 'refinement_anchor_date' => is_string($options['refinement_anchor_date'] ?? null)
                     ? (string) $options['refinement_anchor_date']
                     : null,
@@ -64,12 +67,22 @@ final class TaskAssistantScheduleDbContextBuilder
         $windowEnd = $this->resolveHorizonEnd($horizon, $windowStart, $timezone);
 
         $taskLimit = max(1, (int) ($options['task_limit'] ?? 200));
-        $eventsLimit = max(1, (int) ($options['event_limit'] ?? 80));
+        $horizonDays = max(1, (int) $windowStart->diffInDays($windowEnd) + 1);
+        $defaultEventsLimit = min(1000, max(80, $horizonDays * 120));
+        $eventsLimit = max(1, (int) ($options['event_limit'] ?? $defaultEventsLimit));
         $projectsLimit = max(1, (int) ($options['project_limit'] ?? 20));
 
         $tasks = $this->queryTasksForSchedule($user, $now, $taskLimit);
         $events = $this->queryEventsForBusy($user, $windowStart, $windowEnd, $eventsLimit);
         $projects = $this->queryProjectsForSchedule($user, $now, $projectsLimit);
+        $classBufferMinutes = max(0, (int) config('task-assistant.schedule.school_class_buffer_minutes', 15));
+        $schoolClassBusyIntervals = $this->schoolClassBusyIntervalResolver->resolveForUser(
+            user: $user,
+            rangeStart: $windowStart->copy()->startOfDay(),
+            rangeEnd: $windowEnd->copy()->endOfDay(),
+            bufferMinutes: $classBufferMinutes,
+            timezone: $timezone,
+        );
 
         $scheduleTargetSkips = [];
         $targetTaskIds = $this->extractTargetTaskIds($options['target_entities'] ?? null);
@@ -83,6 +96,7 @@ final class TaskAssistantScheduleDbContextBuilder
         }
 
         $snapshot = [
+            'user_id' => $user->id,
             'today' => $today,
             'timezone' => $timezone,
             // Preserve the exact \"now\" used for horizon resolution so downstream
@@ -91,14 +105,33 @@ final class TaskAssistantScheduleDbContextBuilder
             'tasks' => $tasks,
             'events' => $events,
             'events_for_busy' => $events, // preserved by downstream logic
+            'school_class_busy_intervals' => $schoolClassBusyIntervals,
+            'school_class_buffer_minutes' => $classBufferMinutes,
             'projects' => $projects,
             'schedule_target_skips' => $scheduleTargetSkips,
+            'schedule_preferences' => is_array($user->schedule_preferences) ? $user->schedule_preferences : [],
         ];
 
         return [
             'context' => $context,
             'snapshot' => $snapshot,
         ];
+    }
+
+    private function resolveUserTimezone(User $user): string
+    {
+        $candidate = trim((string) ($user->timezone ?? ''));
+        if ($candidate !== '') {
+            try {
+                new \DateTimeZone($candidate);
+
+                return $candidate;
+            } catch (\Throwable) {
+                // Fall back to app timezone when user timezone is invalid.
+            }
+        }
+
+        return (string) config('app.timezone', 'Asia/Manila');
     }
 
     /**
@@ -135,7 +168,7 @@ final class TaskAssistantScheduleDbContextBuilder
      */
     private function resolveHorizonStart(mixed $horizon, string $today, string $timezone): CarbonImmutable
     {
-        $tz = $timezone !== '' ? $timezone : (string) config('app.timezone', 'UTC');
+        $tz = $timezone !== '' ? $timezone : (string) config('app.timezone', 'Asia/Manila');
 
         if (is_array($horizon)
             && isset($horizon['start_date'])
@@ -150,7 +183,7 @@ final class TaskAssistantScheduleDbContextBuilder
 
     private function resolveHorizonEnd(mixed $horizon, CarbonImmutable $windowStart, string $timezone): CarbonImmutable
     {
-        $tz = $timezone !== '' ? $timezone : (string) config('app.timezone', 'UTC');
+        $tz = $timezone !== '' ? $timezone : (string) config('app.timezone', 'Asia/Manila');
 
         if (is_array($horizon)
             && isset($horizon['end_date'])
@@ -187,6 +220,7 @@ final class TaskAssistantScheduleDbContextBuilder
                     'status' => $task->status?->value,
                     'priority' => $task->priority?->value,
                     'complexity' => $task->complexity?->value,
+                    'starts_at' => $task->start_datetime?->toIso8601String(),
                     'ends_at' => $task->end_datetime?->toIso8601String(),
                     'project_id' => $task->project_id,
                     'event_id' => $task->event_id,
@@ -306,7 +340,7 @@ final class TaskAssistantScheduleDbContextBuilder
 
         foreach ($missingIds as $mid) {
             $task = $fetched->get($mid);
-            if ($task === null) {
+            if (! $task instanceof Task) {
                 $skips[] = [
                     'entity_type' => 'task',
                     'entity_id' => $mid,
@@ -335,6 +369,7 @@ final class TaskAssistantScheduleDbContextBuilder
                 'status' => $task->status?->value,
                 'priority' => $task->priority?->value,
                 'complexity' => $task->complexity?->value,
+                'starts_at' => $task->start_datetime?->toIso8601String(),
                 'ends_at' => $task->end_datetime?->toIso8601String(),
                 'project_id' => $task->project_id,
                 'event_id' => $task->event_id,

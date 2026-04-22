@@ -4,6 +4,8 @@ namespace App\Jobs;
 
 use App\Models\TaskAssistantMessage;
 use App\Models\TaskAssistantThread;
+use App\Services\LLM\TaskAssistant\AssistantMetadataGateway;
+use App\Services\LLM\TaskAssistant\TaskAssistantProcessingGuard;
 use App\Services\LLM\TaskAssistant\TaskAssistantService;
 use App\Services\LLM\TaskAssistant\TaskAssistantStreamingBroadcaster;
 use Carbon\CarbonImmutable;
@@ -42,6 +44,16 @@ class BroadcastTaskAssistantStreamJob implements ShouldQueue
 
     public function handle(TaskAssistantService $service): void
     {
+        if (app(TaskAssistantProcessingGuard::class)->alreadyProcessed($this->threadId, $this->assistantMessageId)) {
+            Log::debug('task-assistant.job.skip_already_processed', [
+                'layer' => 'queue_job',
+                'thread_id' => $this->threadId,
+                'assistant_message_id' => $this->assistantMessageId,
+            ]);
+
+            return;
+        }
+
         $this->markAssistantPhase('processing');
         Log::debug('task-assistant.job.handle', [
             'layer' => 'queue_job',
@@ -149,17 +161,12 @@ class BroadcastTaskAssistantStreamJob implements ShouldQueue
 
     private function isCancellationRequested(): bool
     {
-        $assistantMessage = TaskAssistantMessage::query()
-            ->where('thread_id', $this->threadId)
-            ->where('id', $this->assistantMessageId)
-            ->where('role', \App\Enums\MessageRole::Assistant)
-            ->first();
-
-        if (! $assistantMessage) {
+        $thread = TaskAssistantThread::query()->whereKey($this->threadId)->first();
+        if (! $thread) {
             return false;
         }
 
-        return data_get($assistantMessage->metadata, 'stream.status') === 'stopped';
+        return app(TaskAssistantProcessingGuard::class)->isCancellationRequested($thread, $this->assistantMessageId);
     }
 
     private function markAsCancelled(TaskAssistantThread $thread): void
@@ -201,13 +208,6 @@ class BroadcastTaskAssistantStreamJob implements ShouldQueue
         if (! $assistantMessage) {
             return;
         }
-
-        $metadata = is_array($assistantMessage->metadata ?? null) ? $assistantMessage->metadata : [];
-        data_set($metadata, 'stream.phase', $phase);
-        data_set($metadata, 'stream.phase_at', now()->toIso8601String());
-        foreach ($extra as $key => $value) {
-            data_set($metadata, 'stream.'.$key, $value);
-        }
-        $assistantMessage->update(['metadata' => $metadata]);
+        app(AssistantMetadataGateway::class)->setStreamPhase($assistantMessage, $phase, $extra);
     }
 }

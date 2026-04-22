@@ -269,7 +269,7 @@
                                         :class="Number(importPastMonths) === {{ (int) $m }}
                                             ? 'bg-brand-blue text-white shadow-sm dark:bg-brand-blue'
                                             : 'text-muted-foreground hover:bg-background/90 hover:text-foreground'"
-                                        :disabled="importPastMonthsSaving || connecting"
+                                        :disabled="connecting"
                                         @click="pickImportPastMonths({{ (int) $m }})"
                                     >
                                         @if ($m === 1)
@@ -285,7 +285,7 @@
                                 @endforeach
                             </div>
                             <p class="text-[10px] leading-relaxed text-muted-foreground/80">
-                                {{ __('Events that ended before this window are not imported. Future events are still limited to about one year ahead. After changing this, use “Sync again” on each feed to apply.') }}
+                                {{ __('Events that ended before this window are not imported.') }}
                             </p>
                         </div>
                         <div class="space-y-2">

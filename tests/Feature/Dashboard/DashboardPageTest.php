@@ -11,7 +11,6 @@ use App\Models\Collaboration;
 use App\Models\CollaborationInvitation;
 use App\Models\Event;
 use App\Models\FocusSession;
-use App\Models\LlmToolCall;
 use App\Models\Project;
 use App\Models\RecurringTask;
 use App\Models\SchoolClass;
@@ -85,6 +84,31 @@ test('dashboard top kpi shows overdue tasks count', function () {
 
     expect(preg_match('/data-testid="dashboard-kpi-overdue-value"[^>]*>\s*(\d+)\s*</', $response->getContent(), $matches))->toBe(1);
     expect($matches[1])->toBe('3');
+});
+
+test('dashboard overdue kpi reflects task deadline changes on a subsequent visit', function () {
+    Carbon::setTestNow(Carbon::parse('2026-04-09 10:00:00'));
+    $user = User::factory()->create();
+
+    $task = Task::factory()->for($user)->create([
+        'status' => TaskStatus::ToDo,
+        'end_datetime' => Carbon::parse('2026-04-10 12:00:00'),
+        'completed_at' => null,
+    ]);
+
+    $before = $this->actingAs($user)->get(route('dashboard'));
+    $before->assertSuccessful();
+    expect(preg_match('/data-testid="dashboard-kpi-overdue-value"[^>]*>\s*(\d+)\s*</', $before->getContent(), $matches))->toBe(1);
+    expect($matches[1])->toBe('0');
+
+    $task->update(['end_datetime' => Carbon::parse('2026-04-08 12:00:00')]);
+
+    $after = $this->actingAs($user)->get(route('dashboard'));
+    $after->assertSuccessful();
+    expect(preg_match('/data-testid="dashboard-kpi-overdue-value"[^>]*>\s*(\d+)\s*</', $after->getContent(), $matchesAfter))->toBe(1);
+    expect($matchesAfter[1])->toBe('1');
+
+    Carbon::setTestNow();
 });
 
 test('dashboard top kpi shows due on selected day count', function () {
@@ -282,6 +306,49 @@ test('dashboard today classes panel renders rows with state badges and workspace
     Carbon::setTestNow();
 });
 
+test('dashboard today classes panel marks ended classes as past', function () {
+    Carbon::setTestNow(Carbon::parse('2026-04-12 20:00:00'));
+    $user = User::factory()->create();
+    $selectedDate = '2026-04-12';
+
+    SchoolClass::factory()->for($user)->create([
+        'subject_name' => 'Morning Class',
+        'start_time' => '07:00:00',
+        'end_time' => '10:00:00',
+        'start_datetime' => Carbon::parse('2026-04-12 07:00:00'),
+        'end_datetime' => Carbon::parse('2026-04-12 10:00:00'),
+    ]);
+
+    SchoolClass::factory()->for($user)->create([
+        'subject_name' => 'Evening Class',
+        'start_time' => '19:00:00',
+        'end_time' => '21:00:00',
+        'start_datetime' => Carbon::parse('2026-04-12 19:00:00'),
+        'end_datetime' => Carbon::parse('2026-04-12 21:00:00'),
+    ]);
+
+    SchoolClass::factory()->for($user)->create([
+        'subject_name' => 'Night Class',
+        'start_time' => '22:00:00',
+        'end_time' => '23:00:00',
+        'start_datetime' => Carbon::parse('2026-04-12 22:00:00'),
+        'end_datetime' => Carbon::parse('2026-04-12 23:00:00'),
+    ]);
+
+    $response = $this->actingAs($user)->get(route('dashboard', ['date' => $selectedDate]));
+
+    $response->assertSuccessful();
+    $response->assertSee('Morning Class', false);
+    $response->assertSee('Evening Class', false);
+    $response->assertSee('Night Class', false);
+    $response->assertSee('Past', false);
+    $response->assertSee('Now', false);
+    $response->assertSee('Next', false);
+    $response->assertDontSee('Later', false);
+
+    Carbon::setTestNow();
+});
+
 test('dashboard today classes panel shows see all and empty state appropriately', function () {
     Carbon::setTestNow(Carbon::parse('2026-04-12 08:00:00'));
     $user = User::factory()->create();
@@ -418,6 +485,32 @@ test('dashboard urgent now includes only strict urgent tasks', function () {
     expect($urgentRowsHtml)->not->toContain('Medium No Date Task');
     expect($urgentRowsHtml)->not->toContain('Medium Due Soon Task');
     expect($urgentRowsHtml)->not->toContain('High Doing Without Due Date');
+
+    Carbon::setTestNow();
+});
+
+test('dashboard urgent now updates after task priority changes on a subsequent visit', function () {
+    Carbon::setTestNow(Carbon::parse('2026-04-09 09:00:00'));
+    $user = User::factory()->create();
+    $project = Project::factory()->for($user)->create();
+
+    $task = Task::factory()->for($user)->for($project)->create([
+        'title' => 'Workspace Reactive Urgent Title',
+        'priority' => TaskPriority::Low,
+        'status' => TaskStatus::ToDo,
+        'end_datetime' => Carbon::parse('2026-04-11 12:00:00'),
+        'completed_at' => null,
+    ]);
+
+    $before = $this->actingAs($user)->get(route('dashboard'));
+    $before->assertSuccessful();
+    $before->assertDontSee('Workspace Reactive Urgent Title', false);
+
+    $task->update(['priority' => TaskPriority::High]);
+
+    $after = $this->actingAs($user)->get(route('dashboard'));
+    $after->assertSuccessful();
+    $after->assertSee('Workspace Reactive Urgent Title', false);
 
     Carbon::setTestNow();
 });
@@ -581,17 +674,6 @@ test('dashboard rich sections render focus, calendar load, no-date backlog, and 
         'user_id' => $user->id,
         'title' => 'Planner thread',
         'metadata' => [],
-    ]);
-
-    LlmToolCall::query()->create([
-        'thread_id' => $thread->id,
-        'message_id' => null,
-        'tool_name' => 'update_task',
-        'params_json' => ['taskId' => 1],
-        'result_json' => ['ok' => true],
-        'status' => 'success',
-        'operation_token' => null,
-        'user_id' => $user->id,
     ]);
 
     $response = $this->actingAs($user)->get(route('dashboard'));

@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\TaskStatus;
 use App\Models\FocusSession;
 use App\Models\Task;
 use App\Models\User;
@@ -550,4 +551,54 @@ test('workspace index startBreakSession with task_id stores focusable_type and f
         ->and($session->focusable_type)->toBe(Task::class)
         ->and($session->focusable_id)->toBe($task->id)
         ->and($session->type->value)->toBe('long_break');
+});
+
+test('completePomodoroSession leaves task status unchanged when mark_task_status is null', function (): void {
+    $this->actingAs($this->user);
+    $task = Task::factory()->for($this->user)->create(['status' => TaskStatus::ToDo]);
+
+    $session = FocusSession::factory()->for($this->user)->pomodoro()->work()->create([
+        'focusable_type' => Task::class,
+        'focusable_id' => $task->id,
+        'completed' => false,
+        'ended_at' => null,
+        'started_at' => now()->subMinutes(25),
+        'duration_seconds' => 25 * 60,
+    ]);
+
+    Livewire::test('pages::workspace.index')
+        ->call('completePomodoroSession', $session->id, [
+            'ended_at' => now()->toIso8601String(),
+            'completed' => true,
+            'paused_seconds' => 0,
+            'mark_task_status' => null,
+        ])
+        ->assertNotDispatched('toast', type: 'error');
+
+    expect($task->fresh()->status)->toBe(TaskStatus::ToDo);
+});
+
+test('completePomodoroSession marks task done when mark_task_status is done', function (): void {
+    $this->actingAs($this->user);
+    $task = Task::factory()->for($this->user)->create(['status' => TaskStatus::Doing]);
+
+    $session = FocusSession::factory()->for($this->user)->pomodoro()->work()->create([
+        'focusable_type' => Task::class,
+        'focusable_id' => $task->id,
+        'completed' => false,
+        'ended_at' => null,
+        'started_at' => now()->subMinutes(25),
+        'duration_seconds' => 25 * 60,
+    ]);
+
+    Livewire::test('pages::workspace.index')
+        ->call('completePomodoroSession', $session->id, [
+            'ended_at' => now()->toIso8601String(),
+            'completed' => true,
+            'paused_seconds' => 0,
+            'mark_task_status' => 'done',
+        ])
+        ->assertNotDispatched('toast', type: 'error');
+
+    expect($task->fresh()->status)->toBe(TaskStatus::Done);
 });

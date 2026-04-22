@@ -215,8 +215,10 @@ final class NotificationBellState
             $rows = $rows->take($pageSize);
         }
 
+        $collaborationInvitationsById = self::collaborationInvitationsByIdForNotifications($rows->all());
+
         $notifications = $rows
-            ->map(fn (DatabaseNotification $notification): array => self::normalizeNotification($notification))
+            ->map(fn (DatabaseNotification $notification): array => self::normalizeNotification($notification, $collaborationInvitationsById))
             ->all();
 
         return [
@@ -254,13 +256,13 @@ final class NotificationBellState
      *   read_at: string|null,
      *   created_at_human: string,
      *   click_opens_workspace: bool,
-     *   click_behavior: 'calendar_feed_sync_completed'|null,
+     *   click_behavior: 'assistant_response_ready'|'calendar_feed_sync_completed'|null,
      *   workspace_focus_kind?: 'task'|'event'|'project'|'schoolClass'|null,
      *   workspace_focus_id?: int|null,
      *   collaboration_invite?: array<string, mixed>
      * }
      */
-    private static function normalizeNotification(DatabaseNotification $notification): array
+    private static function normalizeNotification(DatabaseNotification $notification, array $collaborationInvitationsById = []): array
     {
         $data = self::notificationDataAsArray($notification);
         $title = trim((string) ($data['title'] ?? ''));
@@ -268,9 +270,12 @@ final class NotificationBellState
         $route = trim((string) ($data['route'] ?? ''));
         $params = is_array($data['params'] ?? null) ? $data['params'] : [];
 
-        $clickBehavior = ($data['type'] ?? '') === 'calendar_feed_sync_completed'
-            ? 'calendar_feed_sync_completed'
-            : null;
+        $type = (string) ($data['type'] ?? '');
+        $clickBehavior = match ($type) {
+            'assistant_response_ready' => 'assistant_response_ready',
+            'calendar_feed_sync_completed' => 'calendar_feed_sync_completed',
+            default => null,
+        };
 
         $base = [
             'id' => (string) $notification->id,
@@ -315,10 +320,11 @@ final class NotificationBellState
             ]);
         }
 
-        $invitation = CollaborationInvitation::query()
-            ->whereKey($invitationId)
-            ->with(['collaboratable', 'inviter'])
-            ->first();
+        $invitation = $collaborationInvitationsById[$invitationId]
+            ?? CollaborationInvitation::query()
+                ->whereKey($invitationId)
+                ->with(['collaboratable', 'inviter'])
+                ->first();
 
         $columnState = $notification->collaboration_invite_state;
 
@@ -344,6 +350,41 @@ final class NotificationBellState
             'message' => $resolvedMessage,
             'collaboration_invite' => $invitePayload,
         ]);
+    }
+
+    /**
+     * @param  array<int, DatabaseNotification>  $notifications
+     * @return array<int, CollaborationInvitation>
+     */
+    private static function collaborationInvitationsByIdForNotifications(array $notifications): array
+    {
+        $invitationIds = collect($notifications)
+            ->filter(fn (mixed $notification): bool => $notification instanceof DatabaseNotification)
+            ->map(function (DatabaseNotification $notification): ?int {
+                $data = self::notificationDataAsArray($notification);
+                if (! self::isCollaborationInviteNotification($notification, $data)) {
+                    return null;
+                }
+
+                return self::resolveInvitationIdFromNotificationData($data);
+            })
+            ->filter(fn (mixed $invitationId): bool => is_int($invitationId) && $invitationId > 0)
+            ->values()
+            ->all();
+
+        if ($invitationIds === []) {
+            return [];
+        }
+
+        /** @var array<int, CollaborationInvitation> $invitationsById */
+        $invitationsById = CollaborationInvitation::query()
+            ->whereIn('id', $invitationIds)
+            ->with(['collaboratable', 'inviter'])
+            ->get()
+            ->keyBy('id')
+            ->all();
+
+        return $invitationsById;
     }
 
     /**

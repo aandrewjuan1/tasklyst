@@ -526,6 +526,18 @@
                         });
                     }
                     $dispatch('item-update-rollback');
+                    if (this.itemId != null) {
+                        window.dispatchEvent(
+                            new CustomEvent('workspace-item-property-update-rollback', {
+                                detail: {
+                                    kind: 'task',
+                                    itemId: this.itemId,
+                                    property,
+                                },
+                                bubbles: true,
+                            }),
+                        );
+                    }
                     $wire.$dispatch('toast', { type: 'error', message: this.editErrorToast });
                     return false;
                 }
@@ -551,6 +563,18 @@
                     });
                 }
                 $dispatch('item-update-rollback');
+                if (this.itemId != null) {
+                    window.dispatchEvent(
+                        new CustomEvent('workspace-item-property-update-rollback', {
+                            detail: {
+                                kind: 'task',
+                                itemId: this.itemId,
+                                property,
+                            },
+                            bubbles: true,
+                        }),
+                    );
+                }
                 $wire.$dispatch('toast', { type: 'error', message: err.message || this.editErrorToast });
                 return false;
             }

@@ -46,7 +46,7 @@ export function calendarFeedsPopover(initial) {
 
         importPastMonths: Number(initial.importPastMonths) || 3,
         importPastMonthsSaved: Number(initial.importPastMonthsSaved) || Number(initial.importPastMonths) || 3,
-        importPastMonthsSaving: false,
+        importPastMonthsSaveGen: 0,
         importPastChoices: Array.isArray(initial.importPastChoices) ? initial.importPastChoices : [1, 3, 6],
         importPastMonthLabels: initial.importPastMonthLabels && typeof initial.importPastMonthLabels === 'object'
             ? initial.importPastMonthLabels
@@ -443,36 +443,35 @@ export function calendarFeedsPopover(initial) {
             if (!this.importPastChoiceAllowed(next)) {
                 return;
             }
+            if (next === this.importPastMonthsSaved && this.importPastMonths === next) {
+                return;
+            }
+
+            const gen = ++this.importPastMonthsSaveGen;
+            const snapshot = {
+                months: this.importPastMonths,
+                saved: this.importPastMonthsSaved,
+            };
+
             this.importPastMonths = next;
-            await this.saveImportPastMonths();
-        },
+            this.importPastMonthsSaved = next;
 
-        async saveImportPastMonths() {
-            const target = Number(this.importPastMonths);
-            if (!this.importPastChoiceAllowed(target)) {
-                this.importPastMonths = this.importPastMonthsSaved;
-
-                return;
-            }
-            if (target === this.importPastMonthsSaved) {
-                return;
-            }
-            if (this.importPastMonthsSaving) {
-                return;
-            }
-
-            this.importPastMonthsSaving = true;
             try {
-                const ok = await this.$wire.$call('updateCalendarImportPastMonths', target);
-                if (ok) {
-                    this.importPastMonthsSaved = target;
-                } else {
-                    this.importPastMonths = this.importPastMonthsSaved;
+                const promise = this.$wire.$call('updateCalendarImportPastMonths', next);
+                const ok = await promise;
+                if (gen !== this.importPastMonthsSaveGen) {
+                    return;
+                }
+                if (!ok) {
+                    this.importPastMonths = snapshot.months;
+                    this.importPastMonthsSaved = snapshot.saved;
                 }
             } catch {
-                this.importPastMonths = this.importPastMonthsSaved;
-            } finally {
-                this.importPastMonthsSaving = false;
+                if (gen !== this.importPastMonthsSaveGen) {
+                    return;
+                }
+                this.importPastMonths = snapshot.months;
+                this.importPastMonthsSaved = snapshot.saved;
             }
         },
     };

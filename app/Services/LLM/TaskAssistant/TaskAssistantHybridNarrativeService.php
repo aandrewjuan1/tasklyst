@@ -316,6 +316,10 @@ final class TaskAssistantHybridNarrativeService
         $horizonHint = TaskAssistantScheduleNarrativeSanitizer::horizonContextLineForPrompt(
             is_array($promptData['schedule_horizon'] ?? null) ? $promptData['schedule_horizon'] : null
         );
+        $scheduleSource = trim((string) ($promptData['schedule_source'] ?? 'schedule'));
+        $scheduleSelectionHint = $scheduleSource === 'prioritize_schedule'
+            ? ' Selection context: these rows were selected from the student-first prioritized tasks (task-first with configured event override, then task tiers/scoring). Keep your explanation aligned with this deterministic selection; do not claim a different ranking rule.'
+            : '';
 
         $digestBlock = '';
         $trimDigest = $placementDigestJson !== null ? trim($placementDigestJson) : '';
@@ -353,13 +357,14 @@ final class TaskAssistantHybridNarrativeService
         $messages = $historyMessages->values();
         $messages->push(new UserMessage($userMessageContent));
         $messages->push(new UserMessage(
-            'The planned schedule is fixed and correct. The student will see each row with exact start, end, and duration immediately after your framing.'.$horizonHint."\n\n".
+            'The planned schedule is fixed and correct. The student will see each row with exact start, end, and duration immediately after your framing.'.$horizonHint.$scheduleSelectionHint."\n\n".
             'PLACEMENT_FACTS (must respect; do not contradict): schedule_row_count='.$blockCount.'; unplaced_candidate_count='.$unplacedCountForPrompt.'. The UI shows exactly schedule_row_count time blocks with concrete start/end. Do not imply more tasks received scheduled start/end times than schedule_row_count. If unplaced_candidate_count>0, say plainly that some requested items did not get a slot in this pass (another day or a wider window may help)—do not claim every item was placed.'."\n\n".
             'Return JSON only: framing, reasoning, confirmation. Voice: warm, concise coach.'."\n".
             '- framing: 1–2 short sentences. First sentence: acknowledge their request in your own words (time intent like evening, or scope like how many tasks)—paraphrase; do not paste a long quote of the user. Use the same calendar day as the CONTEXT sentence above for when these blocks land (if CONTEXT says tomorrow, say tomorrow—do not describe the blocks as "today" unless CONTEXT says today). Second sentence (optional): brief hand-off to the schedule rows without repeating exact clock times or durations (the app shows those next).'."\n".
-            '- reasoning: why this order fits the student (focus, deadlines, energy)—without quoting specific times or durations that duplicate the list. If the optional planning notes mention a partial block, explain plainly what fit and what did not, and offer a neutral next step (wider window or another block) without mentioning Pomodoro or chunking terms.'."\n".
+            '- reasoning: why this order fits the student (focus, deadlines, energy)—without quoting specific times or durations that duplicate the list. If the optional planning notes mention a partial block, unplaced units, or fallback mode, explain plainly what fit, what was blocked, and why the chosen windows are still the best available option.'."\n".
+            '- reasoning must add new coaching guidance (next-step recommendation) and must not restate deterministic rationale lines from window_selection_explanation/order rationale verbatim.'."\n".
             '- confirmation: clear check-in—do these times and block lengths feel workable? Invite them to describe tweaks in chat (earlier/later/longer/shorter/different order) and that nothing is final until they save. 1–3 sentences. Do not mention Accept all or UI buttons.'."\n\n".
-            'STUDENT-FACING RULES: Write plain English only. Never say: placement window, default placement, planning horizon, digest, snapshot, BLOCKS_JSON, JSON, server-side, backend, or internal codenames like default_today or smart_default_spread.'."\n".
+            'STUDENT-FACING RULES: Write plain English only. Never say: placement window, default placement, planning horizon, digest, snapshot, BLOCKS_JSON, JSON, server-side, backend, or internal codenames like default_today or smart_default_spread. When a requested time/day could not be satisfied, be specific about blockers in user terms (for example classes or events overlapping), not generic filler.'."\n".
             'In framing, do not say: order below, the list below, ranked list, top to bottom, step at a time, or numbered list—this is a time-block schedule, not a priority ranking screen.'."\n".
             'Use singular language when exactly one schedule row is present. Do not mention meals (lunch/dinner) unless the user explicitly used those words.'."\n".
             'Do not invent times beyond what the schedule data implies.'."\n\n".
@@ -537,6 +542,33 @@ final class TaskAssistantHybridNarrativeService
             blocks: $parsedBlocks,
             fallback: $confirmationFallback
         );
+        $framing = $this->sanitizeScheduleDaypartAndDayClaims(
+            text: $framing,
+            blocks: $parsedBlocks,
+            promptData: $promptData,
+            placementDigestData: $placementDigestData,
+            fallback: $this->scheduleFramingFallbackString(
+                $parsedBlocks,
+                $promptData,
+                $userMessageContent,
+                $schedulableProposalCount,
+                'daypart_grounding_framing|'.$threadId
+            )
+        );
+        $reasoning = $this->sanitizeScheduleDaypartAndDayClaims(
+            text: $reasoning,
+            blocks: $parsedBlocks,
+            promptData: $promptData,
+            placementDigestData: $placementDigestData,
+            fallback: TaskAssistantPrioritizeOutputDefaults::clampPrioritizeReasoning($deterministicReasoning)
+        );
+        $confirmation = $this->sanitizeScheduleDaypartAndDayClaims(
+            text: $confirmation,
+            blocks: $parsedBlocks,
+            promptData: $promptData,
+            placementDigestData: $placementDigestData,
+            fallback: $confirmationFallback
+        );
         $confirmation = $this->sanitizeScheduleConfirmation($confirmation, $parsedBlocks);
 
         $framing = TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy($framing);
@@ -548,6 +580,91 @@ final class TaskAssistantHybridNarrativeService
             'reasoning' => $reasoning,
             'confirmation' => $confirmation,
         ];
+    }
+
+    /**
+     * @param  list<array{start_time?:string,end_time?:string,label?:string}>  $blocks
+     * @param  array<string, mixed>  $promptData
+     * @param  array<string, mixed>|null  $placementDigestData
+     */
+    private function sanitizeScheduleDaypartAndDayClaims(
+        string $text,
+        array $blocks,
+        array $promptData,
+        ?array $placementDigestData,
+        string $fallback
+    ): string {
+        $normalized = trim($text);
+        if ($normalized === '' || $blocks === []) {
+            return $normalized !== '' ? $normalized : $fallback;
+        }
+
+        [$todayYmd] = $this->resolveScheduleStudentTodayAndTimezone($promptData);
+        $placementDay = $this->resolveFirstPlacementDayYmd($placementDigestData);
+        if ($placementDay === null) {
+            $placementDay = trim((string) data_get($promptData, 'schedule_horizon.start_date', ''));
+        }
+
+        $targetDayRef = 'unknown';
+        if ($todayYmd !== '' && $placementDay !== '') {
+            try {
+                $today = CarbonImmutable::parse($todayYmd)->startOfDay();
+                $target = CarbonImmutable::parse($placementDay)->startOfDay();
+                $targetDayRef = $target->equalTo($today)
+                    ? 'today'
+                    : ($target->equalTo($today->addDay()) ? 'tomorrow' : 'future');
+            } catch (\Throwable) {
+                $targetDayRef = 'unknown';
+            }
+        }
+
+        $firstStart = trim((string) ($blocks[0]['start_time'] ?? ''));
+        $targetDaypart = $this->resolveDaypartFromStartTime($firstStart);
+        if ($targetDaypart === null) {
+            return $normalized;
+        }
+
+        $lower = mb_strtolower($normalized);
+        $contradiction = false;
+        if ($targetDayRef === 'today' && preg_match('/\b(tomorrow|tomorrow morning|tomorrow afternoon|tomorrow evening)\b/iu', $lower) === 1) {
+            $contradiction = true;
+        }
+        if ($targetDayRef === 'tomorrow' && preg_match('/\b(today|this morning|this afternoon|this evening|tonight|later today)\b/iu', $lower) === 1) {
+            $contradiction = true;
+        }
+
+        if ($targetDaypart === 'morning' && preg_match('/\b(this evening|tonight|this afternoon|tomorrow evening|tomorrow afternoon)\b/iu', $lower) === 1) {
+            $contradiction = true;
+        }
+        if ($targetDaypart === 'afternoon' && preg_match('/\b(this morning|tomorrow morning|tonight|this evening|tomorrow evening)\b/iu', $lower) === 1) {
+            $contradiction = true;
+        }
+        if ($targetDaypart === 'evening' && preg_match('/\b(this morning|this afternoon|tomorrow morning|tomorrow afternoon)\b/iu', $lower) === 1) {
+            $contradiction = true;
+        }
+
+        if (! $contradiction) {
+            return $normalized;
+        }
+
+        return trim($fallback) !== '' ? trim($fallback) : $normalized;
+    }
+
+    private function resolveDaypartFromStartTime(string $hhmm): ?string
+    {
+        if ($hhmm === '' || preg_match('/^\d{2}:\d{2}$/', $hhmm) !== 1) {
+            return null;
+        }
+
+        $hour = (int) substr($hhmm, 0, 2);
+        if ($hour < 12) {
+            return 'morning';
+        }
+        if ($hour < 18) {
+            return 'afternoon';
+        }
+
+        return 'evening';
     }
 
     /**
@@ -1691,7 +1808,7 @@ TXT;
 
         $variantInstruction = $emptyRankedSlice
             ? 'PRIORITIZE_VARIANT: '.$prioritizeVariant.'. ITEMS_JSON is empty: there are zero ranked rows in this slice (non-Doing tasks may be absent or filtered out).'
-            : 'PRIORITIZE_VARIANT: '.$prioritizeVariant.'. Rows are urgency-ranked. framing is intro only (see OUTPUT_FIELD_ORDER). When LISTED_ITEM_COUNT >= 1, put why row #1 is first in reasoning (before next_options), not in framing.';
+            : 'PRIORITIZE_VARIANT: '.$prioritizeVariant.'. Rows are already deterministically ranked by the student-first prioritization policy (task-first with configured event override window, then task tiers and scoring). framing is intro only (see OUTPUT_FIELD_ORDER). When LISTED_ITEM_COUNT >= 1, put why row #1 is first in reasoning (before next_options), not in framing.';
 
         $coachContextBlock = TaskAssistantPrioritizeOutputDefaults::buildPrioritizeNarrativeCoachContextBlock(
             $items,
@@ -1776,15 +1893,18 @@ TXT;
                 $doingProgressPromptBlock.
                 $narrativeFieldRoles."\n".
                 'You are the task assistant speaking to the student as a supportive coach. '.
-                'Use a calm, reassuring, empathetic tone with light motivation when it fits—students should feel guided, not scolded. When UX_INCLUDE_ACK is true, the acknowledgment should validate the user\'s feelings briefly and smoothly transition into action, and the rest of the message should stay supportive and steady. '.
+                'Use a calm, reassuring, empathetic tone with light motivation when it fits—students should feel guided, not scolded. Always speak directly to the student using second-person language (you/your) and keep the voice gentle rather than pushy. When UX_INCLUDE_ACK is true, the acknowledgment should validate the user\'s feelings briefly and smoothly transition into action, and the rest of the message should stay supportive and steady. '.
                 'Do not claim extra visibility into the student\'s full life or full list. Avoid phrases like "I reviewed your tasks", "I looked at your list", "I see you have", or "I\'ve taken a look at your to-do list". '.
                 'In acknowledgment, framing, reasoning, and next_options: NEVER mention snapshot, "snapshot data", JSON, ITEMS_JSON, FILTER_CONTEXT, backend, database, or internal technical terms—the student only sees plain English. '.
                 'doing_progress_coach is REQUIRED (non-null, non-empty) when DOING_COACH_REQUIRED is true—motivation only; must NOT contain any title from ITEMS_JSON. Keep it about staying steady on what they already started (Doing), and never smuggle ranked-only subjects (quizzes, lecture notes, readings, etc.) unless those words literally appear in DOING_TITLES_FOR_UI. When DOING_COACH_REQUIRED is false, doing_progress_coach MUST be null. '.
                 'filter_interpretation is OPTIONAL: one short sentence; the student sees it after the numbered list—explain how filters or wording shaped this slice; null if not helpful. assumptions is OPTIONAL: prefer null. Only include if strictly needed to interpret a filter (e.g. calendar today). Never assume the user already viewed their list; never invent calendar dates. null or empty if none. '.
-                'framing is REQUIRED: short intro only—open in natural assistant voice (I recommend, I suggest, Let\'s, We could, Here\'s what I\'d do—vary openings across turns). Sound human and supportive. When DOING_COACH_REQUIRED is true and LISTED_ITEM_COUNT >= 1, do NOT mention any ITEMS_JSON title in framing—orient to in-progress work or a smooth handoff to the ranked next steps below (say “the ranked list below” / “the next steps below” when LISTED_ITEM_COUNT > 1, not vague “this list” that could mean Doing). Never claim the student has “started” or is “already working on” the top ranked item in framing—those rows are To Do until marked Doing; describe “what to tackle next” only in reasoning. When LISTED_ITEM_COUNT >= 1 and there is no Doing, keep framing as a light intro—save "start with [top row]" for reasoning. Do not use impersonal brochure openers like "Here is your top priority in a simple order". '.
+                'framing is REQUIRED: short intro only—exactly ONE concise sentence when LISTED_ITEM_COUNT >= 1. open in natural assistant voice (I recommend, I suggest, Let\'s, We could, Here\'s what I\'d do—vary openings across turns). Sound human and supportive. Do not restate the item count, list order, or ranking method in framing. When DOING_COACH_REQUIRED is true and LISTED_ITEM_COUNT >= 1, do NOT mention any ITEMS_JSON title in framing—orient to in-progress work or a smooth handoff to the ranked next steps below (say “the ranked list below” / “the next steps below” when LISTED_ITEM_COUNT > 1, not vague “this list” that could mean Doing). Never claim the student has “started” or is “already working on” the top ranked item in framing—those rows are To Do until marked Doing; describe “what to tackle next” only in reasoning. When LISTED_ITEM_COUNT >= 1 and there is no Doing, keep framing as a light intro—save "start with [top row]" for reasoning. Do not use impersonal brochure openers like "Here is your top priority in a simple order". '.
+                'Do not repeat the same ranking facts across ordering_rationale and reasoning. reasoning must add one practical action cue, not restate the entire scoring explanation. '.
                 'Never say the student "found", "discovered", or "has" a task "on their list" as if they unearthed it. Use "your attention" or "your focus", not "our attention". '.
                 'acknowledgment is OPTIONAL: include only when UX_INCLUDE_ACK is true; otherwise set it to null. When included, it must be exactly one short empathetic sentence. '.
                 $firstRowReasoningRule.
+                'When LISTED_ITEM_COUNT >= 1, reasoning must name the exact first-row title in the same paragraph before any pronoun reference like "this task" or "it". '.
+                'Do not use tautological effort phrases like "Complex complexity" or "Moderate complexity"; prefer friendlier effort wording such as "higher effort", "manageable effort", or "quick effort". '.
                 'next_options is REQUIRED: 1-2 sentences; the student sees this LAST after reasoning. Offer follow-up (e.g., scheduling, widening filters when the slice is empty). Keep it scheduling-focused—main empathy and coaching belong earlier. Do not re-summarize the ranked list here. Do not suggest rescheduling tasks that were already completed; if you mention rescheduling, it should be about the remaining tasks. '.
                 'next_options_chip_texts is REQUIRED: array of 1-2 short chip strings to let the student trigger that follow-up (no question marks). '.
                 'count_mismatch_explanation is OPTIONAL and nullable. When COUNT_MISMATCH_REQUIRED is true, it is REQUIRED and must be one short supportive sentence grounded in REQUESTED_COUNT and ACTUAL_COUNT. When COUNT_MISMATCH_REQUIRED is false, it MUST be null. '.
@@ -2170,13 +2290,16 @@ TXT;
             $cleanItems,
             $doingTitlesSanitize,
         );
+        $reasoning = $this->stripReasoningDuplicationAgainstOrdering($reasoning, $cleanItems);
 
         // Ensure reasoning stays anchored to the ranked list (especially item #1)—after cross-field dedupe.
         $reasoning = $this->enforceReasoningAnchorsTopItem((string) $reasoning, $cleanItems);
+        $reasoning = $this->normalizeEffortWording((string) $reasoning);
         $reasoning = $this->normalizeReasoningOverdueGrammar((string) $reasoning, $cleanItems);
         $reasoning = $this->stripOverdueDurationAgeClaimsWhenDuePhraseIsOverdue((string) $reasoning, $cleanItems);
         $reasoning = $this->enforceReasoningIncludesFirstRowDuePhraseWhenMissing((string) $reasoning, $cleanItems);
         $reasoning = $this->ensurePrioritizeReasoningHasCoachingTone((string) $reasoning, $cleanItems, $doingCoachRequired);
+        $framing = $this->normalizePrioritizeFramingForList((string) $framing, $cleanItems);
 
         $nextOptions = TaskAssistantPrioritizeOutputDefaults::dedupePrioritizeNextVersusPriorFields(
             (string) $nextOptions,
@@ -2242,6 +2365,92 @@ TXT;
             'doing_progress_coach' => $doingProgressCoachNarrative,
             'count_mismatch_explanation' => $countMismatchExplanation,
         ];
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $items
+     */
+    private function normalizePrioritizeFramingForList(string $framing, array $items): string
+    {
+        $framing = trim($framing);
+        if ($framing === '') {
+            return $framing;
+        }
+
+        if ($items === []) {
+            return $framing;
+        }
+
+        // Keep a concise single-sentence intro when ranked rows are present.
+        $sentences = preg_split('/(?<=[.!?])\s+/u', $framing, -1, PREG_SPLIT_NO_EMPTY) ?: [$framing];
+        $firstSentence = trim((string) ($sentences[0] ?? $framing));
+        if ($firstSentence === '') {
+            $firstSentence = $framing;
+        }
+
+        // Avoid count/list-order restatement in framing (already rendered by list + method summary).
+        $firstSentence = preg_replace('/\bhere (?:are|is)\s+\d+\s+(?:tasks?|items?|priorities)\b/iu', 'Here is your focused next-step slice', $firstSentence) ?? $firstSentence;
+        $firstSentence = preg_replace('/\b(?:ordered by|ranked by)\b[^.?!]*/iu', '', $firstSentence) ?? $firstSentence;
+        $firstSentence = preg_replace('/\s{2,}/u', ' ', $firstSentence) ?? $firstSentence;
+
+        return trim(rtrim($firstSentence, " \t\n\r\0\x0B"));
+    }
+
+    private function normalizeEffortWording(string $text): string
+    {
+        $out = trim($text);
+        if ($out === '') {
+            return $out;
+        }
+
+        $replacements = [
+            '/\bcomplex\s+complexity\b/iu' => 'higher effort',
+            '/\bmoderate\s+complexity\b/iu' => 'manageable effort',
+            '/\bsimple\s+complexity\b/iu' => 'quick effort',
+        ];
+
+        foreach ($replacements as $pattern => $replacement) {
+            $out = preg_replace($pattern, $replacement, $out) ?? $out;
+        }
+
+        return trim($out);
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $items
+     */
+    private function stripReasoningDuplicationAgainstOrdering(string $reasoning, array $items): string
+    {
+        $reasoning = trim($reasoning);
+        if ($reasoning === '' || $items === []) {
+            return $reasoning;
+        }
+
+        $orderingLines = [];
+        foreach ($items as $index => $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $title = trim((string) ($row['title'] ?? ''));
+            $rankReason = trim((string) ($row['rank_reason'] ?? ''));
+            if ($title === '' && $rankReason === '') {
+                continue;
+            }
+            $orderingLines[] = '#'.($index + 1).' '.$title.' '.$rankReason;
+        }
+
+        $orderingBlob = trim(implode(' ', $orderingLines));
+        if ($orderingBlob === '') {
+            return $reasoning;
+        }
+
+        if ($this->normalizeForSimilarity($orderingBlob) === $this->normalizeForSimilarity($reasoning)) {
+            $firstTitle = trim((string) data_get($items, '0.title', 'this top task'));
+
+            return "Start with {$firstTitle} first, keep the block focused, then reassess what to do next based on your energy and time.";
+        }
+
+        return $reasoning;
     }
 
     /**
@@ -2332,10 +2541,10 @@ TXT;
             return $reasoning;
         }
 
-        // If reasoning includes generic but meaningful grounding words (e.g. "urgency rules"),
+        // If reasoning includes generic but meaningful grounding words tied to ranking policy,
         // do not override it.
         $hasMeaningfulGrounding = (bool) preg_match(
-            '/\b(urgency|priority|due|deadline|time[-\s]?sensitive)\b/iu',
+            '/\b(student[-\s]?first|task[-\s]?first|non[-\s]?recurring|recurring|academic|priority|due|deadline|time[-\s]?sensitive)\b/iu',
             $textLower
         );
         if ($hasMeaningfulGrounding) {

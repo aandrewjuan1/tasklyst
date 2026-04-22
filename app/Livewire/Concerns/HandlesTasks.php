@@ -186,6 +186,10 @@ trait HandlesTasks
             return false;
         }
 
+        if (method_exists($this, 'deactivateScheduledFocusForEntity')) {
+            $this->deactivateScheduledFocusForEntity('task', (int) $task->id, 'task_deleted');
+        }
+
         $this->dispatch('toast', ...Task::toastPayload('delete', true, $task->title));
 
         if (method_exists($this, 'syncActiveFocusSessionFromDatabase')) {
@@ -436,6 +440,19 @@ trait HandlesTasks
             return ['success' => true, 'recurringTaskId' => $task->recurringTask?->id];
         }
 
+        if (method_exists($this, 'deactivateScheduledFocusForEntity')) {
+            if (in_array($property, ['startDatetime', 'endDatetime'], true)) {
+                $this->deactivateScheduledFocusForEntity('task', (int) $task->id, 'task_datetime_updated');
+            }
+
+            if ($property === 'status') {
+                $newStatus = strtolower(trim((string) ($result->newValue ?? '')));
+                if ($newStatus === strtolower(TaskStatus::Done->value)) {
+                    $this->deactivateScheduledFocusForEntity('task', (int) $task->id, 'task_completed');
+                }
+            }
+        }
+
         return true;
     }
 
@@ -447,11 +464,17 @@ trait HandlesTasks
     #[Computed]
     public function tasks(): Collection
     {
+        $isOverdueStateFilterActive = method_exists($this, 'isOverdueStateFilterActive') && $this->isOverdueStateFilterActive();
+        $isDueStateFilterActive = method_exists($this, 'isDueStateFilterActive') && $this->isDueStateFilterActive();
+
         // Early return: Skip if filtered to other item types (before any work). Kanban is tasks-only but
         // still loads tasks when list is filtered to events/projects so the board stays meaningful.
         $filterItemType = property_exists($this, 'filterItemType') ? $this->normalizeFilterValue($this->filterItemType) : null;
         $isKanban = property_exists($this, 'viewMode') && $this->viewMode === 'kanban';
         if (! $isKanban && $filterItemType !== null && $filterItemType !== 'tasks') {
+            return collect();
+        }
+        if ($isOverdueStateFilterActive && ! $isKanban) {
             return collect();
         }
 
@@ -466,7 +489,10 @@ trait HandlesTasks
         $visibleLimit = $tasksPerPage * $tasksPage;
         $queryLimit = $visibleLimit + 1;
 
-        $searchAllItems = method_exists($this, 'shouldSearchAllItems') && $this->shouldSearchAllItems();
+        $searchAllItems = method_exists($this, 'shouldSearchAllItems')
+            && $this->shouldSearchAllItems()
+            && ! $isDueStateFilterActive
+            && ! $isOverdueStateFilterActive;
         $statusFilter = method_exists($this, 'normalizeFilterValue')
             ? $this->normalizeFilterValue($this->filterTaskStatus ?? null)
             : null;
@@ -503,10 +529,10 @@ trait HandlesTasks
                 : Carbon::parse($this->selectedDate);
             $focusTaskId = (int) ($this->focusTaskId ?? 0);
 
-            $taskQuery->where(function (Builder $outer) use ($date, $focusTaskId): void {
-                $outer->where(function (Builder $inner) use ($date): void {
+            $taskQuery->where(function (Builder $outer) use ($date, $focusTaskId, $isDueStateFilterActive): void {
+                $outer->where(function (Builder $inner) use ($date, $isDueStateFilterActive): void {
                     $inner->relevantForDate($date);
-                    if ($date->isToday()) {
+                    if ($date->isToday() && ! $isDueStateFilterActive) {
                         $inner->where(function (Builder $q): void {
                             $q->whereHas('recurringTask')
                                 ->orWhere(function (Builder $nonRecurring): void {
@@ -522,6 +548,14 @@ trait HandlesTasks
             });
         }
 
+        if ($isDueStateFilterActive) {
+            $selectedDate = method_exists($this, 'getParsedSelectedDate')
+                ? $this->getParsedSelectedDate()
+                : Carbon::parse($this->selectedDate);
+            $taskQuery->whereNotNull('end_datetime')
+                ->whereDate('end_datetime', $selectedDate->toDateString());
+        }
+
         if (property_exists($this, 'listContextProjectId') && $this->listContextProjectId !== null && $this->listContextProjectId !== '') {
             $project = Project::query()->forUser($userId)->find((int) $this->listContextProjectId);
             if ($project !== null) {
@@ -534,6 +568,10 @@ trait HandlesTasks
                 $this->authorize('view', $event);
                 $taskQuery->forEvent($event);
             }
+        }
+
+        if ($isOverdueStateFilterActive) {
+            $taskQuery->overdue(now())->where('status', '!=', TaskStatus::Done->value)->whereDoesntHave('recurringTask');
         }
 
         if (method_exists($this, 'applyTaskFilters')) {
@@ -607,6 +645,9 @@ trait HandlesTasks
         if (! method_exists($this, 'shouldShowCompleted') || ! $this->shouldShowCompleted()) {
             return collect();
         }
+        if (method_exists($this, 'isOverdueStateFilterActive') && $this->isOverdueStateFilterActive()) {
+            return collect();
+        }
         $filterItemType = property_exists($this, 'filterItemType') ? $this->normalizeFilterValue($this->filterItemType) : null;
         $isKanban = property_exists($this, 'viewMode') && $this->viewMode === 'kanban';
         if (! $isKanban && $filterItemType !== null && $filterItemType !== 'tasks') {
@@ -655,6 +696,14 @@ trait HandlesTasks
                 ? $this->getParsedSelectedDate()
                 : Carbon::parse($this->selectedDate);
             $taskQuery->relevantForDate($date);
+        }
+
+        if (method_exists($this, 'isDueStateFilterActive') && $this->isDueStateFilterActive()) {
+            $selectedDate = method_exists($this, 'getParsedSelectedDate')
+                ? $this->getParsedSelectedDate()
+                : Carbon::parse($this->selectedDate);
+            $taskQuery->whereNotNull('end_datetime')
+                ->whereDate('end_datetime', $selectedDate->toDateString());
         }
 
         if (property_exists($this, 'listContextProjectId') && $this->listContextProjectId !== null && $this->listContextProjectId !== '') {

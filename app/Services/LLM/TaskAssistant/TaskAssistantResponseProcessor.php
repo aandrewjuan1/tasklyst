@@ -25,6 +25,28 @@ final class TaskAssistantResponseProcessor
         array $data,
         array $snapshot = [],
     ): array {
+        $narrativeCorrections = [];
+        $qualityCorrections = [];
+        if ($flow === 'daily_schedule') {
+            $items = is_array($data['items'] ?? null) ? $data['items'] : [];
+            $blocks = is_array($data['blocks'] ?? null) ? $data['blocks'] : [];
+            $normalizedNarrative = $this->messageFormatter->normalizeDailyScheduleNarrativeFields(
+                $items,
+                $blocks,
+                (string) ($data['framing'] ?? ''),
+                (string) ($data['reasoning'] ?? ''),
+                (string) ($data['confirmation'] ?? ''),
+            );
+            $data['framing'] = $normalizedNarrative['framing'];
+            $data['reasoning'] = $normalizedNarrative['reasoning'];
+            $data['confirmation'] = $normalizedNarrative['confirmation'];
+            $narrativeCorrections = is_array($normalizedNarrative['corrections'] ?? null)
+                ? $normalizedNarrative['corrections']
+                : [];
+        }
+
+        ['data' => $data, 'corrections' => $qualityCorrections] = $this->normalizeQualityForFlow($flow, $data);
+
         $validation = $this->validateFlowData($flow, $data, $snapshot);
         $formattedContent = $this->messageFormatter->format($flow, $data, $snapshot);
 
@@ -47,6 +69,8 @@ final class TaskAssistantResponseProcessor
             'formatted_message_truncated' => $truncated,
             'formatted_message_sha256' => hash('sha256', $formattedContent),
             'formatted_message' => $loggedBody,
+            'narrative_corrections' => $narrativeCorrections,
+            'quality_corrections' => $qualityCorrections,
         ]);
 
         Log::info('task-assistant.validation', [
@@ -65,6 +89,190 @@ final class TaskAssistantResponseProcessor
             'structured_data' => $data,
             'errors' => $validation['errors'],
         ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array{data: array<string, mixed>, corrections: array<string, mixed>}
+     */
+    private function normalizeQualityForFlow(string $flow, array $data): array
+    {
+        return match ($flow) {
+            'prioritize' => $this->normalizePrioritizeQuality($data),
+            'daily_schedule' => $this->normalizeDailyScheduleQuality($data),
+            default => ['data' => $data, 'corrections' => []],
+        };
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array{data: array<string, mixed>, corrections: array<string, mixed>}
+     */
+    private function normalizePrioritizeQuality(array $data): array
+    {
+        $corrections = [];
+        $reasoning = trim((string) ($data['reasoning'] ?? ''));
+        $orderingRationale = is_array($data['ordering_rationale'] ?? null) ? $data['ordering_rationale'] : [];
+        $rationaleBlob = implode(' ', array_map(static fn (mixed $line): string => trim((string) $line), $orderingRationale));
+        $similarity = $this->textSimilarityScore($reasoning, $rationaleBlob);
+
+        if ($reasoning !== '' && $similarity >= 0.62) {
+            $items = is_array($data['items'] ?? null) ? $data['items'] : [];
+            $firstTitle = trim((string) data_get($items, '0.title', 'this top task'));
+            if ($firstTitle === '') {
+                $firstTitle = 'this top task';
+            }
+            $rewritten = "Start with {$firstTitle} first, then check your momentum before moving to the next item. Keep this step short so you can build progress without overloading yourself.";
+            $data['reasoning'] = TaskAssistantPrioritizeOutputDefaults::clampPrioritizeReasoning($rewritten);
+            $corrections['prioritize_reasoning_deduped'] = [
+                'similarity' => round($similarity, 3),
+                'from' => $reasoning,
+                'to' => $data['reasoning'],
+            ];
+        }
+
+        if ($reasoning !== '') {
+            $normalizedReasoning = $this->normalizePrioritizeEffortPhrases($reasoning);
+            if ($normalizedReasoning !== $reasoning) {
+                $data['reasoning'] = $normalizedReasoning;
+                $reasoning = $normalizedReasoning;
+                $corrections['prioritize_reasoning_effort_phrase_normalized'] = true;
+            }
+        }
+
+        $items = is_array($data['items'] ?? null) ? $data['items'] : [];
+        if ($items !== [] && ! $this->reasoningMentionsTopTitle((string) ($data['reasoning'] ?? ''), $items)) {
+            $firstTitle = trim((string) data_get($items, '0.title', 'this top task'));
+            if ($firstTitle === '') {
+                $firstTitle = 'this top task';
+            }
+            $rewritten = "Start with {$firstTitle} first, then take a focused pass before moving to the next item. Keeping this step short helps you build momentum without overload.";
+            $data['reasoning'] = TaskAssistantPrioritizeOutputDefaults::clampPrioritizeReasoning($rewritten);
+            $corrections['prioritize_reasoning_top_title_enforced'] = true;
+        }
+
+        if (is_array($orderingRationale) && count($orderingRationale) > 6) {
+            $data['ordering_rationale'] = array_slice($orderingRationale, 0, 6);
+            $corrections['prioritize_ordering_rationale_trimmed'] = [
+                'from_count' => count($orderingRationale),
+                'to_count' => 6,
+            ];
+        }
+
+        $nextOptions = trim((string) ($data['next_options'] ?? ''));
+        if ($nextOptions !== '') {
+            $data['next_options'] = $this->clipToSentenceCount($nextOptions, 2, TaskAssistantPrioritizeOutputDefaults::maxNextFieldChars());
+        }
+
+        return ['data' => $data, 'corrections' => $corrections];
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array{data: array<string, mixed>, corrections: array<string, mixed>}
+     */
+    private function normalizeDailyScheduleQuality(array $data): array
+    {
+        $corrections = [];
+        $maxScheduleConfirmationChars = $this->maxScheduleConfirmationChars();
+
+        $framing = trim((string) ($data['framing'] ?? ''));
+        if ($framing !== '') {
+            $condensed = $this->clipToSentenceCount($framing, 2, TaskAssistantPrioritizeOutputDefaults::maxFramingChars());
+            if ($condensed !== $framing) {
+                $data['framing'] = $condensed;
+                $corrections['schedule_framing_condensed'] = true;
+            }
+        }
+
+        $reasoning = trim((string) ($data['reasoning'] ?? ''));
+        $orderingRationale = is_array($data['ordering_rationale'] ?? null) ? $data['ordering_rationale'] : [];
+        $windowSelection = trim((string) ($data['window_selection_explanation'] ?? ''));
+        $structBlob = $this->scheduleStructFactsBlob($data);
+        $comparisonBlob = trim($windowSelection.' '.implode(' ', array_map(
+            static fn (mixed $line): string => trim((string) $line),
+            $orderingRationale
+        )).' '.$structBlob);
+        $similarity = $this->textSimilarityScore($reasoning, $comparisonBlob);
+        if ($reasoning !== '' && $comparisonBlob !== '' && $similarity >= 0.65) {
+            $replacement = 'This sequence keeps your workload realistic and avoids clashes with existing commitments while preserving momentum across the week.';
+            $data['reasoning'] = $replacement;
+            $corrections['schedule_reasoning_deduped'] = [
+                'similarity' => round($similarity, 3),
+            ];
+        }
+
+        if (is_array($orderingRationale) && count($orderingRationale) > 8) {
+            $data['ordering_rationale'] = array_slice($orderingRationale, 0, 8);
+            $corrections['schedule_ordering_rationale_trimmed'] = [
+                'from_count' => count($orderingRationale),
+                'to_count' => 8,
+            ];
+        }
+
+        $confirmation = trim((string) ($data['confirmation'] ?? ''));
+        if ($confirmation !== '') {
+            $condensedConfirmation = $this->clipToSentenceCount($confirmation, 3, $maxScheduleConfirmationChars);
+            if ($condensedConfirmation !== $confirmation) {
+                $data['confirmation'] = $condensedConfirmation;
+                $corrections['schedule_confirmation_condensed'] = true;
+            }
+        }
+
+        return ['data' => $data, 'corrections' => $corrections];
+    }
+
+    private function clipToSentenceCount(string $text, int $maxSentences, int $maxChars): string
+    {
+        $value = trim(preg_replace('/\s+/u', ' ', $text) ?? $text);
+        if ($value === '') {
+            return '';
+        }
+
+        $sentences = preg_split('/(?<=[.!?])\s+/u', $value, -1, PREG_SPLIT_NO_EMPTY) ?: [$value];
+        $limited = implode(' ', array_slice($sentences, 0, max(1, $maxSentences)));
+
+        if (mb_strlen($limited) <= $maxChars) {
+            return $limited;
+        }
+
+        return trim(mb_substr($limited, 0, max(1, $maxChars - 1))).'…';
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private function scheduleStructFactsBlob(array $data): string
+    {
+        $parts = [];
+        $windowStruct = is_array($data['window_selection_struct'] ?? null) ? $data['window_selection_struct'] : [];
+        if ($windowStruct !== []) {
+            $parts[] = trim((string) ($windowStruct['window_mode'] ?? ''));
+            $parts[] = trim((string) ($windowStruct['reason_code_primary'] ?? ''));
+        }
+        $orderingStruct = is_array($data['ordering_rationale_struct'] ?? null) ? $data['ordering_rationale_struct'] : [];
+        foreach ($orderingStruct as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $parts[] = trim((string) ($row['fit_reason_code'] ?? ''));
+            $facts = is_array($row['fit_facts'] ?? null) ? $row['fit_facts'] : [];
+            foreach ($facts as $fact) {
+                if (! is_array($fact)) {
+                    continue;
+                }
+                $parts[] = trim((string) ($fact['key'] ?? '')).':'.trim((string) ($fact['value'] ?? ''));
+            }
+        }
+        $blockingStruct = is_array($data['blocking_reasons_struct'] ?? null) ? $data['blocking_reasons_struct'] : [];
+        foreach ($blockingStruct as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $parts[] = trim((string) ($row['block_reason_code'] ?? ''));
+        }
+
+        return trim(implode(' ', array_values(array_filter($parts, static fn (string $part): bool => $part !== ''))));
     }
 
     private function validateFlowData(string $flow, array $data, array $snapshot): array
@@ -129,7 +337,7 @@ final class TaskAssistantResponseProcessor
             'suggested_next_actions' => ['required', 'array', 'min:2', 'max:3'],
             'suggested_next_actions.*' => ['required', 'string', 'min:2', 'max:140'],
             'next_options' => ['required', 'string', 'min:5', 'max:'.$maxNextOptions],
-            'next_options_chip_texts' => ['present', 'array', 'size:2'],
+            'next_options_chip_texts' => ['present', 'array', 'min:2', 'max:3'],
             'next_options_chip_texts.*' => ['required', 'string', 'min:2', 'max:120'],
         ];
 
@@ -158,9 +366,12 @@ final class TaskAssistantResponseProcessor
                 || str_contains($nextOptionsLower, 'tackle')
                 || str_contains($nextOptionsLower, 'rank');
             $nextHasScheduleTheme = str_contains($nextOptionsLower, 'schedule')
+                || str_contains($nextOptionsLower, 'scheduling')
+                || str_contains($nextOptionsLower, 'schedul')
                 || str_contains($nextOptionsLower, 'time block')
                 || str_contains($nextOptionsLower, 'block time')
-                || str_contains($nextOptionsLower, 'calendar');
+                || str_contains($nextOptionsLower, 'calendar')
+                || str_contains($nextOptionsLower, 'study time');
             if (! $nextHasPrioritizeTheme) {
                 $validator->errors()->add('next_options', 'next_options must offer a prioritize or ordering theme.');
             }
@@ -265,6 +476,47 @@ final class TaskAssistantResponseProcessor
         return $intersection / $union;
     }
 
+    private function countSentences(string $text): int
+    {
+        $value = trim($text);
+        if ($value === '') {
+            return 0;
+        }
+
+        $parts = preg_split('/(?<=[.!?])\s+/u', $value, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        if ($parts === []) {
+            return 1;
+        }
+
+        return count($parts);
+    }
+
+    private function maxScheduleConfirmationChars(): int
+    {
+        $max = (int) config('task-assistant.schedule.max_confirmation_chars', 700);
+
+        return max(240, min($max, 1200));
+    }
+
+    private function hasMixedDaypartClaims(string $text): bool
+    {
+        $value = mb_strtolower(trim($text));
+        if ($value === '') {
+            return false;
+        }
+
+        $hasMorning = str_contains($value, 'morning');
+        $hasAfternoon = str_contains($value, 'afternoon');
+        $hasEvening = str_contains($value, 'evening') || str_contains($value, 'night') || str_contains($value, 'tonight');
+
+        $count = 0;
+        $count += $hasMorning ? 1 : 0;
+        $count += $hasAfternoon ? 1 : 0;
+        $count += $hasEvening ? 1 : 0;
+
+        return $count >= 2;
+    }
+
     /**
      * Prioritize payload: backend items plus narrative fields for {@see TaskAssistantMessageFormatter::formatPrioritizeListingMessage}.
      * Student-visible order is optional acknowledgment, framing, Doing block when present, ranked lines,
@@ -276,6 +528,18 @@ final class TaskAssistantResponseProcessor
      */
     private function validatePrioritizeListingData(array $data): array
     {
+        $itemsForDefaults = is_array($data['items'] ?? null) ? $data['items'] : [];
+        if (! isset($data['ranking_method_summary']) || ! is_string($data['ranking_method_summary']) || trim((string) $data['ranking_method_summary']) === '') {
+            $data['ranking_method_summary'] = TaskAssistantPrioritizeOutputDefaults::defaultRankingMethodSummary();
+        }
+        if (! isset($data['ordering_rationale']) || ! is_array($data['ordering_rationale'])) {
+            $data['ordering_rationale'] = array_map(
+                static fn (array $row, int $index): string => '#'.($index + 1).' '.trim((string) ($row['title'] ?? 'Item')).': '.trim((string) ($row['rank_reason'] ?? 'This is one of your clearest next moves right now.')),
+                $itemsForDefaults,
+                array_keys($itemsForDefaults),
+            );
+        }
+
         $maxReasoning = TaskAssistantPrioritizeOutputDefaults::maxReasoningChars();
         $maxFraming = TaskAssistantPrioritizeOutputDefaults::maxFramingChars();
         $maxDoingCoach = TaskAssistantPrioritizeOutputDefaults::maxDoingProgressCoachChars();
@@ -294,6 +558,9 @@ final class TaskAssistantResponseProcessor
             // Empty array is allowed (e.g. deterministic empty-workspace reply has no follow-up chips).
             'next_options_chip_texts' => ['present', 'array', 'max:3'],
             'next_options_chip_texts.*' => ['string', 'min:2', 'max:120'],
+            'ranking_method_summary' => ['required', 'string', 'min:12', 'max:260'],
+            'ordering_rationale' => ['present', 'array', 'max:10'],
+            'ordering_rationale.*' => ['required', 'string', 'min:8', 'max:260'],
             'items.*.entity_type' => ['required', 'string', 'in:task,event,project'],
             'items.*.entity_id' => ['required', 'integer', 'min:1'],
             'items.*.title' => ['required', 'string', 'max:200'],
@@ -302,6 +569,15 @@ final class TaskAssistantResponseProcessor
             'items.*.due_phrase' => ['nullable', 'string', 'max:64'],
             'items.*.due_on' => ['nullable', 'string', 'max:64'],
             'items.*.complexity_label' => ['nullable', 'string', 'max:64'],
+            'items.*.rank_reason' => ['nullable', 'string', 'max:260'],
+            'items.*.rank_explainability' => ['nullable', 'array'],
+            'items.*.rank_explainability.reason_code_primary' => ['nullable', 'string', 'max:120'],
+            'items.*.rank_explainability.reason_codes_secondary' => ['nullable', 'array', 'max:8'],
+            'items.*.rank_explainability.reason_codes_secondary.*' => ['string', 'max:80'],
+            'items.*.rank_explainability.explainability_facts' => ['nullable', 'array', 'max:12'],
+            'items.*.rank_explainability.explainability_facts.*.key' => ['required_with:items.*.rank_explainability.explainability_facts', 'string', 'max:64'],
+            'items.*.rank_explainability.explainability_facts.*.value' => ['required_with:items.*.rank_explainability.explainability_facts', 'string', 'max:180'],
+            'items.*.rank_explainability.narrative_anchor' => ['nullable', 'array'],
             'acknowledgment' => ['nullable', 'string', 'max:'.$maxFraming],
             'reasoning' => ['required', 'string', 'min:3', 'max:'.$maxReasoning],
             'filter_interpretation' => ['nullable', 'string', 'max:280'],
@@ -336,6 +612,35 @@ final class TaskAssistantResponseProcessor
                     $validator->errors()->add('framing', 'framing is required when doing_progress_coach is empty or null.');
                 }
             }
+
+            $items = is_array($data['items'] ?? null) ? $data['items'] : [];
+            $orderingRationale = is_array($data['ordering_rationale'] ?? null) ? $data['ordering_rationale'] : [];
+            if ($items !== [] && count($orderingRationale) !== count($items)) {
+                $validator->errors()->add('ordering_rationale', 'ordering_rationale must have one explanation line per ranked item.');
+            }
+
+            $orderingBlob = implode(' ', array_map(static fn (mixed $line): string => trim((string) $line), $orderingRationale));
+            if ($orderingBlob !== '' && $reasoning !== '' && $this->textSimilarityScore($orderingBlob, $reasoning) >= 0.62) {
+                $validator->errors()->add('reasoning', 'reasoning must add coaching value and not restate ordering_rationale verbatim.');
+            }
+
+            if ($items !== [] && ! $this->reasoningMentionsTopTitle($reasoning, $items)) {
+                $validator->errors()->add('reasoning', 'reasoning must explicitly name the top-ranked item title when items are present.');
+            }
+
+            if ($this->containsAwkwardComplexityPhrases($reasoning)) {
+                $validator->errors()->add('reasoning', 'reasoning contains awkward complexity wording; use friendly effort language.');
+            }
+
+            if ($this->countSentences($reasoning) > 5) {
+                $validator->errors()->add('reasoning', 'reasoning should stay concise (max 5 sentences).');
+            }
+
+            $nextOptions = trim((string) ($data['next_options'] ?? ''));
+            if ($this->countSentences($nextOptions) > 3) {
+                $validator->errors()->add('next_options', 'next_options should stay concise (max 3 sentences).');
+            }
+
         });
 
         if ($validator->fails()) {
@@ -353,11 +658,77 @@ final class TaskAssistantResponseProcessor
         ];
     }
 
+    /**
+     * @param  list<array<string, mixed>>  $items
+     */
+    private function reasoningMentionsTopTitle(string $reasoning, array $items): bool
+    {
+        $reasoning = trim($reasoning);
+        if ($reasoning === '' || $items === []) {
+            return true;
+        }
+
+        $firstTitle = trim((string) data_get($items, '0.title', ''));
+        if ($firstTitle === '') {
+            return true;
+        }
+
+        return mb_stripos($reasoning, $firstTitle) !== false;
+    }
+
+    private function containsAwkwardComplexityPhrases(string $text): bool
+    {
+        return preg_match('/\b(complex|moderate|simple)\s+complexity\b/iu', $text) === 1;
+    }
+
+    private function normalizePrioritizeEffortPhrases(string $text): string
+    {
+        $out = trim($text);
+        if ($out === '') {
+            return $out;
+        }
+
+        $replacements = [
+            '/\bcomplex\s+complexity\b/iu' => 'higher effort',
+            '/\bmoderate\s+complexity\b/iu' => 'manageable effort',
+            '/\bsimple\s+complexity\b/iu' => 'quick effort',
+        ];
+
+        foreach ($replacements as $pattern => $replacement) {
+            $out = preg_replace($pattern, $replacement, $out) ?? $out;
+        }
+
+        return trim($out);
+    }
+
     private function validateDailyScheduleData(array $data, array $snapshot): array
     {
+        $data = $this->normalizeApplyPayloadActions($data);
+        if (! is_string($data['window_selection_explanation'] ?? null)) {
+            $data['window_selection_explanation'] = '';
+        }
+        if (! is_array($data['ordering_rationale'] ?? null)) {
+            $data['ordering_rationale'] = [];
+        }
+        if (! is_array($data['blocking_reasons'] ?? null)) {
+            $data['blocking_reasons'] = [];
+        }
+        if (! is_array($data['window_selection_struct'] ?? null)) {
+            $data['window_selection_struct'] = [];
+        }
+        if (! is_array($data['ordering_rationale_struct'] ?? null)) {
+            $data['ordering_rationale_struct'] = [];
+        }
+        if (! is_array($data['blocking_reasons_struct'] ?? null)) {
+            $data['blocking_reasons_struct'] = [];
+        }
+        if (! array_key_exists('fallback_choice_explanation', $data)) {
+            $data['fallback_choice_explanation'] = null;
+        }
+
         $maxFraming = TaskAssistantPrioritizeOutputDefaults::maxFramingChars();
         $maxReasoning = TaskAssistantPrioritizeOutputDefaults::maxReasoningChars();
-        $maxConfirmation = TaskAssistantPrioritizeOutputDefaults::maxNextFieldChars();
+        $maxConfirmation = $this->maxScheduleConfirmationChars();
 
         $rules = [
             'proposals' => ['nullable', 'array', 'max:100'],
@@ -369,13 +740,21 @@ final class TaskAssistantResponseProcessor
             'proposals.*.entity_id' => ['nullable', 'integer'],
             'proposals.*.title' => ['required_with:proposals', 'string', 'max:200'],
             'proposals.*.reason_score' => ['nullable', 'numeric'],
+            'proposals.*.reason_code_primary' => ['nullable', 'string', 'max:120'],
+            'proposals.*.reason_codes_secondary' => ['nullable', 'array', 'max:8'],
+            'proposals.*.reason_codes_secondary.*' => ['string', 'max:80'],
+            'proposals.*.explainability_facts' => ['nullable', 'array', 'max:12'],
+            'proposals.*.explainability_facts.*.key' => ['required_with:proposals.*.explainability_facts', 'string', 'max:64'],
+            'proposals.*.explainability_facts.*.value' => ['required_with:proposals.*.explainability_facts', 'string', 'max:180'],
+            'proposals.*.narrative_anchor' => ['nullable', 'array'],
             'proposals.*.start_datetime' => ['required_with:proposals', 'date'],
             'proposals.*.end_datetime' => ['nullable', 'date'],
             'proposals.*.duration_minutes' => ['nullable', 'integer', 'min:1', 'max:1440'],
             'proposals.*.conflict_notes' => ['nullable', 'array', 'max:10'],
             'proposals.*.conflict_notes.*' => ['string', 'max:300'],
             'proposals.*.apply_payload' => ['nullable', 'array'],
-            'proposals.*.apply_payload.tool' => ['required_with:proposals.*.apply_payload', 'string', 'max:64', 'in:update_task,update_event,update_project,create_event'],
+            'proposals.*.apply_payload.action' => ['required_with:proposals.*.apply_payload', 'string', 'max:64', 'in:update_task,update_event,update_project,create_event'],
+            'proposals.*.apply_payload.tool' => ['nullable', 'string', 'max:64'],
             'proposals.*.apply_payload.arguments' => ['nullable', 'array'],
             'proposals.*.apply_payload.arguments.title' => ['nullable', 'string', 'max:200'],
             'proposals.*.apply_payload.arguments.description' => ['nullable', 'string', 'max:2000'],
@@ -417,6 +796,42 @@ final class TaskAssistantResponseProcessor
             'placement_digest.partial_placed_count' => ['nullable', 'integer', 'min:0', 'max:200'],
             'placement_digest.count_shortfall' => ['nullable', 'integer', 'min:0', 'max:200'],
             'placement_digest.top_n_shortfall' => ['nullable', 'boolean'],
+            'requested_horizon_label' => ['nullable', 'string', 'max:120'],
+            'requested_window_display_label' => ['nullable', 'string', 'max:120'],
+            'has_explicit_clock_time' => ['nullable', 'boolean'],
+            'blocking_section_title' => ['nullable', 'string', 'max:180'],
+            'window_selection_explanation' => ['present', 'string', 'max:500'],
+            'window_selection_struct' => ['present', 'array'],
+            'window_selection_struct.window_mode' => ['nullable', 'string', 'max:64'],
+            'window_selection_struct.reason_code_primary' => ['nullable', 'string', 'max:120'],
+            'window_selection_struct.window_used' => ['nullable', 'array'],
+            'window_selection_struct.window_used.start' => ['nullable', 'string', 'max:32'],
+            'window_selection_struct.window_used.end' => ['nullable', 'string', 'max:32'],
+            'window_selection_struct.horizon_span' => ['nullable', 'array'],
+            'window_selection_struct.horizon_span.start_date' => ['nullable', 'string', 'max:32'],
+            'window_selection_struct.horizon_span.end_date' => ['nullable', 'string', 'max:32'],
+            'ordering_rationale' => ['present', 'array', 'max:100'],
+            'ordering_rationale.*' => ['required', 'string', 'min:8', 'max:260'],
+            'ordering_rationale_struct' => ['present', 'array', 'max:100'],
+            'ordering_rationale_struct.*.rank' => ['nullable', 'integer', 'min:1', 'max:200'],
+            'ordering_rationale_struct.*.title' => ['nullable', 'string', 'max:200'],
+            'ordering_rationale_struct.*.slot_start' => ['nullable', 'string', 'max:64'],
+            'ordering_rationale_struct.*.fit_reason_code' => ['nullable', 'string', 'max:120'],
+            'ordering_rationale_struct.*.fit_facts' => ['nullable', 'array', 'max:12'],
+            'ordering_rationale_struct.*.fit_facts.*.key' => ['required_with:ordering_rationale_struct.*.fit_facts', 'string', 'max:64'],
+            'ordering_rationale_struct.*.fit_facts.*.value' => ['required_with:ordering_rationale_struct.*.fit_facts', 'string', 'max:180'],
+            'blocking_reasons' => ['present', 'array', 'max:40'],
+            'blocking_reasons.*.title' => ['required', 'string', 'min:1', 'max:200'],
+            'blocking_reasons.*.blocked_window' => ['required', 'string', 'min:1', 'max:120'],
+            'blocking_reasons.*.reason' => ['required', 'string', 'min:4', 'max:280'],
+            'blocking_reasons_struct' => ['present', 'array', 'max:40'],
+            'blocking_reasons_struct.*.title' => ['nullable', 'string', 'max:200'],
+            'blocking_reasons_struct.*.blocked_window' => ['nullable', 'string', 'max:120'],
+            'blocking_reasons_struct.*.block_reason_code' => ['nullable', 'string', 'max:120'],
+            'blocking_reasons_struct.*.reason_facts' => ['nullable', 'array', 'max:12'],
+            'blocking_reasons_struct.*.reason_facts.*.key' => ['required_with:blocking_reasons_struct.*.reason_facts', 'string', 'max:64'],
+            'blocking_reasons_struct.*.reason_facts.*.value' => ['required_with:blocking_reasons_struct.*.reason_facts', 'string', 'max:180'],
+            'fallback_choice_explanation' => ['nullable', 'string', 'max:320'],
             'confirmation_required' => ['nullable', 'boolean'],
             'awaiting_user_decision' => ['nullable', 'boolean'],
             'confirmation_context' => ['nullable', 'array'],
@@ -431,6 +846,14 @@ final class TaskAssistantResponseProcessor
             'confirmation_context.prompt' => ['nullable', 'string', 'max:500'],
             'confirmation_context.options' => ['nullable', 'array', 'max:6'],
             'confirmation_context.options.*' => ['string', 'max:160'],
+            'confirmation_context.nearest_available_window' => ['nullable', 'array'],
+            'confirmation_context.nearest_available_window.date' => ['nullable', 'string', 'max:32'],
+            'confirmation_context.nearest_available_window.date_label' => ['nullable', 'string', 'max:40'],
+            'confirmation_context.nearest_available_window.daypart' => ['nullable', 'string', 'max:24'],
+            'confirmation_context.nearest_available_window.start_time' => ['nullable', 'string', 'max:8'],
+            'confirmation_context.nearest_available_window.end_time' => ['nullable', 'string', 'max:8'],
+            'confirmation_context.nearest_available_window.window_label' => ['nullable', 'string', 'max:80'],
+            'confirmation_context.nearest_available_window.display_label' => ['nullable', 'string', 'max:120'],
             'fallback_preview' => ['nullable', 'array'],
             'fallback_preview.proposals_count' => ['nullable', 'integer', 'min:0', 'max:200'],
             'fallback_preview.days_used' => ['nullable', 'array', 'max:400'],
@@ -438,9 +861,28 @@ final class TaskAssistantResponseProcessor
             'fallback_preview.placement_dates' => ['nullable', 'array', 'max:400'],
             'fallback_preview.placement_dates.*' => ['string', 'max:32'],
             'fallback_preview.summary' => ['nullable', 'string', 'max:2000'],
+            'fallback_preview.nearest_available_window' => ['nullable', 'array'],
+            'fallback_preview.nearest_available_window.date' => ['nullable', 'string', 'max:32'],
+            'fallback_preview.nearest_available_window.date_label' => ['nullable', 'string', 'max:40'],
+            'fallback_preview.nearest_available_window.daypart' => ['nullable', 'string', 'max:24'],
+            'fallback_preview.nearest_available_window.start_time' => ['nullable', 'string', 'max:8'],
+            'fallback_preview.nearest_available_window.end_time' => ['nullable', 'string', 'max:8'],
+            'fallback_preview.nearest_available_window.window_label' => ['nullable', 'string', 'max:80'],
+            'fallback_preview.nearest_available_window.display_label' => ['nullable', 'string', 'max:120'],
+            'summary' => ['nullable', 'string', 'max:2000'],
+            'assistant_note' => ['nullable', 'string', 'max:500'],
+            'strategy_points' => ['nullable', 'array', 'max:8'],
+            'strategy_points.*' => ['string', 'max:240'],
+            'suggested_next_steps' => ['nullable', 'array', 'max:6'],
+            'suggested_next_steps.*' => ['string', 'max:240'],
+            'assumptions' => ['nullable', 'array', 'max:4'],
+            'assumptions.*' => ['string', 'max:240'],
             'framing' => ['required', 'string', 'min:3', 'max:'.$maxFraming],
             'reasoning' => ['required', 'string', 'min:3', 'max:'.$maxReasoning],
             'confirmation' => ['required', 'string', 'min:5', 'max:'.$maxConfirmation],
+            'confirmation_context.option_actions' => ['nullable', 'array', 'max:6'],
+            'confirmation_context.option_actions.*.id' => ['required_with:confirmation_context.option_actions', 'string', 'max:64'],
+            'confirmation_context.option_actions.*.label' => ['required_with:confirmation_context.option_actions', 'string', 'max:160'],
         ];
 
         $validator = Validator::make($data, $rules);
@@ -459,6 +901,29 @@ final class TaskAssistantResponseProcessor
                 $validator->errors()->add('confirmation', 'confirmation must not duplicate framing verbatim.');
             }
 
+            $orderingRationaleForQuality = is_array($data['ordering_rationale'] ?? null) ? $data['ordering_rationale'] : [];
+            $orderingBlob = implode(' ', array_map(
+                static fn (mixed $line): string => trim((string) $line),
+                $orderingRationaleForQuality
+            ));
+            $windowSelection = trim((string) ($data['window_selection_explanation'] ?? ''));
+            $referenceBlob = trim($orderingBlob.' '.$windowSelection.' '.$this->scheduleStructFactsBlob($data));
+            if ($referenceBlob !== '' && $reasoning !== '' && $this->textSimilarityScore($referenceBlob, $reasoning) >= 0.65) {
+                $validator->errors()->add('reasoning', 'reasoning must add new context and avoid repeating ordering/window rationale.');
+            }
+            if ($this->countSentences($framing) > 4) {
+                $validator->errors()->add('framing', 'framing should stay concise (max 4 sentences).');
+            }
+            if ($this->countSentences($reasoning) > 5) {
+                $validator->errors()->add('reasoning', 'reasoning should stay concise (max 5 sentences).');
+            }
+            if ($this->countSentences($confirmation) > 4) {
+                $validator->errors()->add('confirmation', 'confirmation should stay concise (max 4 sentences).');
+            }
+            if ($this->hasMixedDaypartClaims($framing) || $this->hasMixedDaypartClaims($reasoning)) {
+                $validator->errors()->add('daily_schedule', 'schedule narrative mixes conflicting daypart claims; keep one coherent daypart context.');
+            }
+
             $proposals = is_array($data['proposals'] ?? null) ? $data['proposals'] : [];
             $items = is_array($data['items'] ?? null) ? $data['items'] : [];
             $blocks = is_array($data['blocks'] ?? null) ? $data['blocks'] : [];
@@ -472,6 +937,20 @@ final class TaskAssistantResponseProcessor
                 $validator->errors()->add('blocks', 'blocks must have the same length as proposals.');
 
                 return;
+            }
+            $orderingRationale = is_array($data['ordering_rationale'] ?? null) ? $data['ordering_rationale'] : [];
+            if ($items !== [] && $orderingRationale !== [] && count($orderingRationale) !== count($items)) {
+                $validator->errors()->add('ordering_rationale', 'ordering_rationale must have one explanation line per scheduled row when provided.');
+            }
+            $orderingRationaleStruct = is_array($data['ordering_rationale_struct'] ?? null) ? $data['ordering_rationale_struct'] : [];
+            if ($items !== [] && $orderingRationaleStruct !== [] && count($orderingRationaleStruct) !== count($items)) {
+                $validator->errors()->add('ordering_rationale_struct', 'ordering_rationale_struct must have one rationale object per scheduled row when provided.');
+            }
+            $blockingReasons = is_array($data['blocking_reasons'] ?? null) ? $data['blocking_reasons'] : [];
+            $digest = is_array($data['placement_digest'] ?? null) ? $data['placement_digest'] : [];
+            $unplaced = is_array($digest['unplaced_units'] ?? null) ? $digest['unplaced_units'] : [];
+            if ($unplaced !== [] && $blockingReasons === []) {
+                $validator->errors()->add('blocking_reasons', 'blocking_reasons must be present when unplaced_units exist.');
             }
 
             foreach ($proposals as $i => $proposal) {
@@ -582,7 +1061,8 @@ final class TaskAssistantResponseProcessor
                     continue;
                 }
                 $ap = $proposal['apply_payload'] ?? null;
-                if (! is_array($ap) || ($ap['tool'] ?? '') !== 'create_event') {
+                $applyAction = (string) ($ap['action'] ?? $ap['tool'] ?? '');
+                if (! is_array($ap) || $applyAction !== 'create_event') {
                     continue;
                 }
                 $args = is_array($ap['arguments'] ?? null) ? $ap['arguments'] : [];
@@ -608,6 +1088,9 @@ final class TaskAssistantResponseProcessor
                 if ($options === []) {
                     $validator->errors()->add('confirmation_context.options', 'confirmation_context.options is required when confirmation_required is true.');
                 }
+                $optionActions = is_array($confirmationContext['option_actions'] ?? null)
+                    ? $confirmationContext['option_actions']
+                    : [];
 
                 $reasonCode = trim((string) ($confirmationContext['reason_code'] ?? ''));
                 $expectedOptions = match ($reasonCode) {
@@ -617,8 +1100,7 @@ final class TaskAssistantResponseProcessor
                         'Cancel scheduling for now',
                     ],
                     'explicit_day_not_feasible' => [
-                        'Widen to nearby days',
-                        'Cancel scheduling for now',
+                        'Schedule them later this week instead',
                     ],
                     'later_window_not_feasible' => [
                         'Yes, continue with tomorrow',
@@ -633,6 +1115,64 @@ final class TaskAssistantResponseProcessor
                         if (! in_array($expected, $options, true)) {
                             $validator->errors()->add('confirmation_context.options', 'confirmation_context.options must include deterministic options for the reason_code.');
                             break;
+                        }
+                    }
+                }
+                if ($reasonCode === 'explicit_day_not_feasible') {
+                    $hasScheduleSuggestion = collect($options)
+                        ->contains(static fn (mixed $option): bool => is_string($option) && str_starts_with(trim($option), 'Schedule for '));
+                    if (! $hasScheduleSuggestion) {
+                        $validator->errors()->add('confirmation_context.options', 'confirmation_context.options must include a nearest-daypart scheduling suggestion for explicit_day_not_feasible.');
+                    }
+                }
+                if ($optionActions !== []) {
+                    $actionLabelMap = [
+                        'use_current_draft' => [
+                            'Use this draft',
+                            'Keep this current draft',
+                            'Keep',
+                            'Yes, continue with tomorrow',
+                            'Continue with that plan',
+                        ],
+                        'try_tomorrow_morning' => [
+                            'Try tomorrow morning',
+                            'Yes, continue with tomorrow',
+                            'Schedule for tomorrow morning instead',
+                            'Schedule for ',
+                        ],
+                        'pick_another_time_window' => [
+                            'Pick another time window',
+                            'Widen to nearby days',
+                            'Schedule them later this week instead',
+                        ],
+                        'cancel_scheduling' => [
+                            'Cancel scheduling for now',
+                        ],
+                    ];
+                    foreach ($optionActions as $index => $row) {
+                        if (! is_array($row)) {
+                            continue;
+                        }
+                        $id = trim((string) ($row['id'] ?? ''));
+                        $label = trim((string) ($row['label'] ?? ''));
+                        if ($id === '' || $label === '') {
+                            continue;
+                        }
+                        $allowedPrefixes = $actionLabelMap[$id] ?? null;
+                        if ($allowedPrefixes === null) {
+                            $validator->errors()->add("confirmation_context.option_actions.$index.id", 'unsupported fallback option action id.');
+
+                            continue;
+                        }
+                        $isCoherent = false;
+                        foreach ($allowedPrefixes as $prefix) {
+                            if (str_starts_with($label, $prefix)) {
+                                $isCoherent = true;
+                                break;
+                            }
+                        }
+                        if (! $isCoherent) {
+                            $validator->errors()->add("confirmation_context.option_actions.$index.label", 'option action label does not match action id semantics.');
                         }
                     }
                 }
@@ -729,5 +1269,40 @@ final class TaskAssistantResponseProcessor
             'data' => $data,
             'errors' => [],
         ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    private function normalizeApplyPayloadActions(array $data): array
+    {
+        $proposals = is_array($data['proposals'] ?? null) ? $data['proposals'] : [];
+        if ($proposals === []) {
+            return $data;
+        }
+
+        foreach ($proposals as $index => $proposal) {
+            if (! is_array($proposal)) {
+                continue;
+            }
+
+            $applyPayload = $proposal['apply_payload'] ?? null;
+            if (! is_array($applyPayload)) {
+                continue;
+            }
+
+            $action = trim((string) ($applyPayload['action'] ?? ''));
+            $legacyTool = trim((string) ($applyPayload['tool'] ?? ''));
+            if ($action === '' && $legacyTool !== '') {
+                $applyPayload['action'] = $legacyTool;
+                $proposal['apply_payload'] = $applyPayload;
+                $proposals[$index] = $proposal;
+            }
+        }
+
+        $data['proposals'] = $proposals;
+
+        return $data;
     }
 }

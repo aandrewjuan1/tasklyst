@@ -1516,7 +1516,12 @@ final class TaskAssistantPrioritizeOutputDefaults
 
     public static function reasoningWhenEmpty(): string
     {
-        return __('I couldn’t add a tailored explanation this time, but the order below still follows the same urgency rules as the rest of the assistant.');
+        return __('I couldn’t add a tailored explanation this time, but the order below still follows the same student-first ranking policy as the rest of the assistant.');
+    }
+
+    public static function defaultRankingMethodSummary(): string
+    {
+        return 'I ranked this by urgency first, then priority, then practical effort so your next step stays manageable.';
     }
 
     /**

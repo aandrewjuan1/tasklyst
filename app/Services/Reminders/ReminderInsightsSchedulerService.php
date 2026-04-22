@@ -391,7 +391,7 @@ class ReminderInsightsSchedulerService
             scheduledAt: $now->startOfMinute(),
             payload: [
                 'thread_id' => (int) $thread->id,
-                'thread_title' => (string) ($thread->title ?? ''),
+                'thread_title' => '',
                 'pending_proposals_count' => $pendingCount,
             ],
         );

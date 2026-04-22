@@ -4,11 +4,13 @@ namespace App\Providers;
 
 use App\Models\DatabaseNotification;
 use App\Observers\DatabaseNotificationObserver;
+use App\Services\LLM\Prism\OllamaProxyProvider;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
+use Prism\Prism\PrismManager;
 use WorkOS\WorkOS as WorkOSSDK;
 
 class AppServiceProvider extends ServiceProvider
@@ -18,7 +20,14 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        $this->app->afterResolving(PrismManager::class, function (PrismManager $manager): void {
+            $manager->extend('ollama', function ($app, array $config): OllamaProxyProvider {
+                return new OllamaProxyProvider(
+                    apiKey: $config['api_key'] ?? '',
+                    url: $config['url'] ?? '',
+                );
+            });
+        });
     }
 
     /**

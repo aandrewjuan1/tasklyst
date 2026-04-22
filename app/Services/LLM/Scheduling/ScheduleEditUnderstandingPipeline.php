@@ -25,7 +25,8 @@ final class ScheduleEditUnderstandingPipeline
      *   operations: list<array<string, mixed>>,
      *   clarification_required: bool,
      *   clarification_message: string|null,
-     *   reasons: list<string>
+     *   reasons: list<string>,
+     *   clarification_context?: array<string, mixed>
      * }
      */
     public function resolve(
@@ -49,7 +50,8 @@ final class ScheduleEditUnderstandingPipeline
      *   operations: list<array<string, mixed>>,
      *   clarification_required: bool,
      *   clarification_message: string|null,
-     *   reasons: list<string>
+     *   reasons: list<string>,
+     *   clarification_context?: array<string, mixed>
      * }
      */
     public function resolveClause(
@@ -68,7 +70,8 @@ final class ScheduleEditUnderstandingPipeline
      *   operations: list<array<string, mixed>>,
      *   clarification_required: bool,
      *   clarification_message: string|null,
-     *   reasons: list<string>
+     *   reasons: list<string>,
+     *   clarification_context?: array<string, mixed>
      * }
      */
     public function resolveNormalizedClause(
@@ -83,11 +86,24 @@ final class ScheduleEditUnderstandingPipeline
             $lastReferencedProposalUuids,
         );
         $wantsReorder = $this->lexicon->looksLikeReorder($normalized);
+        $parsedTime = $this->temporalParser->parseLocalTime($normalized);
+        $parsedPartOfDay = $parsedTime === null ? $this->temporalParser->parsePartOfDayAnchorHhmm($normalized) : null;
+        $parsedDate = $this->temporalParser->parseLocalDateYmd($normalized, $timezone);
+        $clarificationContext = [
+            'normalized_clause' => $normalized,
+            'target_summary' => $this->summarizeTarget($target),
+            'candidate_titles' => is_array($target['candidate_titles'] ?? null) ? $target['candidate_titles'] : [],
+            'parsed_time_hhmm' => $parsedTime,
+            'parsed_part_of_day_hhmm' => $parsedPartOfDay,
+            'parsed_date_ymd' => $parsedDate,
+            'wants_reorder' => $wantsReorder,
+        ];
 
         if (($target['ambiguous'] ?? true) && ! $wantsReorder) {
             return $this->clarify(
                 (string) ($target['reason'] ?? 'Please specify which item to edit.'),
-                ['target_ambiguous']
+                ['target_ambiguous'],
+                $clarificationContext
             );
         }
 
@@ -97,7 +113,8 @@ final class ScheduleEditUnderstandingPipeline
 
             return $this->clarify(
                 'I am not fully sure which schedule item you mean.'.$candidateText.' Please mention first/second/last, #number, or part of the title.',
-                ['target_low_confidence']
+                ['target_low_confidence'],
+                $clarificationContext
             );
         }
 
@@ -114,17 +131,17 @@ final class ScheduleEditUnderstandingPipeline
             $ops[] = ['op' => 'set_duration_minutes', 'proposal_index' => $targetIndex, 'proposal_uuid' => $targetUuid, 'duration_minutes' => (int) $m[2]];
         }
 
-        $time = $this->temporalParser->parseLocalTime($normalized);
+        $time = $parsedTime;
         if ($time !== null) {
             $ops[] = ['op' => 'set_local_time_hhmm', 'proposal_index' => $targetIndex, 'proposal_uuid' => $targetUuid, 'local_time_hhmm' => $time];
         } else {
-            $partOfDay = $this->temporalParser->parsePartOfDayAnchorHhmm($normalized);
+            $partOfDay = $parsedPartOfDay;
             if ($partOfDay !== null) {
                 $ops[] = ['op' => 'set_local_time_hhmm', 'proposal_index' => $targetIndex, 'proposal_uuid' => $targetUuid, 'local_time_hhmm' => $partOfDay];
             }
         }
 
-        $date = $this->temporalParser->parseLocalDateYmd($normalized, $timezone);
+        $date = $parsedDate;
         if ($date !== null) {
             $ops[] = ['op' => 'set_local_date_ymd', 'proposal_index' => $targetIndex, 'proposal_uuid' => $targetUuid, 'local_date_ymd' => $date];
         }
@@ -137,7 +154,8 @@ final class ScheduleEditUnderstandingPipeline
         if ($ops === []) {
             return $this->clarify(
                 'I could not map that to a concrete edit yet. Tell me item + change, like "move second to 8 pm".',
-                ['no_concrete_operation']
+                ['no_concrete_operation'],
+                $clarificationContext
             );
         }
 
@@ -146,7 +164,11 @@ final class ScheduleEditUnderstandingPipeline
                 continue;
             }
             if (! isset($op['proposal_index']) || ! is_int($op['proposal_index'])) {
-                return $this->clarify((string) ($target['reason'] ?? 'Please specify which listed item to edit.'));
+                return $this->clarify(
+                    (string) ($target['reason'] ?? 'Please specify which listed item to edit.'),
+                    [],
+                    $clarificationContext
+                );
             }
         }
 
@@ -256,15 +278,35 @@ final class ScheduleEditUnderstandingPipeline
     }
 
     /**
-     * @return array{operations: list<array<string, mixed>>, clarification_required: bool, clarification_message: string, reasons: list<string>}
+     * @param  array<string, mixed>  $context
+     * @return array{operations: list<array<string, mixed>>, clarification_required: bool, clarification_message: string, reasons: list<string>, clarification_context: array<string, mixed>}
      */
-    private function clarify(string $message, array $reasons = []): array
+    private function clarify(string $message, array $reasons = [], array $context = []): array
     {
         return [
             'operations' => [],
             'clarification_required' => true,
             'clarification_message' => $message,
             'reasons' => $reasons !== [] ? $reasons : [$message],
+            'clarification_context' => $context,
         ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $target
+     */
+    private function summarizeTarget(array $target): string
+    {
+        $index = $target['index'] ?? null;
+        if (is_int($index) && $index >= 0) {
+            return 'item #'.($index + 1);
+        }
+
+        $matched = trim((string) ($target['matched_title'] ?? ''));
+        if ($matched !== '') {
+            return $matched;
+        }
+
+        return 'unresolved target';
     }
 }

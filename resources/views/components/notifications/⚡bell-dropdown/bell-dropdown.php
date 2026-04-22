@@ -8,6 +8,7 @@ use App\Actions\Notification\PrepareNotificationOpenRedirectForUserAction;
 use App\Enums\CollaborationInviteNotificationState;
 use App\Models\CollaborationInvitation;
 use App\Models\DatabaseNotification;
+use App\Notifications\AssistantResponseReadyNotification;
 use App\Notifications\CollaborationInvitationReceivedNotification;
 use App\Notifications\CalendarFeedSyncCompletedNotification;
 use App\Services\UserNotificationBroadcastService;
@@ -37,7 +38,7 @@ new class extends Component
      *   read_at: string|null,
      *   created_at_human: string,
      *   click_opens_workspace: bool,
-     *   click_behavior?: 'calendar_feed_sync_completed'|null,
+     *   click_behavior?: 'assistant_response_ready'|'calendar_feed_sync_completed'|null,
      *   workspace_focus_kind?: 'task'|'event'|'project'|'schoolClass'|null,
      *   workspace_focus_id?: int|null,
      *   collaboration_invite?: array<string, mixed>
@@ -59,7 +60,17 @@ new class extends Component
     }
 
     #[On('echo-private:App.Models.User.{userId},.notification_created')]
-    public function onNotificationCreated(): void
+    public function onNotificationCreated(array $payload = []): void
+    {
+        $unreadCount = (int) ($payload['unread_count'] ?? $this->unreadCount);
+        $this->unreadCount = max(0, $unreadCount);
+
+        if ($this->panelOpen) {
+            $this->syncNotificationStateFromDatabase();
+        }
+    }
+
+    public function pollNotificationFallback(): void
     {
         $this->syncNotificationStateFromDatabase();
     }
@@ -159,6 +170,38 @@ new class extends Component
         }
 
         $this->redirect(route('workspace'), navigate: true);
+    }
+
+    public function openAssistantResponseReadyNotification(string $notificationId): void
+    {
+        $user = Auth::user();
+        if ($user === null) {
+            return;
+        }
+
+        $notification = app(FindOwnedDatabaseNotificationAction::class)->execute($user, $notificationId);
+        if ($notification === null) {
+            return;
+        }
+
+        if ($notification->type !== AssistantResponseReadyNotification::class) {
+            return;
+        }
+
+        $data = NotificationBellState::notificationDataAsArray($notification);
+        if (($data['type'] ?? '') !== 'assistant_response_ready') {
+            return;
+        }
+
+        if ($notification->read_at === null) {
+            $notification->markAsRead();
+            app(UserNotificationBroadcastService::class)->broadcastInboxUpdated($user);
+        }
+
+        $this->syncNotificationStateFromDatabase();
+        $this->panelOpen = false;
+        $this->dispatch('assistant-chat-open-requested');
+        $this->js('$flux.modal("task-assistant-chat").show();');
     }
 
     public function openNotification(string $notificationId): void

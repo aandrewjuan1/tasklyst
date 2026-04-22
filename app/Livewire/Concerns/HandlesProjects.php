@@ -131,6 +131,10 @@ trait HandlesProjects
             return false;
         }
 
+        if (method_exists($this, 'deactivateScheduledFocusForEntity')) {
+            $this->deactivateScheduledFocusForEntity('project', (int) $project->id, 'project_deleted');
+        }
+
         $this->dispatch('toast', ...Project::toastPayload('delete', true, $project->name));
 
         return true;
@@ -317,6 +321,10 @@ trait HandlesProjects
             $this->dispatch('toast', ...Project::toastPayloadForPropertyUpdate($property, $result->oldValue, $result->newValue, true, $project->name));
         }
 
+        if (in_array($property, ['startDatetime', 'endDatetime'], true) && method_exists($this, 'deactivateScheduledFocusForEntity')) {
+            $this->deactivateScheduledFocusForEntity('project', (int) $project->id, 'project_datetime_updated');
+        }
+
         return true;
     }
 
@@ -327,6 +335,10 @@ trait HandlesProjects
     #[Computed]
     public function projects(): Collection
     {
+        if (method_exists($this, 'isOverdueStateFilterActive') && $this->isOverdueStateFilterActive()) {
+            return collect();
+        }
+
         // Early return: Skip if filtered to other item types (before any work)
         $filterItemType = property_exists($this, 'filterItemType') ? $this->normalizeFilterValue($this->filterItemType) : null;
         if ($filterItemType !== null && $filterItemType !== 'projects') {
@@ -344,7 +356,9 @@ trait HandlesProjects
         $visibleLimit = $projectsPerPage * $projectsPage;
         $queryLimit = $visibleLimit + 1;
 
-        $searchAllItems = method_exists($this, 'shouldSearchAllItems') && $this->shouldSearchAllItems();
+        $searchAllItems = method_exists($this, 'shouldSearchAllItems')
+            && $this->shouldSearchAllItems()
+            && (! method_exists($this, 'isDueStateFilterActive') || ! $this->isDueStateFilterActive());
 
         /** @var \Illuminate\Database\Eloquent\Builder $query */
         /** @var \Illuminate\Database\Eloquent\Builder $query */
@@ -367,6 +381,14 @@ trait HandlesProjects
                 ? $this->getParsedSelectedDate()
                 : Carbon::parse($this->selectedDate);
             $query->activeForDate($date);
+        }
+
+        if (method_exists($this, 'isDueStateFilterActive') && $this->isDueStateFilterActive()) {
+            $selectedDate = method_exists($this, 'getParsedSelectedDate')
+                ? $this->getParsedSelectedDate()
+                : Carbon::parse($this->selectedDate);
+            $query->whereNotNull('end_datetime')
+                ->whereDate('end_datetime', $selectedDate->toDateString());
         }
 
         $query
@@ -409,6 +431,9 @@ trait HandlesProjects
     public function completedProjects(): Collection
     {
         if (! method_exists($this, 'shouldShowCompleted') || ! $this->shouldShowCompleted()) {
+            return collect();
+        }
+        if (method_exists($this, 'isOverdueStateFilterActive') && $this->isOverdueStateFilterActive()) {
             return collect();
         }
         $filterItemType = property_exists($this, 'filterItemType') ? $this->normalizeFilterValue($this->filterItemType) : null;

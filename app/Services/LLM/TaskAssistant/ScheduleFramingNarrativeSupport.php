@@ -144,26 +144,27 @@ final class ScheduleFramingNarrativeSupport
     private static function deriveWindowPhrase(array $promptData): string
     {
         $dayReference = self::resolveScheduleDayReference($promptData);
+        $resolvedDaypart = self::resolvePlacementDaypart($promptData);
         $flags = data_get($promptData, 'user_context.schedule_intent_flags', []);
         if (! is_array($flags)) {
             $flags = [];
         }
 
-        if (($flags['has_evening'] ?? false) === true) {
+        if ($resolvedDaypart === 'evening' || ($flags['has_evening'] ?? false) === true) {
             return match ($dayReference) {
                 'tomorrow' => 'tomorrow evening',
                 'today' => 'this evening',
                 default => 'in the evening',
             };
         }
-        if (($flags['has_afternoon'] ?? false) === true) {
+        if ($resolvedDaypart === 'afternoon' || ($flags['has_afternoon'] ?? false) === true) {
             return match ($dayReference) {
                 'tomorrow' => 'tomorrow afternoon',
                 'today' => 'this afternoon',
                 default => 'in the afternoon',
             };
         }
-        if (($flags['has_morning'] ?? false) === true) {
+        if ($resolvedDaypart === 'morning' || ($flags['has_morning'] ?? false) === true) {
             return match ($dayReference) {
                 'tomorrow' => 'tomorrow morning',
                 'today' => 'this morning',
@@ -191,6 +192,25 @@ final class ScheduleFramingNarrativeSupport
      */
     private static function resolveScheduleDayReference(array $promptData): ?string
     {
+        $placementDay = self::resolveFirstPlacementDay($promptData);
+        if ($placementDay !== null) {
+            $todayRaw = trim((string) data_get($promptData, 'snapshot.today', data_get($promptData, 'today', '')));
+            if ($todayRaw !== '') {
+                try {
+                    $today = CarbonImmutable::parse($todayRaw)->startOfDay();
+                    $target = CarbonImmutable::parse($placementDay)->startOfDay();
+                    if ($target->equalTo($today)) {
+                        return 'today';
+                    }
+                    if ($target->equalTo($today->addDay())) {
+                        return 'tomorrow';
+                    }
+                } catch (\Throwable) {
+                    // Fall back to horizon inference below.
+                }
+            }
+        }
+
         $horizon = data_get($promptData, 'schedule_horizon');
         if (! is_array($horizon)) {
             return null;
@@ -222,6 +242,44 @@ final class ScheduleFramingNarrativeSupport
         }
 
         return null;
+    }
+
+    private static function resolveFirstPlacementDay(array $promptData): ?string
+    {
+        $digestDay = trim((string) data_get($promptData, 'placement_digest.days_used.0', ''));
+        if ($digestDay !== '') {
+            return $digestDay;
+        }
+
+        $digestPlacement = trim((string) data_get($promptData, 'placement_digest.placement_dates.0', ''));
+        if ($digestPlacement !== '') {
+            return $digestPlacement;
+        }
+
+        return null;
+    }
+
+    private static function resolvePlacementDaypart(array $promptData): ?string
+    {
+        $startRaw = trim((string) data_get($promptData, 'blocks.0.start_time', ''));
+        if ($startRaw === '') {
+            return null;
+        }
+
+        try {
+            $hour = (int) CarbonImmutable::parse('1970-01-01 '.$startRaw)->format('H');
+        } catch (\Throwable) {
+            return null;
+        }
+
+        if ($hour < 12) {
+            return 'morning';
+        }
+        if ($hour < 18) {
+            return 'afternoon';
+        }
+
+        return 'evening';
     }
 
     private static function windowPhraseForSentenceStart(string $windowPhrase): string

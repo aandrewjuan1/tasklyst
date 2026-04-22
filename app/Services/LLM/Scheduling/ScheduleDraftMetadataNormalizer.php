@@ -96,13 +96,37 @@ final class ScheduleDraftMetadataNormalizer
             $schedule['awaiting_user_decision'] = false;
             $repairs[] = 'awaiting_user_decision_defaulted';
         }
+        if (! array_key_exists('requested_horizon_label', $schedule)) {
+            $schedule['requested_horizon_label'] = 'your requested window';
+            $repairs[] = 'requested_horizon_label_defaulted';
+        }
+        if (! array_key_exists('requested_window_display_label', $schedule)) {
+            $schedule['requested_window_display_label'] = 'your requested window';
+            $repairs[] = 'requested_window_display_label_defaulted';
+        }
+        if (! array_key_exists('has_explicit_clock_time', $schedule) || ! is_bool($schedule['has_explicit_clock_time'])) {
+            $schedule['has_explicit_clock_time'] = false;
+            $repairs[] = 'has_explicit_clock_time_defaulted';
+        }
+        if (! array_key_exists('blocking_section_title', $schedule)) {
+            $schedule['blocking_section_title'] = 'These items are already scheduled in your requested window:';
+            $repairs[] = 'blocking_section_title_defaulted';
+        }
         if (! array_key_exists('confirmation_context', $schedule)) {
             $schedule['confirmation_context'] = null;
             $repairs[] = 'confirmation_context_defaulted';
         }
+        if (is_array($schedule['confirmation_context'] ?? null) && ! array_key_exists('nearest_available_window', $schedule['confirmation_context'])) {
+            $schedule['confirmation_context']['nearest_available_window'] = null;
+            $repairs[] = 'confirmation_context_nearest_available_window_defaulted';
+        }
         if (! array_key_exists('fallback_preview', $schedule)) {
             $schedule['fallback_preview'] = null;
             $repairs[] = 'fallback_preview_defaulted';
+        }
+        if (is_array($schedule['fallback_preview'] ?? null) && ! array_key_exists('nearest_available_window', $schedule['fallback_preview'])) {
+            $schedule['fallback_preview']['nearest_available_window'] = null;
+            $repairs[] = 'fallback_preview_nearest_available_window_defaulted';
         }
 
         $canonicalMetadata = $metadata;

@@ -11,6 +11,6 @@ test('task assistant system prompt view is renderable with builder data', functi
     expect($output)
         ->toContain('Hermes 3:3B')
         ->toContain((string) $user->id)
-        ->toContain('create_task')
-        ->toContain('Create a new task');
+        ->toContain('GENERAL GUIDANCE RULES')
+        ->toContain('Do not rely on tools or functions that are not explicitly available in the current flow.');
 });

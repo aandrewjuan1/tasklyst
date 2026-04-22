@@ -5,6 +5,7 @@ use App\Enums\TaskSourceType;
 use App\Enums\TaskStatus;
 use App\Models\Event;
 use App\Models\Project;
+use App\Models\SchoolClass;
 use App\Models\Tag;
 use App\Models\Task;
 use App\Models\User;
@@ -279,4 +280,128 @@ test('creating an item outside selected date scope shows visibility guidance toa
             'endDatetime' => '2026-04-23T09:00:00',
         ])
         ->assertDispatched('toast', type: 'info', message: 'Item moved out of this date view. Pick its date or switch search to all items.');
+});
+
+test('due state filter is exposed via workspace filter payload', function (): void {
+    $this->actingAs($this->user);
+
+    $component = Livewire::test('pages::workspace.index')
+        ->set('filterDueState', 'due');
+
+    expect($component->instance()->getFilters()['dueState'])->toBe('due');
+});
+
+test('due state hides overdue bucket and keeps selected-date entries', function (): void {
+    $this->actingAs($this->user);
+
+    $today = now()->startOfDay();
+
+    Task::factory()->for($this->user)->create([
+        'title' => 'DueState Overdue Task',
+        'status' => TaskStatus::ToDo,
+        'start_datetime' => $today->copy()->subDays(3),
+        'end_datetime' => $today->copy()->subDay()->setTime(12, 0),
+    ]);
+
+    Task::factory()->for($this->user)->create([
+        'title' => 'DueState Due Task',
+        'status' => TaskStatus::ToDo,
+        'start_datetime' => $today->copy()->setTime(9, 0),
+        'end_datetime' => $today->copy()->setTime(16, 0),
+    ]);
+
+    Task::factory()->for($this->user)->create([
+        'title' => 'DueState Tomorrow Task',
+        'status' => TaskStatus::ToDo,
+        'start_datetime' => $today->copy()->addDay()->setTime(9, 0),
+        'end_datetime' => $today->copy()->addDay()->setTime(16, 0),
+    ]);
+
+    Project::factory()->for($this->user)->create([
+        'name' => 'DueState Project',
+        'start_datetime' => $today->copy()->setTime(8, 0),
+        'end_datetime' => $today->copy()->setTime(18, 0),
+    ]);
+
+    SchoolClass::factory()->for($this->user)->create([
+        'subject_name' => 'DueState Class',
+        'start_datetime' => now()->subDay(),
+        'end_datetime' => now()->addDay(),
+    ]);
+
+    $component = Livewire::test('pages::workspace.index')
+        ->set('selectedDate', $today->toDateString())
+        ->set('filterDueState', 'due');
+
+    expect($component->instance()->overdue())->toBeEmpty();
+    expect($component->instance()->tasks()->pluck('title'))->toContain('DueState Due Task')
+        ->not->toContain('DueState Overdue Task')
+        ->not->toContain('DueState Tomorrow Task');
+    expect($component->instance()->projects()->pluck('name'))->toContain('DueState Project');
+    expect($component->instance()->schoolClassesForWorkspaceList()->pluck('subject_name'))->toContain('DueState Class');
+});
+
+test('overdue state suppresses regular item collections and keeps overdue bucket', function (): void {
+    $this->actingAs($this->user);
+
+    Task::factory()->for($this->user)->create([
+        'title' => 'OverdueState Task',
+        'status' => TaskStatus::ToDo,
+        'start_datetime' => now()->subDays(2),
+        'end_datetime' => now()->subDay(),
+    ]);
+
+    Project::factory()->for($this->user)->create([
+        'name' => 'OverdueState Project',
+        'start_datetime' => now()->subHour(),
+        'end_datetime' => now()->addHour(),
+    ]);
+
+    $component = Livewire::test('pages::workspace.index')
+        ->set('selectedDate', now()->toDateString())
+        ->set('filterDueState', 'overdue');
+
+    expect($component->instance()->overdue())->not->toBeEmpty();
+    expect($component->instance()->tasks())->toBeEmpty();
+    expect($component->instance()->projects())->toBeEmpty();
+    expect($component->instance()->schoolClassesForWorkspaceList())->toBeEmpty();
+});
+
+test('due state participates in active filter detection', function (): void {
+    $this->actingAs($this->user);
+
+    $component = Livewire::test('pages::workspace.index')
+        ->set('filterDueState', 'overdue');
+
+    expect($component->instance()->hasActiveFilters())->toBeTrue();
+    expect($component->instance()->hasActiveTaskBoardFilters())->toBeTrue();
+});
+
+test('clear all filters resets due state filter', function (): void {
+    $this->actingAs($this->user);
+
+    $component = Livewire::test('pages::workspace.index')
+        ->set('filterDueState', 'due')
+        ->call('clearAllFilters');
+
+    expect($component->get('filterDueState'))->toBeNull();
+    expect($component->instance()->getFilters()['dueState'])->toBeNull();
+});
+
+test('when filter pill is visible in both list and kanban workspace views', function (): void {
+    $this->actingAs($this->user);
+
+    $this->get(route('workspace', [
+        'date' => now()->toDateString(),
+        'view' => 'list',
+    ]))
+        ->assertSuccessful()
+        ->assertSee('When: Any', false);
+
+    $this->get(route('workspace', [
+        'date' => now()->toDateString(),
+        'view' => 'kanban',
+    ]))
+        ->assertSuccessful()
+        ->assertSee('When: Any', false);
 });

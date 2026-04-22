@@ -18,7 +18,7 @@ class ScheduleDraftMutationServiceTest extends TestCase
             'start_datetime' => '2026-03-30T14:00:00+00:00',
             'end_datetime' => '2026-03-30T15:00:00+00:00',
             'duration_minutes' => 60,
-            'apply_payload' => ['tool' => 'update_task', 'arguments' => []],
+            'apply_payload' => ['action' => 'update_task', 'arguments' => []],
         ]];
 
         $result = $service->applyOperations($proposals, [[
@@ -45,7 +45,7 @@ class ScheduleDraftMutationServiceTest extends TestCase
                 'start_datetime' => '2026-03-30T14:00:00+00:00',
                 'end_datetime' => '2026-03-30T15:00:00+00:00',
                 'duration_minutes' => 60,
-                'apply_payload' => ['tool' => 'update_task', 'arguments' => []],
+                'apply_payload' => ['action' => 'update_task', 'arguments' => []],
             ],
             [
                 'status' => 'pending',
@@ -55,7 +55,7 @@ class ScheduleDraftMutationServiceTest extends TestCase
                 'start_datetime' => '2026-03-30T14:30:00+00:00',
                 'end_datetime' => '2026-03-30T15:30:00+00:00',
                 'duration_minutes' => 60,
-                'apply_payload' => ['tool' => 'update_task', 'arguments' => []],
+                'apply_payload' => ['action' => 'update_task', 'arguments' => []],
             ],
         ];
 
@@ -75,7 +75,7 @@ class ScheduleDraftMutationServiceTest extends TestCase
             'start_datetime' => '2026-03-30T14:00:00+00:00',
             'end_datetime' => '2026-03-30T15:00:00+00:00',
             'duration_minutes' => 60,
-            'apply_payload' => ['tool' => 'update_task', 'arguments' => []],
+            'apply_payload' => ['action' => 'update_task', 'arguments' => []],
         ]];
 
         $result = $service->applyOperations($proposals, [[
@@ -100,7 +100,7 @@ class ScheduleDraftMutationServiceTest extends TestCase
             'start_datetime' => '2026-03-31T21:00:00+08:00',
             'end_datetime' => '2026-03-31T21:40:00+08:00',
             'duration_minutes' => 40,
-            'apply_payload' => ['tool' => 'update_task', 'arguments' => []],
+            'apply_payload' => ['action' => 'update_task', 'arguments' => []],
         ]];
 
         $result = $service->applyOperations($proposals, [[
@@ -203,7 +203,7 @@ class ScheduleDraftMutationServiceTest extends TestCase
                 'start_datetime' => '2026-04-03T13:00:00+00:00',
                 'end_datetime' => '2026-04-03T14:00:00+00:00',
                 'duration_minutes' => 60,
-                'apply_payload' => ['tool' => 'update_task', 'arguments' => []],
+                'apply_payload' => ['action' => 'update_task', 'arguments' => []],
             ],
             [
                 'proposal_uuid' => 'uuid-b',
@@ -214,7 +214,7 @@ class ScheduleDraftMutationServiceTest extends TestCase
                 'start_datetime' => '2026-04-03T17:30:00+00:00',
                 'end_datetime' => '2026-04-03T18:00:00+00:00',
                 'duration_minutes' => 30,
-                'apply_payload' => ['tool' => 'update_task', 'arguments' => []],
+                'apply_payload' => ['action' => 'update_task', 'arguments' => []],
             ],
         ];
 
