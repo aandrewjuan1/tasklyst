@@ -19,6 +19,7 @@ final class SchedulingIntentInterpreter
      * @return array{
      *   time_window: array{start: string, end: string},
      *   intent_flags: array{has_later: bool, has_morning: bool, has_afternoon: bool, has_evening: bool, has_onwards: bool, has_only: bool},
+     *   has_explicit_clock_time: bool,
      *   strict_window: bool,
      *   reason_codes: list<string>
      * }
@@ -57,6 +58,7 @@ final class SchedulingIntentInterpreter
                     'has_onwards' => $hasOnwards,
                     'has_only' => $hasOnly,
                 ],
+                'has_explicit_clock_time' => true,
                 'strict_window' => $hasOnly,
                 'reason_codes' => $explicitWindow['reason_codes'],
             ];
@@ -77,6 +79,7 @@ final class SchedulingIntentInterpreter
                     'has_onwards' => $hasOnwards,
                     'has_only' => $hasOnly,
                 ],
+                'has_explicit_clock_time' => false,
                 'strict_window' => $hasOnly,
                 'reason_codes' => $combinedNamedWindow['reason_codes'],
             ];
@@ -97,6 +100,7 @@ final class SchedulingIntentInterpreter
                     'has_onwards' => $hasOnwards,
                     'has_only' => $hasOnly,
                 ],
+                'has_explicit_clock_time' => false,
                 'strict_window' => $hasOnly,
                 'reason_codes' => $reasonCodes,
             ];
@@ -123,6 +127,7 @@ final class SchedulingIntentInterpreter
                     'has_onwards' => $hasOnwards,
                     'has_only' => $hasOnly,
                 ],
+                'has_explicit_clock_time' => false,
                 'strict_window' => $hasOnly,
                 'reason_codes' => $reasonCodes,
             ];
@@ -145,6 +150,7 @@ final class SchedulingIntentInterpreter
                     'has_onwards' => $hasOnwards,
                     'has_only' => $hasOnly,
                 ],
+                'has_explicit_clock_time' => false,
                 'strict_window' => $hasOnly,
                 'reason_codes' => $reasonCodes,
             ];
@@ -167,6 +173,7 @@ final class SchedulingIntentInterpreter
                     'has_onwards' => $hasOnwards,
                     'has_only' => $hasOnly,
                 ],
+                'has_explicit_clock_time' => false,
                 'strict_window' => $hasOnly,
                 'reason_codes' => $reasonCodes,
             ];
@@ -185,6 +192,7 @@ final class SchedulingIntentInterpreter
                 'has_onwards' => $hasOnwards,
                 'has_only' => $hasOnly,
             ],
+            'has_explicit_clock_time' => false,
             'strict_window' => $hasOnly,
             'reason_codes' => $reasonCodes,
         ];

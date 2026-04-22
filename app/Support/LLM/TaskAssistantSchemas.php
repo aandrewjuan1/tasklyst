@@ -210,6 +210,21 @@ final class TaskAssistantSchemas
                     nullable: true
                 ),
                 new StringSchema(
+                    name: 'requested_horizon_label',
+                    description: 'User-facing horizon label (for example: today, tomorrow, this week).',
+                    nullable: true
+                ),
+                new StringSchema(
+                    name: 'requested_window_display_label',
+                    description: 'User-facing requested window label used in fallback and blocker headings.',
+                    nullable: true
+                ),
+                new StringSchema(
+                    name: 'blocking_section_title',
+                    description: 'Optional fully formed blocker section heading for display.',
+                    nullable: true
+                ),
+                new StringSchema(
                     name: 'window_selection_explanation',
                     description: 'Short plain-language explanation of why these time windows were chosen.',
                     nullable: true

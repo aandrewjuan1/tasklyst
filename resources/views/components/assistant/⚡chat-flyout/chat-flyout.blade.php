@@ -582,7 +582,7 @@
         @submit.prevent="submit()"
         x-init="init()"
         x-effect="hasText = ($wire.newMessage ?? '').toString().trim().length > 0"
-        x-on:quick-prompt.window="applyQuickPrompt($event.detail.value)"
+        x-on:quick-prompt.window="applyQuickPrompt($event.detail.value); $wire.applyQuickPromptChip(($event.detail.value ?? '').toString())"
         x-on:quick-prompt-append.window="appendQuickPrompt($event.detail.value)"
     >
         <button

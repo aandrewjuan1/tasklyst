@@ -322,12 +322,50 @@ it('builds structured schedule explainability records alongside legacy rationale
 
     $result = $method->invoke($generator, $snapshot, $context, $proposals, $digest, []);
 
+    expect($result['requested_horizon_label'] ?? null)->toBeString();
+    expect($result['requested_window_display_label'] ?? null)->toBeString();
+    expect($result['has_explicit_clock_time'] ?? null)->toBeBool();
+    expect($result['blocking_section_title'] ?? null)->toBeString();
     expect($result['window_selection_struct'] ?? null)->toBeArray();
     expect($result['window_selection_struct']['reason_code_primary'] ?? null)->toBeString();
     expect($result['ordering_rationale_struct'] ?? null)->toBeArray();
     expect($result['ordering_rationale_struct'][0]['fit_reason_code'] ?? null)->toBeString();
     expect($result['blocking_reasons_struct'] ?? null)->toBeArray();
     expect($result['blocking_reasons_struct'][0]['block_reason_code'] ?? null)->toBeString();
+});
+
+it('uses explicit task datetime ranges for unplaced blocker rows', function (): void {
+    $generator = app(TaskAssistantStructuredFlowGenerator::class);
+    $method = new ReflectionMethod(TaskAssistantStructuredFlowGenerator::class, 'buildScheduleExplainability');
+    $method->setAccessible(true);
+
+    $snapshot = [
+        'time_window' => ['start' => '08:00', 'end' => '22:00'],
+        'schedule_horizon' => ['start_date' => '2026-04-22', 'end_date' => '2026-04-22', 'label' => 'tomorrow'],
+        'tasks' => [[
+            'id' => 10,
+            'title' => 'Brightspace submission',
+            'starts_at' => '2026-04-22T09:00:00+00:00',
+            'ends_at' => '2026-04-22T11:00:00+00:00',
+        ]],
+    ];
+    $digest = [
+        'unplaced_units' => [[
+            'entity_type' => 'task',
+            'entity_id' => 10,
+            'title' => 'Brightspace submission',
+            'reason' => 'horizon_exhausted',
+        ]],
+    ];
+
+    $result = $method->invoke($generator, $snapshot, [], [], $digest, []);
+    $blocking = is_array($result['blocking_reasons'] ?? null) ? $result['blocking_reasons'] : [];
+
+    expect($blocking)->not->toBe([]);
+    expect((string) ($blocking[0]['blocked_window'] ?? ''))
+        ->toContain('Apr 22, 2026')
+        ->toContain('9:00 AM')
+        ->toContain('11:00 AM');
 });
 
 it('does not truncate too far when the available same-day window is too small', function (): void {

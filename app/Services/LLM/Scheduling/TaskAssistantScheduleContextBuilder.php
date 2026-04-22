@@ -129,10 +129,19 @@ final class TaskAssistantScheduleContextBuilder
         }
         $normalized['time_window'] = $intent['time_window'] ?? null;
         $normalized['time_window_strict'] = (bool) ($intent['strict_window'] ?? false);
+        $normalized['has_explicit_clock_time'] = (bool) ($intent['has_explicit_clock_time'] ?? false);
         $normalized['schedule_intent_flags'] = is_array($intent['intent_flags'] ?? null)
             ? $intent['intent_flags']
             : [];
         $normalized['schedule_intent_reason_codes'] = $intent['reason_codes'] ?? [];
+        $normalized['requested_horizon_label'] = $this->resolveRequestedHorizonLabel(
+            is_array($normalized['schedule_horizon'] ?? null) ? $normalized['schedule_horizon'] : []
+        );
+        $normalized['requested_window_display_label'] = $this->resolveRequestedWindowDisplayLabel(
+            is_array($normalized['schedule_horizon'] ?? null) ? $normalized['schedule_horizon'] : [],
+            (bool) ($normalized['has_explicit_clock_time'] ?? false),
+            is_array($normalized['time_window'] ?? null) ? $normalized['time_window'] : []
+        );
         if ($defaultAsapMode) {
             $reasonCodes = is_array($normalized['schedule_intent_reason_codes'] ?? null)
                 ? $normalized['schedule_intent_reason_codes']
@@ -376,5 +385,52 @@ final class TaskAssistantScheduleContextBuilder
         }
 
         return true;
+    }
+
+    /**
+     * @param  array{mode?:string,start_date?:string,end_date?:string,label?:string}  $horizon
+     */
+    private function resolveRequestedHorizonLabel(array $horizon): string
+    {
+        $label = trim((string) ($horizon['label'] ?? ''));
+
+        return match (true) {
+            $label === 'tomorrow' => 'tomorrow',
+            $label === 'today',
+            $label === 'default_today' => 'today',
+            $label === 'this week' => 'this week',
+            $label === 'next week' => 'next week',
+            str_starts_with($label, 'qualified_weekday_') => trim(str_replace('qualified_weekday_', '', $label)),
+            str_starts_with($label, 'relative_days_') => 'the selected day',
+            str_starts_with($label, 'explicit_date_') => 'the selected day',
+            ($horizon['mode'] ?? '') === 'range' => 'this window',
+            default => 'your requested window',
+        };
+    }
+
+    /**
+     * @param  array{mode?:string,start_date?:string,end_date?:string,label?:string}  $horizon
+     * @param  array{start?:string,end?:string}  $timeWindow
+     */
+    private function resolveRequestedWindowDisplayLabel(array $horizon, bool $hasExplicitClockTime, array $timeWindow): string
+    {
+        if ($hasExplicitClockTime) {
+            $start = trim((string) ($timeWindow['start'] ?? ''));
+            $end = trim((string) ($timeWindow['end'] ?? ''));
+            if ($start !== '' && $end !== '') {
+                return $start.'-'.$end;
+            }
+        }
+
+        $horizonLabel = $this->resolveRequestedHorizonLabel($horizon);
+
+        return match (true) {
+            $horizonLabel === 'today' => 'today',
+            $horizonLabel === 'tomorrow' => 'tomorrow',
+            $horizonLabel === 'this week' => 'this week',
+            $horizonLabel === 'next week' => 'next week',
+            ($horizon['mode'] ?? '') === 'range' => "this week's window",
+            default => 'your requested window',
+        };
     }
 }

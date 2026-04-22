@@ -33,6 +33,7 @@ final class ScheduleConfirmationSignalsBuilder
         $requestedScope = $this->buildRequestedScope($snapshot, $context, $scheduleOptions);
         $engineNotes = $this->buildEngineNotes($digest);
         $placementTimeCheck = $this->buildPlacementTimeCheck($snapshot, $proposals, $timezone);
+        $nearestAvailableWindow = $this->resolveNearestAvailableWindow($snapshot, $requestedScope, $timezone);
 
         $triggers = $this->collectTriggers(
             $snapshot,
@@ -48,6 +49,7 @@ final class ScheduleConfirmationSignalsBuilder
             'requested_scope' => $requestedScope,
             'engine_notes' => $engineNotes,
             'placement_time_check' => $placementTimeCheck,
+            'nearest_available_window' => $nearestAvailableWindow,
         ];
         $digest['explainability'] = [
             'window_selection_explanation' => $this->buildWindowSelectionExplanation($requestedScope, $engineNotes),
@@ -427,5 +429,195 @@ final class ScheduleConfirmationSignalsBuilder
         }
 
         return $cur >= $a && $cur <= $b;
+    }
+
+    /**
+     * @param  array<string, mixed>  $snapshot
+     * @param  array<string, mixed>  $requestedScope
+     * @return array<string, string>|null
+     */
+    private function resolveNearestAvailableWindow(array $snapshot, array $requestedScope, \DateTimeZone $timezone): ?array
+    {
+        $horizon = is_array($requestedScope['schedule_horizon'] ?? null) ? $requestedScope['schedule_horizon'] : [];
+        $timeWindow = is_array($requestedScope['time_window'] ?? null) ? $requestedScope['time_window'] : [];
+
+        $windowStart = trim((string) ($timeWindow['start'] ?? '08:00'));
+        $windowEnd = trim((string) ($timeWindow['end'] ?? '22:00'));
+        if ($windowStart === '' || $windowEnd === '') {
+            $windowStart = '08:00';
+            $windowEnd = '22:00';
+        }
+
+        $startDateRaw = trim((string) ($horizon['start_date'] ?? ''));
+        if ($startDateRaw === '') {
+            $startDateRaw = (string) ($snapshot['today'] ?? (new \DateTimeImmutable('now', $timezone))->format('Y-m-d'));
+        }
+
+        try {
+            $startDate = new \DateTimeImmutable($startDateRaw, $timezone);
+        } catch (\Throwable) {
+            $startDate = new \DateTimeImmutable('now', $timezone);
+        }
+
+        $dayRange = 7;
+        for ($offset = 0; $offset <= $dayRange; $offset++) {
+            $day = $startDate->modify("+{$offset} day");
+            $busy = $this->collectBusyIntervalsForDay($snapshot, $day, $timezone);
+            $slot = $this->findFirstFreeWindowForDay($day, $windowStart, $windowEnd, $busy, $timezone);
+            if ($slot === null) {
+                continue;
+            }
+
+            return $slot;
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $snapshot
+     * @return list<array{start:\DateTimeImmutable,end:\DateTimeImmutable}>
+     */
+    private function collectBusyIntervalsForDay(array $snapshot, \DateTimeImmutable $day, \DateTimeZone $timezone): array
+    {
+        $dayStart = $day->setTime(0, 0, 0);
+        $dayEnd = $day->setTime(23, 59, 59);
+        $intervals = [];
+
+        $events = is_array($snapshot['events_for_busy'] ?? null) ? $snapshot['events_for_busy'] : [];
+        foreach ($events as $event) {
+            if (! is_array($event)) {
+                continue;
+            }
+            $startRaw = trim((string) ($event['starts_at'] ?? ''));
+            $endRaw = trim((string) ($event['ends_at'] ?? ''));
+            if ($startRaw === '' || $endRaw === '') {
+                continue;
+            }
+            try {
+                $start = (new \DateTimeImmutable($startRaw))->setTimezone($timezone);
+                $end = (new \DateTimeImmutable($endRaw))->setTimezone($timezone);
+            } catch (\Throwable) {
+                continue;
+            }
+            if ($end <= $dayStart || $start >= $dayEnd) {
+                continue;
+            }
+            $intervals[] = [
+                'start' => $start < $dayStart ? $dayStart : $start,
+                'end' => $end > $dayEnd ? $dayEnd : $end,
+            ];
+        }
+
+        $classes = is_array($snapshot['school_class_busy_intervals'] ?? null) ? $snapshot['school_class_busy_intervals'] : [];
+        foreach ($classes as $interval) {
+            if (! is_array($interval)) {
+                continue;
+            }
+            $startRaw = trim((string) ($interval['start'] ?? ''));
+            $endRaw = trim((string) ($interval['end'] ?? ''));
+            if ($startRaw === '' || $endRaw === '') {
+                continue;
+            }
+            try {
+                $start = (new \DateTimeImmutable($startRaw))->setTimezone($timezone);
+                $end = (new \DateTimeImmutable($endRaw))->setTimezone($timezone);
+            } catch (\Throwable) {
+                continue;
+            }
+            if ($end <= $dayStart || $start >= $dayEnd) {
+                continue;
+            }
+            $intervals[] = [
+                'start' => $start < $dayStart ? $dayStart : $start,
+                'end' => $end > $dayEnd ? $dayEnd : $end,
+            ];
+        }
+
+        usort($intervals, static fn (array $a, array $b): int => $a['start'] <=> $b['start']);
+
+        return $intervals;
+    }
+
+    /**
+     * @param  list<array{start:\DateTimeImmutable,end:\DateTimeImmutable}>  $busyIntervals
+     * @return array<string, string>|null
+     */
+    private function findFirstFreeWindowForDay(
+        \DateTimeImmutable $day,
+        string $windowStart,
+        string $windowEnd,
+        array $busyIntervals,
+        \DateTimeZone $timezone
+    ): ?array {
+        $startMinutes = $this->timeStringToMinutes($windowStart);
+        $endMinutes = $this->timeStringToMinutes($windowEnd);
+        if ($endMinutes <= $startMinutes) {
+            return null;
+        }
+
+        $minimumWindowMinutes = 60;
+        $slotStart = $day->setTimezone($timezone)->setTime(intdiv($startMinutes, 60), $startMinutes % 60, 0);
+        $slotEndBoundary = $day->setTimezone($timezone)->setTime(intdiv($endMinutes, 60), $endMinutes % 60, 0);
+
+        foreach ($busyIntervals as $busy) {
+            $busyStart = $busy['start'];
+            $busyEnd = $busy['end'];
+            if ($busyEnd <= $slotStart) {
+                continue;
+            }
+            if ($busyStart >= $slotEndBoundary) {
+                break;
+            }
+
+            if ($busyStart > $slotStart) {
+                $gapMinutes = (int) floor(($busyStart->getTimestamp() - $slotStart->getTimestamp()) / 60);
+                if ($gapMinutes >= $minimumWindowMinutes) {
+                    $candidateEnd = $slotStart->modify('+'.min($gapMinutes, 180).' minutes');
+
+                    return $this->formatNearestWindowCandidate($day, $slotStart, $candidateEnd);
+                }
+            }
+
+            if ($busyEnd > $slotStart) {
+                $slotStart = $busyEnd;
+            }
+        }
+
+        if ($slotStart < $slotEndBoundary) {
+            $remainingMinutes = (int) floor(($slotEndBoundary->getTimestamp() - $slotStart->getTimestamp()) / 60);
+            if ($remainingMinutes >= $minimumWindowMinutes) {
+                $candidateEnd = $slotStart->modify('+'.min($remainingMinutes, 180).' minutes');
+
+                return $this->formatNearestWindowCandidate($day, $slotStart, $candidateEnd);
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function formatNearestWindowCandidate(\DateTimeImmutable $day, \DateTimeImmutable $start, \DateTimeImmutable $end): array
+    {
+        $dayLabel = $day->format('M j, Y');
+        $startLabel = $start->format('g:i A');
+        $endLabel = $end->format('g:i A');
+        $daypart = match (true) {
+            (int) $start->format('H') < 12 => 'morning',
+            (int) $start->format('H') < 18 => 'afternoon',
+            default => 'evening',
+        };
+
+        return [
+            'date' => $day->format('Y-m-d'),
+            'date_label' => $dayLabel,
+            'daypart' => $daypart,
+            'start_time' => $start->format('H:i'),
+            'end_time' => $end->format('H:i'),
+            'window_label' => "{$startLabel}-{$endLabel}",
+            'display_label' => "{$dayLabel} {$startLabel}-{$endLabel}",
+        ];
     }
 }

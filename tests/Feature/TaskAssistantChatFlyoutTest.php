@@ -117,7 +117,9 @@ test('chat flyout quick prompt chip inserts into input', function (): void {
         ->assertSet('isStreaming', false)
         ->set('newMessage', '')
         ->call('applyQuickPromptChip', 'What should I do first')
-        ->assertSet('newMessage', 'What should I do first');
+        ->assertSet('newMessage', 'What should I do first')
+        ->assertSet('pendingClientActionId', 'chip_prioritize_top_three')
+        ->assertSet('pendingClientActionSource', 'next_option_chip');
 });
 
 test('chat flyout quick prompt chip replaces existing input', function (): void {
@@ -129,7 +131,64 @@ test('chat flyout quick prompt chip replaces existing input', function (): void 
         ->assertSet('isStreaming', false)
         ->set('newMessage', 'Existing text')
         ->call('applyQuickPromptChip', 'Schedule my most important task')
-        ->assertSet('newMessage', 'Schedule my most important task');
+        ->assertSet('newMessage', 'Schedule my most important task')
+        ->assertSet('pendingClientActionId', 'chip_prioritize_schedule_top_one')
+        ->assertSet('pendingClientActionSource', 'next_option_chip');
+});
+
+test('chat flyout clears pending chip action when draft is edited', function (): void {
+    $user = User::factory()->create();
+    assert($user instanceof User);
+    $this->actingAs($user);
+
+    Livewire::test('assistant.chat-flyout')
+        ->call('applyQuickPromptChip', 'Schedule my most important task')
+        ->assertSet('pendingClientActionId', 'chip_prioritize_schedule_top_one')
+        ->set('newMessage', 'Schedule this and also remind me')
+        ->assertSet('pendingClientActionId', null)
+        ->assertSet('pendingClientActionSource', null);
+});
+
+test('chat flyout empty-state quick chip deterministic action mapping follows configured flows', function (string $chipText, string $expectedActionId): void {
+    $user = User::factory()->create();
+    assert($user instanceof User);
+    $this->actingAs($user);
+
+    Livewire::test('assistant.chat-flyout')
+        ->call('applyQuickPromptChip', $chipText)
+        ->assertSet('pendingClientActionId', $expectedActionId)
+        ->assertSet('pendingClientActionSource', 'next_option_chip');
+})->with([
+    ['Create a plan for today', 'chip_prioritize_schedule'],
+    ['What are my top 3 tasks', 'chip_prioritize_top_three'],
+    ['Schedule my most important task', 'chip_prioritize_schedule_top_one'],
+    ['What should I focus on today', 'chip_prioritize_top_one'],
+    ['Schedule top 1 for later', 'chip_prioritize_schedule_top_one'],
+    ['Create a plan for tomorrow', 'chip_prioritize_schedule'],
+]);
+
+test('chat flyout submit preserves quick-chip client action only for unchanged prompt', function (): void {
+    Bus::fake();
+
+    $user = User::factory()->create();
+    assert($user instanceof User);
+    $this->actingAs($user);
+
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+    session(['task_assistant.current_thread_id' => $thread->id]);
+
+    Livewire::test('assistant.chat-flyout')
+        ->call('applyQuickPromptChip', 'What should I do first')
+        ->call('submitMessage')
+        ->assertSet('isStreaming', true);
+
+    $latestUserMessage = $thread->messages()
+        ->where('role', \App\Enums\MessageRole::User)
+        ->latest('id')
+        ->first();
+    expect($latestUserMessage)->not->toBeNull();
+    expect(data_get($latestUserMessage?->metadata, 'client_action.id'))->toBe('chip_prioritize_top_three');
+    expect(data_get($latestUserMessage?->metadata, 'client_action.source'))->toBe('next_option_chip');
 });
 
 test('chat flyout quick prompt chip does nothing while streaming', function (): void {
@@ -982,6 +1041,14 @@ test('chat flyout chip click auto-submits next option and dispatches job', funct
         ->call('submitNextOptionChip', $assistant->id, 0)
         ->assertSet('newMessage', '')
         ->assertSet('isStreaming', true);
+
+    $latestUserMessage = $thread->messages()
+        ->where('role', \App\Enums\MessageRole::User)
+        ->latest('id')
+        ->first();
+    expect($latestUserMessage)->not->toBeNull();
+    expect(data_get($latestUserMessage?->metadata, 'client_action.id'))->toBe('chip_prioritize_top_three');
+    expect(data_get($latestUserMessage?->metadata, 'client_action.source'))->toBe('next_option_chip');
 
     Bus::assertDispatched(BroadcastTaskAssistantStreamJob::class, function (BroadcastTaskAssistantStreamJob $job) use ($user) {
         return $job->userId === $user->id;

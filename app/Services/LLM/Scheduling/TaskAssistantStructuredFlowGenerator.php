@@ -152,6 +152,10 @@ final class TaskAssistantStructuredFlowGenerator
             'confirmation' => $narrative['confirmation'],
             'schedule_empty_placement' => $isEmptyPlacement,
             'placement_digest' => $placementDigest,
+            'requested_horizon_label' => (string) ($scheduleExplainability['requested_horizon_label'] ?? 'your requested window'),
+            'requested_window_display_label' => (string) ($scheduleExplainability['requested_window_display_label'] ?? 'your requested window'),
+            'has_explicit_clock_time' => (bool) ($scheduleExplainability['has_explicit_clock_time'] ?? false),
+            'blocking_section_title' => (string) ($scheduleExplainability['blocking_section_title'] ?? 'These items are already scheduled in your requested window:'),
             'window_selection_explanation' => $scheduleExplainability['window_selection_explanation'],
             'ordering_rationale' => $scheduleExplainability['ordering_rationale'],
             'blocking_reasons' => $scheduleExplainability['blocking_reasons'],
@@ -401,6 +405,10 @@ final class TaskAssistantStructuredFlowGenerator
             'confirmation' => $narrative['confirmation'],
             'schedule_empty_placement' => $isEmptyPlacement,
             'placement_digest' => $digestForPrompt,
+            'requested_horizon_label' => (string) ($scheduleExplainability['requested_horizon_label'] ?? 'your requested window'),
+            'requested_window_display_label' => (string) ($scheduleExplainability['requested_window_display_label'] ?? 'your requested window'),
+            'has_explicit_clock_time' => (bool) ($scheduleExplainability['has_explicit_clock_time'] ?? false),
+            'blocking_section_title' => (string) ($scheduleExplainability['blocking_section_title'] ?? 'These items are already scheduled in your requested window:'),
             'window_selection_explanation' => $scheduleExplainability['window_selection_explanation'],
             'ordering_rationale' => $scheduleExplainability['ordering_rationale'],
             'blocking_reasons' => $scheduleExplainability['blocking_reasons'],
@@ -439,6 +447,10 @@ final class TaskAssistantStructuredFlowGenerator
      * @param  array<string, mixed>  $digest
      * @param  array<string, mixed>  $scheduleOptions
      * @return array{
+     *   requested_horizon_label: string,
+     *   requested_window_display_label: string,
+     *   has_explicit_clock_time: bool,
+     *   blocking_section_title: string,
      *   window_selection_explanation: string,
      *   ordering_rationale: list<string>,
      *   blocking_reasons: list<array{title:string,blocked_window:string,reason:string}>,
@@ -459,13 +471,24 @@ final class TaskAssistantStructuredFlowGenerator
         $windowStart = is_string($window['start'] ?? null) ? (string) $window['start'] : '';
         $windowEnd = is_string($window['end'] ?? null) ? (string) $window['end'] : '';
         $horizon = is_array($snapshot['schedule_horizon'] ?? null) ? $snapshot['schedule_horizon'] : [];
+        $requestedHorizonLabel = trim((string) ($context['requested_horizon_label'] ?? ''));
+        if ($requestedHorizonLabel === '') {
+            $requestedHorizonLabel = $this->humanizeHorizonLabel((string) ($horizon['label'] ?? ''));
+        }
+        $hasExplicitClockTime = (bool) ($context['has_explicit_clock_time'] ?? false);
+        $requestedWindowDisplayLabel = trim((string) ($context['requested_window_display_label'] ?? ''));
+        if ($requestedWindowDisplayLabel === '') {
+            $requestedWindowDisplayLabel = $hasExplicitClockTime && $windowStart !== '' && $windowEnd !== ''
+                ? $this->formatClockLabel($windowStart).'-'.$this->formatClockLabel($windowEnd)
+                : $requestedHorizonLabel;
+        }
         $horizonStart = is_string($horizon['start_date'] ?? null) ? (string) $horizon['start_date'] : '';
         $horizonEnd = is_string($horizon['end_date'] ?? null) ? (string) $horizon['end_date'] : '';
         $meaningfulWindow = $windowStart !== '' && $windowEnd !== '' && ! ($windowStart === '00:00' && $windowEnd === '23:59');
 
-        $windowSelectionExplanation = $meaningfulWindow
+        $windowSelectionExplanation = ($meaningfulWindow && $hasExplicitClockTime)
             ? 'I prioritized slots between '.$this->formatClockLabel($windowStart).' and '.$this->formatClockLabel($windowEnd).' so this plan fits the time window you asked for.'
-            : 'I chose the earliest realistic windows that avoid conflicts and keep your top items moving.';
+            : 'I prioritized the earliest realistic windows in your requested time frame while avoiding conflicts.';
         if ($horizonStart !== '' && $horizonEnd !== '' && $horizonStart !== $horizonEnd) {
             $windowSelectionExplanation .= " I spread placements across {$horizonStart} to {$horizonEnd} when needed.";
         }
@@ -506,6 +529,7 @@ final class TaskAssistantStructuredFlowGenerator
 
         $blockingReasons = [];
         $blockingReasonsStruct = [];
+        $taskSnapshotById = $this->snapshotTaskMapById($snapshot);
         $unplacedUnits = is_array($digest['unplaced_units'] ?? null) ? $digest['unplaced_units'] : [];
         foreach ($unplacedUnits as $unit) {
             if (! is_array($unit)) {
@@ -522,9 +546,11 @@ final class TaskAssistantStructuredFlowGenerator
                 'count_limit' => 'Not scheduled yet because we reached the current item limit.',
                 default => 'No free slot was available inside the requested schedule window.',
             };
-            $blockedWindow = $meaningfulWindow
-                ? $this->formatClockLabel($windowStart).'-'.$this->formatClockLabel($windowEnd)
-                : (($horizonStart !== '' && $horizonEnd !== '') ? "{$horizonStart} to {$horizonEnd}" : 'current planning window');
+            $blockedWindow = $this->resolveBlockedWindowLabelForUnplacedUnit(
+                $unit,
+                $taskSnapshotById,
+                $requestedWindowDisplayLabel !== '' ? $requestedWindowDisplayLabel : 'your requested window'
+            );
             $blockingReasons[] = [
                 'title' => $title !== '' ? $title : 'Unplaced item',
                 'blocked_window' => $blockedWindow,
@@ -545,7 +571,7 @@ final class TaskAssistantStructuredFlowGenerator
         foreach ($busyBlockers as $blocker) {
             $blockingReasons[] = $blocker;
         }
-        $blockingReasons = array_slice($blockingReasons, 0, 8);
+        $blockingReasons = $this->normalizeBlockingReasonRows(array_slice($blockingReasons, 0, 8));
 
         $fallbackChoiceExplanation = null;
         $fallbackMode = trim((string) ($digest['fallback_mode'] ?? ''));
@@ -557,6 +583,10 @@ final class TaskAssistantStructuredFlowGenerator
         }
 
         return [
+            'requested_horizon_label' => $requestedHorizonLabel !== '' ? $requestedHorizonLabel : 'your requested window',
+            'requested_window_display_label' => $requestedWindowDisplayLabel !== '' ? $requestedWindowDisplayLabel : 'your requested window',
+            'has_explicit_clock_time' => $hasExplicitClockTime,
+            'blocking_section_title' => $this->resolveBlockingSectionTitle($requestedHorizonLabel),
             'window_selection_explanation' => $windowSelectionExplanation,
             'ordering_rationale' => $orderingRationale,
             'blocking_reasons' => $blockingReasons,
@@ -573,6 +603,144 @@ final class TaskAssistantStructuredFlowGenerator
             'ordering_rationale_struct' => $orderingRationaleStruct,
             'blocking_reasons_struct' => $blockingReasonsStruct,
         ];
+    }
+
+    /**
+     * @param  list<array<string, string>>  $rows
+     * @return list<array{title:string,blocked_window:string,reason:string}>
+     */
+    private function normalizeBlockingReasonRows(array $rows): array
+    {
+        $normalized = [];
+        $seen = [];
+
+        foreach ($rows as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $title = trim((string) ($row['title'] ?? ''));
+            $blockedWindow = trim((string) ($row['blocked_window'] ?? ''));
+            $reason = trim((string) ($row['reason'] ?? ''));
+            if ($title === '') {
+                continue;
+            }
+            if ($blockedWindow === '') {
+                $blockedWindow = 'your requested window';
+            }
+            if ($reason === '') {
+                $reason = 'This overlaps your requested time window.';
+            }
+
+            $dedupeKey = mb_strtolower($title.'|'.$blockedWindow);
+            if (isset($seen[$dedupeKey])) {
+                continue;
+            }
+            $seen[$dedupeKey] = true;
+            $normalized[] = [
+                'title' => $title,
+                'blocked_window' => $blockedWindow,
+                'reason' => $reason,
+            ];
+        }
+
+        return $normalized;
+    }
+
+    /**
+     * @param  array<string, mixed>  $snapshot
+     * @return array<int, array<string, mixed>>
+     */
+    private function snapshotTaskMapById(array $snapshot): array
+    {
+        $map = [];
+        $tasks = is_array($snapshot['tasks'] ?? null) ? $snapshot['tasks'] : [];
+        foreach ($tasks as $task) {
+            if (! is_array($task)) {
+                continue;
+            }
+            $id = (int) ($task['id'] ?? 0);
+            if ($id <= 0) {
+                continue;
+            }
+            $map[$id] = $task;
+        }
+
+        return $map;
+    }
+
+    /**
+     * @param  array<string, mixed>  $unit
+     * @param  array<int, array<string, mixed>>  $taskSnapshotById
+     */
+    private function resolveBlockedWindowLabelForUnplacedUnit(
+        array $unit,
+        array $taskSnapshotById,
+        string $fallbackLabel
+    ): string {
+        $entityType = trim((string) ($unit['entity_type'] ?? ''));
+        $entityId = (int) ($unit['entity_id'] ?? 0);
+        if ($entityType !== 'task' || $entityId <= 0 || ! isset($taskSnapshotById[$entityId])) {
+            return $fallbackLabel;
+        }
+
+        $task = $taskSnapshotById[$entityId];
+        $startRaw = trim((string) ($task['starts_at'] ?? ''));
+        $endRaw = trim((string) ($task['ends_at'] ?? ''));
+
+        if ($startRaw !== '' && $endRaw !== '') {
+            try {
+                $start = new \DateTimeImmutable($startRaw);
+                $end = new \DateTimeImmutable($endRaw);
+
+                return $start->format('M j, Y g:i A').' - '.$end->format('M j, Y g:i A');
+            } catch (\Throwable) {
+                // Fall through to other labels.
+            }
+        }
+
+        if ($endRaw !== '') {
+            try {
+                $due = new \DateTimeImmutable($endRaw);
+
+                return 'Due '.$due->format('M j, Y g:i A');
+            } catch (\Throwable) {
+                // Fall through to fallback.
+            }
+        }
+
+        return $fallbackLabel;
+    }
+
+    private function resolveBlockingSectionTitle(string $requestedHorizonLabel): string
+    {
+        $label = trim($requestedHorizonLabel);
+        if ($label === '') {
+            return 'These items are already scheduled in your requested window:';
+        }
+
+        return match ($label) {
+            'today' => 'These items are already scheduled for today:',
+            'tomorrow' => 'These items are already scheduled for tomorrow:',
+            'this week' => "These items are already scheduled in this week's window:",
+            'next week' => "These items are already scheduled in next week's window:",
+            default => "These items are already scheduled in {$label}:",
+        };
+    }
+
+    private function humanizeHorizonLabel(string $rawLabel): string
+    {
+        $label = trim($rawLabel);
+        if ($label === '') {
+            return 'your requested window';
+        }
+
+        return match (true) {
+            $label === 'default_today' => 'today',
+            str_starts_with($label, 'qualified_weekday_') => trim(str_replace('qualified_weekday_', '', $label)),
+            str_starts_with($label, 'relative_days_') => 'the selected day',
+            str_starts_with($label, 'explicit_date_') => 'the selected day',
+            default => $label,
+        };
     }
 
     private function formatClockLabel(string $time): string

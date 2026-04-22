@@ -58,6 +58,10 @@ new class extends Component
 
     public ?string $pendingClientActionId = null;
 
+    public ?string $pendingClientActionSource = null;
+
+    public ?string $pendingClientActionPrompt = null;
+
     public ?string $streamingCorrelationId = null;
 
     public ?string $streamingTimedOutAt = null;
@@ -110,6 +114,8 @@ new class extends Component
         $this->streamingCorrelationId = null;
         $this->streamingTimedOutAt = null;
         $this->pendingClientActionId = null;
+        $this->pendingClientActionSource = null;
+        $this->pendingClientActionPrompt = null;
         $this->refreshEmptyStateQuickChips();
     }
 
@@ -127,6 +133,30 @@ new class extends Component
         // UX: quick prompt chips should *replace* the current draft input,
         // not append/stack lines.
         $this->newMessage = $value;
+        $this->pendingClientActionId = $this->deriveDeterministicChipActionId($value);
+        $this->pendingClientActionSource = $this->pendingClientActionId !== null
+            ? 'next_option_chip'
+            : null;
+        $this->pendingClientActionPrompt = $this->pendingClientActionId !== null
+            ? $value
+            : null;
+    }
+
+    public function updatedNewMessage(string $value): void
+    {
+        if ($this->pendingClientActionId === null) {
+            return;
+        }
+
+        $pendingPrompt = trim((string) ($this->pendingClientActionPrompt ?? ''));
+        $currentPrompt = trim($value);
+        if ($pendingPrompt !== '' && $currentPrompt === $pendingPrompt) {
+            return;
+        }
+
+        $this->pendingClientActionId = null;
+        $this->pendingClientActionSource = null;
+        $this->pendingClientActionPrompt = null;
     }
 
     /**
@@ -295,11 +325,17 @@ new class extends Component
 
         // Always async: create messages then dispatch one job, which decides the flow and streams output.
         $userMessageMetadata = null;
-        if (is_string($this->pendingClientActionId) && trim($this->pendingClientActionId) !== '') {
+        $pendingActionId = trim((string) ($this->pendingClientActionId ?? ''));
+        $pendingPrompt = trim((string) ($this->pendingClientActionPrompt ?? ''));
+        if ($pendingActionId !== '' && $pendingPrompt !== '' && $pendingPrompt === $content) {
+            $actionSource = trim((string) ($this->pendingClientActionSource ?? ''));
+            if ($actionSource === '') {
+                $actionSource = 'next_option_chip';
+            }
             $userMessageMetadata = [
                 'client_action' => [
-                    'id' => trim($this->pendingClientActionId),
-                    'source' => 'fallback_option_chip',
+                    'id' => $pendingActionId,
+                    'source' => $actionSource,
                 ],
             ];
         }
@@ -309,6 +345,8 @@ new class extends Component
             'metadata' => $userMessageMetadata,
         ]);
         $this->pendingClientActionId = null;
+        $this->pendingClientActionSource = null;
+        $this->pendingClientActionPrompt = null;
         $assistantMessage = $this->thread->messages()->create([
             'role' => MessageRole::Assistant,
             'content' => '',
@@ -373,8 +411,19 @@ new class extends Component
         if (array_key_exists($chipIndex, $chipActions)) {
             $actionId = trim((string) data_get($chipActions[$chipIndex], 'id', ''));
             $this->pendingClientActionId = $actionId !== '' ? $actionId : null;
+            $this->pendingClientActionSource = $this->pendingClientActionId !== null
+                ? 'fallback_option_chip'
+                : null;
+            $this->pendingClientActionPrompt = null;
         } else {
-            $this->pendingClientActionId = null;
+            $content = trim((string) $nextOptionChips[$chipIndex]);
+            $this->pendingClientActionId = $this->deriveDeterministicChipActionId($content);
+            $this->pendingClientActionSource = $this->pendingClientActionId !== null
+                ? 'next_option_chip'
+                : null;
+            $this->pendingClientActionPrompt = $this->pendingClientActionId !== null
+                ? $content
+                : null;
         }
 
         $content = trim((string) $nextOptionChips[$chipIndex]);
@@ -450,6 +499,32 @@ new class extends Component
         }
 
         return $normalized;
+    }
+
+    private function deriveDeterministicChipActionId(string $chipText): ?string
+    {
+        $normalized = mb_strtolower(trim(preg_replace('/\s+/u', ' ', $chipText) ?? $chipText));
+        if ($normalized === '') {
+            return null;
+        }
+
+        return match (true) {
+            str_contains($normalized, 'prioritize then schedule') => 'chip_prioritize_schedule',
+            str_contains($normalized, 'what should i do first'),
+            str_contains($normalized, 'top 3 tasks'),
+            str_contains($normalized, 'show my next 3 priorities'),
+            str_contains($normalized, 'show next 3'),
+            str_contains($normalized, 'top tasks') => 'chip_prioritize_top_three',
+            str_contains($normalized, 'what should i focus on today') => 'chip_prioritize_top_one',
+            str_contains($normalized, 'schedule my most important task'),
+            str_contains($normalized, 'schedule top 1 for later') => 'chip_prioritize_schedule_top_one',
+            str_contains($normalized, 'schedule') => 'chip_schedule',
+            str_contains($normalized, 'plan my day'),
+            str_contains($normalized, 'create a plan for today'),
+            str_contains($normalized, 'create a plan for tomorrow'),
+            str_contains($normalized, 'plan tomorrow for me') => 'chip_prioritize_schedule',
+            default => null,
+        };
     }
 
     /**

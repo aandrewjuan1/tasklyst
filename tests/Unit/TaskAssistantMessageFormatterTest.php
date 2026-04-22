@@ -1065,6 +1065,8 @@ class TaskAssistantMessageFormatterTest extends TestCase
             'confirmation' => 'Do these times work for you?',
             'window_selection_explanation' => 'I used your morning window first.',
             'ordering_rationale' => ['#1 Math worksheet: early slot keeps momentum.'],
+            'requested_horizon_label' => 'tomorrow',
+            'requested_window_display_label' => 'tomorrow',
             'blocking_reasons' => [[
                 'title' => 'Chemistry lab',
                 'blocked_window' => '9:30 AM-11:00 AM',
@@ -1074,8 +1076,9 @@ class TaskAssistantMessageFormatterTest extends TestCase
         ]);
 
         $this->assertStringContainsString('Why this plan:', $out);
-        $this->assertStringContainsString('What blocked your requested time:', $out);
-        $this->assertStringContainsString('Chemistry lab', $out);
+        $this->assertStringContainsString('These items are already scheduled for tomorrow:', $out);
+        $this->assertStringContainsString('Chemistry lab (9:30 AM-11:00 AM)', $out);
+        $this->assertStringNotContainsString('This overlaps your requested slot.', $out);
     }
 
     public function test_daily_schedule_uses_structured_explainability_when_legacy_text_fields_are_empty(): void
@@ -1128,7 +1131,7 @@ class TaskAssistantMessageFormatterTest extends TestCase
 
         $this->assertStringContainsString('Why this plan:', $out);
         $this->assertStringContainsString('Math worksheet', $out);
-        $this->assertStringContainsString('What blocked your requested time:', $out);
-        $this->assertStringContainsString('Chemistry lab', $out);
+        $this->assertStringContainsString('These items are already scheduled in your requested window:', $out);
+        $this->assertStringContainsString('Chemistry lab (9:30 AM-11:00 AM)', $out);
     }
 }

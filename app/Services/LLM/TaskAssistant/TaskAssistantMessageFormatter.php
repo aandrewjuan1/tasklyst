@@ -710,33 +710,16 @@ final class TaskAssistantMessageFormatter
         if ($whyPlanLines !== []) {
             $paragraphs[] = "Why this plan:\n".implode("\n", $whyPlanLines);
         }
+        $blockingSectionTitle = $this->resolveBlockingSectionTitle($data);
         if ($blockingReasons !== []) {
-            $blockerLines = [];
-            foreach ($blockingReasons as $reasonRow) {
-                if (! is_array($reasonRow)) {
-                    continue;
-                }
-                $title = trim((string) ($reasonRow['title'] ?? 'Busy item'));
-                $window = trim((string) ($reasonRow['blocked_window'] ?? 'requested window'));
-                $reason = trim((string) ($reasonRow['reason'] ?? 'This overlaps the requested time.'));
-                $blockerLines[] = "• {$title} ({$window}): {$reason}";
-            }
+            $blockerLines = $this->formatBlockingItemOnlyLines($blockingReasons);
             if ($blockerLines !== []) {
-                $paragraphs[] = "What blocked your requested time:\n".implode("\n", $blockerLines);
+                $paragraphs[] = $blockingSectionTitle."\n".implode("\n", $blockerLines);
             }
         } elseif ($blockingReasonsStruct !== []) {
-            $blockerLines = [];
-            foreach ($blockingReasonsStruct as $reasonRow) {
-                if (! is_array($reasonRow)) {
-                    continue;
-                }
-                $title = trim((string) ($reasonRow['title'] ?? 'Busy item'));
-                $window = trim((string) ($reasonRow['blocked_window'] ?? 'requested window'));
-                $reasonCode = trim((string) ($reasonRow['block_reason_code'] ?? 'horizon_exhausted'));
-                $blockerLines[] = "• {$title} ({$window}): ".$this->scheduleBlockReasonFromCode($reasonCode);
-            }
+            $blockerLines = $this->formatBlockingItemOnlyLines($blockingReasonsStruct);
             if ($blockerLines !== []) {
-                $paragraphs[] = "What blocked your requested time:\n".implode("\n", $blockerLines);
+                $paragraphs[] = $blockingSectionTitle."\n".implode("\n", $blockerLines);
             }
         }
         $strategyLines = array_values(array_filter(array_map(
@@ -863,18 +846,9 @@ final class TaskAssistantMessageFormatter
         }
         $blockingReasons = is_array($data['blocking_reasons'] ?? null) ? $data['blocking_reasons'] : [];
         if ($blockingReasons !== []) {
-            $blockerLines = [];
-            foreach ($blockingReasons as $reasonRow) {
-                if (! is_array($reasonRow)) {
-                    continue;
-                }
-                $title = trim((string) ($reasonRow['title'] ?? 'Busy item'));
-                $window = trim((string) ($reasonRow['blocked_window'] ?? 'requested window'));
-                $reasonText = trim((string) ($reasonRow['reason'] ?? 'This overlaps the requested time.'));
-                $blockerLines[] = "• {$title} ({$window}): {$reasonText}";
-            }
+            $blockerLines = $this->formatBlockingItemOnlyLines($blockingReasons);
             if ($blockerLines !== []) {
-                $paragraphs[] = "What blocked your requested time:\n".implode("\n", $blockerLines);
+                $paragraphs[] = $this->resolveBlockingSectionTitle($data)."\n".implode("\n", $blockerLines);
             }
         }
 
@@ -942,6 +916,62 @@ final class TaskAssistantMessageFormatter
         }
 
         return "What blocked scheduling:\n".implode("\n", array_slice($lines, 0, 3));
+    }
+
+    /**
+     * @param  array<int, mixed>  $rows
+     * @return list<string>
+     */
+    private function formatBlockingItemOnlyLines(array $rows): array
+    {
+        $lines = [];
+        $seen = [];
+
+        foreach ($rows as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $title = trim((string) ($row['title'] ?? 'Busy item'));
+            $window = trim((string) ($row['blocked_window'] ?? ''));
+            if ($title === '') {
+                continue;
+            }
+            $line = $window !== '' ? "• {$title} ({$window})" : "• {$title}";
+            $dedupeKey = mb_strtolower($line);
+            if (isset($seen[$dedupeKey])) {
+                continue;
+            }
+            $seen[$dedupeKey] = true;
+            $lines[] = $line;
+        }
+
+        return $lines;
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private function resolveBlockingSectionTitle(array $data): string
+    {
+        $explicit = trim((string) ($data['blocking_section_title'] ?? ''));
+        if ($explicit !== '') {
+            return $explicit;
+        }
+
+        $windowLabel = trim((string) ($data['requested_window_display_label'] ?? ''));
+        $horizonLabel = trim((string) ($data['requested_horizon_label'] ?? ''));
+        $target = $horizonLabel !== '' ? $horizonLabel : $windowLabel;
+        if ($target === '') {
+            $target = 'your requested window';
+        }
+
+        return match ($target) {
+            'today' => 'These items are already scheduled for today:',
+            'tomorrow' => 'These items are already scheduled for tomorrow:',
+            'this week' => "These items are already scheduled in this week's window:",
+            'next week' => "These items are already scheduled in next week's window:",
+            default => "These items are already scheduled in {$target}:",
+        };
     }
 
     /**
