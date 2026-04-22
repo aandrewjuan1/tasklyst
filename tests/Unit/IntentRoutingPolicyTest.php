@@ -873,3 +873,23 @@ test('pending schedule context plus implicit edit phrase shortcircuits to schedu
     expect($decision->flow)->toBe('schedule');
     expect($decision->reasonCodes)->toContain('schedule_refinement_context_shortcircuit');
 });
+
+test('prioritize-first prompts include routing signal diagnostics', function (string $prompt): void {
+    config()->set('task-assistant.intent.use_llm', false);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, $prompt);
+
+    expect($decision->flow)->toBeIn(['prioritize', 'prioritize_schedule']);
+    expect(data_get($decision->constraints, 'routing_signal_strength.source'))->toBe('heuristic_v1');
+    expect((float) data_get($decision->constraints, 'routing_signal_strength.schedule'))->toBeGreaterThan(0.0);
+    expect((float) data_get($decision->constraints, 'routing_signal_strength.hybrid'))->toBeGreaterThan(0.0);
+    if ($decision->flow === 'prioritize') {
+        expect((string) ($decision->constraints['demotion_reason_detail'] ?? ''))->not->toBe('');
+    }
+})->with([
+    'next 3 priorities tomorrow' => 'what are my next 3 priorities for tomorrow',
+    'top priorities later today' => 'show my top priorities later today',
+]);

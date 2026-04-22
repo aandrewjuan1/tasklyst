@@ -72,6 +72,29 @@ class TaskAssistantMessageFormatterTest extends TestCase
         $this->assertStringContainsString('due today (Mar 22, 2026)', $out);
     }
 
+    public function test_prioritize_renders_assumptions_block_when_present(): void
+    {
+        $out = $this->formatter->format('prioritize', [
+            'framing' => 'Here is your slice.',
+            'limit_used' => 1,
+            'items' => [[
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'title' => 'A',
+                'priority' => 'high',
+                'due_phrase' => 'due today',
+                'due_on' => 'Mar 22, 2026',
+                'complexity_label' => 'Simple',
+            ]],
+            'assumptions' => ['Interpreting "today" as your local calendar day.'],
+            'reasoning' => 'This ordering matches what you asked for.',
+            'next_options' => 'If you want, I can schedule this for later.',
+        ]);
+
+        $this->assertStringContainsString('For context:', $out);
+        $this->assertStringContainsString('Interpreting "today" as your local calendar day.', $out);
+    }
+
     public function test_prioritize_places_filter_interpretation_after_numbered_items_then_reasoning_then_next_options(): void
     {
         $framing = 'Here is your slice.';
@@ -314,6 +337,31 @@ class TaskAssistantMessageFormatterTest extends TestCase
         ]);
 
         $this->assertSame(1, substr_count($out, $ack));
+    }
+
+    public function test_prioritize_compacts_ordering_rationale_when_it_duplicates_reasoning(): void
+    {
+        $duplicate = 'This task stands out because it is high priority and due today.';
+        $out = $this->formatter->format('prioritize', [
+            'framing' => 'Here is your prioritized list.',
+            'limit_used' => 3,
+            'items' => [
+                ['entity_type' => 'task', 'entity_id' => 1, 'title' => 'A', 'priority' => 'high', 'due_phrase' => 'due today', 'due_on' => 'Mar 22, 2026', 'complexity_label' => 'Simple'],
+                ['entity_type' => 'task', 'entity_id' => 2, 'title' => 'B', 'priority' => 'high', 'due_phrase' => 'due tomorrow', 'due_on' => 'Mar 23, 2026', 'complexity_label' => 'Simple'],
+                ['entity_type' => 'task', 'entity_id' => 3, 'title' => 'C', 'priority' => 'medium', 'due_phrase' => 'due this week', 'due_on' => 'Mar 25, 2026', 'complexity_label' => 'Moderate'],
+            ],
+            'ordering_rationale' => [
+                '#1 A: '.$duplicate,
+                '#2 B: '.$duplicate,
+                '#3 C: '.$duplicate,
+            ],
+            'reasoning' => '#1 A: '.$duplicate.' #2 B: '.$duplicate.' #3 C: '.$duplicate,
+            'next_options' => 'If you want, I can schedule these tasks for later.',
+        ]);
+
+        $this->assertStringContainsString('Why this order:', $out);
+        $this->assertStringContainsString('If you want, I can schedule these tasks for later.', $out);
+        $this->assertLessThanOrEqual(6, substr_count($out, $duplicate));
     }
 
     public function test_prioritize_dedupes_when_framing_starts_with_acknowledgment(): void
@@ -900,7 +948,31 @@ class TaskAssistantMessageFormatterTest extends TestCase
         ]);
 
         $this->assertStringContainsString('Apr 19, 2026', $out);
-        $this->assertStringNotContainsString('April 20', $out);
+        $this->assertStringContainsString('April 20', $out);
+    }
+
+    public function test_daily_schedule_does_not_rewrite_explicit_date_without_relative_date_phrasing(): void
+    {
+        $out = $this->formatter->format('daily_schedule', [
+            'framing' => 'I scheduled this on April 20, 2026 based on your request.',
+            'reasoning' => 'This date gives you room before your exam.',
+            'confirmation' => 'Do you want to keep April 20, 2026?',
+            'blocks' => [[
+                'start_time' => '08:00',
+                'end_time' => '09:00',
+                'task_id' => 1,
+            ]],
+            'items' => [[
+                'title' => 'Focus block',
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'start_datetime' => '2026-04-19T08:00:00+08:00',
+                'end_datetime' => '2026-04-19T09:00:00+08:00',
+                'duration_minutes' => 60,
+            ]],
+        ]);
+
+        $this->assertStringContainsString('April 20, 2026', $out);
     }
 
     public function test_daily_schedule_soft_correction_rewrites_today_claim_for_multi_day_plan(): void
@@ -1002,6 +1074,60 @@ class TaskAssistantMessageFormatterTest extends TestCase
         ]);
 
         $this->assertStringContainsString('Why this plan:', $out);
+        $this->assertStringContainsString('What blocked your requested time:', $out);
+        $this->assertStringContainsString('Chemistry lab', $out);
+    }
+
+    public function test_daily_schedule_uses_structured_explainability_when_legacy_text_fields_are_empty(): void
+    {
+        $out = $this->formatter->format('daily_schedule', [
+            'proposals' => [[
+                'proposal_id' => 'p1',
+                'status' => 'pending',
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'title' => 'Math worksheet',
+                'start_datetime' => '2026-04-04T09:00:00+00:00',
+                'end_datetime' => '2026-04-04T09:45:00+00:00',
+                'duration_minutes' => 45,
+            ]],
+            'items' => [[
+                'title' => 'Math worksheet',
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'start_datetime' => '2026-04-04T09:00:00+00:00',
+                'end_datetime' => '2026-04-04T09:45:00+00:00',
+                'duration_minutes' => 45,
+            ]],
+            'blocks' => [[
+                'start_time' => '09:00',
+                'end_time' => '09:45',
+                'label' => 'Math worksheet',
+            ]],
+            'framing' => 'I mapped a plan for your morning.',
+            'reasoning' => 'This keeps your highest-impact work early.',
+            'confirmation' => 'Do these times work for you?',
+            'window_selection_explanation' => '',
+            'window_selection_struct' => [
+                'window_mode' => 'requested_window',
+                'reason_code_primary' => 'window_matched_request',
+            ],
+            'ordering_rationale' => [],
+            'ordering_rationale_struct' => [[
+                'rank' => 1,
+                'title' => 'Math worksheet',
+                'fit_reason_code' => 'strongest_fit_window',
+            ]],
+            'blocking_reasons' => [],
+            'blocking_reasons_struct' => [[
+                'title' => 'Chemistry lab',
+                'blocked_window' => '9:30 AM-11:00 AM',
+                'block_reason_code' => 'window_conflict',
+            ]],
+        ]);
+
+        $this->assertStringContainsString('Why this plan:', $out);
+        $this->assertStringContainsString('Math worksheet', $out);
         $this->assertStringContainsString('What blocked your requested time:', $out);
         $this->assertStringContainsString('Chemistry lab', $out);
     }

@@ -353,6 +353,9 @@ final class IntentRoutingPolicy
                 'target_entities_count' => is_array($constraints['target_entities'] ?? null)
                     ? count($constraints['target_entities'])
                     : 0,
+                'schedule_signal_strength' => data_get($constraints, 'routing_signal_strength.schedule'),
+                'routing_hint' => $constraints['routing_hint'] ?? null,
+                'demotion_reason_detail' => $constraints['demotion_reason_detail'] ?? null,
             ],
             'message_length' => mb_strlen($content),
         ]);
@@ -427,12 +430,86 @@ final class IntentRoutingPolicy
             }
         }
 
+        $routingSignal = $this->buildRoutingSignalStrength($normalized, $resolvedFlow);
+
+        $demotionReasonDetail = null;
+        if (
+            in_array($resolvedFlow, ['prioritize', 'schedule'], true)
+            && $this->hasHybridLikeIntentCue($normalized)
+            && ($routingSignal['schedule'] ?? 0.0) < 0.8
+        ) {
+            $demotionReasonDetail = sprintf(
+                'hybrid_cue_detected_with_schedule_signal_%.2f_below_escalation_threshold',
+                (float) ($routingSignal['schedule'] ?? 0.0)
+            );
+        }
+
         return [
             'count_limit' => $countLimit,
             'time_window_hint' => $this->extractTimeWindowHint($normalized),
             'strict_window' => $this->extractStrictWindowFlag($normalized),
             'target_entities' => $targetEntities,
+            'routing_signal_strength' => $routingSignal,
+            'routing_hint' => ($resolvedFlow === 'prioritize' && ($routingSignal['schedule'] ?? 0.0) >= 0.55)
+                ? 'schedule_followup_likely_next_turn'
+                : null,
+            'demotion_reason_detail' => $demotionReasonDetail,
         ];
+    }
+
+    /**
+     * @return array{schedule: float, prioritize: float, hybrid: float, source: string}
+     */
+    private function buildRoutingSignalStrength(string $normalized, string $resolvedFlow): array
+    {
+        $scheduleScore = 0.0;
+        $prioritizeScore = 0.0;
+
+        if (preg_match('/\b(schedule|time[\s-]?block|calendar|slot|reschedule|plan)\b/u', $normalized) === 1) {
+            $scheduleScore += 0.45;
+        }
+        if (preg_match('/\b(today|tomorrow|this week|next week|later|morning|afternoon|evening|tonight)\b/u', $normalized) === 1) {
+            $scheduleScore += 0.25;
+        }
+        if (preg_match('/\b(at\s+\d{1,2}(:\d{2})?\s*(am|pm)|\d{1,2}(:\d{2})?\s*(am|pm))\b/u', $normalized) === 1) {
+            $scheduleScore += 0.20;
+        }
+        if (preg_match('/\b(priorit(?:y|ize)|important|urgent|what should i do first|next \d+ priorities?)\b/u', $normalized) === 1) {
+            $prioritizeScore += 0.55;
+        }
+        if (preg_match('/\b(top|first|next)\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|couple)\b/u', $normalized) === 1) {
+            $prioritizeScore += 0.20;
+        }
+        if (preg_match('/\b(tasks?|items?|priorities)\b/u', $normalized) === 1) {
+            $prioritizeScore += 0.15;
+            $scheduleScore += 0.10;
+        }
+
+        if ($resolvedFlow === 'schedule' || $resolvedFlow === 'prioritize_schedule') {
+            $scheduleScore += 0.05;
+        }
+        if ($resolvedFlow === 'prioritize' || $resolvedFlow === 'prioritize_schedule') {
+            $prioritizeScore += 0.05;
+        }
+
+        $scheduleScore = max(0.0, min(1.0, $scheduleScore));
+        $prioritizeScore = max(0.0, min(1.0, $prioritizeScore));
+        $hybridScore = max(0.0, min(1.0, ($scheduleScore * 0.5) + ($prioritizeScore * 0.5)));
+
+        return [
+            'schedule' => round($scheduleScore, 3),
+            'prioritize' => round($prioritizeScore, 3),
+            'hybrid' => round($hybridScore, 3),
+            'source' => 'heuristic_v1',
+        ];
+    }
+
+    private function hasHybridLikeIntentCue(string $normalized): bool
+    {
+        $hasPrioritizeCue = preg_match('/\b(top|first|next|priorit(?:y|ize)|important|urgent)\b/u', $normalized) === 1;
+        $hasSchedulingCue = preg_match('/\b(schedule|calendar|later|today|tomorrow|this week|time[\s-]?block)\b/u', $normalized) === 1;
+
+        return $hasPrioritizeCue && $hasSchedulingCue;
     }
 
     private function scheduleAwareLastListing(TaskAssistantThread $thread, string $normalizedContent = ''): ?array

@@ -212,6 +212,10 @@ final class TaskPrioritizationService
                     priorityScore: $priorityScore,
                     durationScore: $durationScore,
                     studentFocusTierScore: (int) ($task['student_focus_tier_score'] ?? 0),
+                    reasonCodePrimary: $this->reasonCodeForTask((string) ($task['due_bucket'] ?? ''), (string) ($task['priority'] ?? 'medium')),
+                    reasonCodesSecondary: $this->secondaryReasonCodesForTask((string) ($task['priority'] ?? 'medium'), (int) ($task['duration_minutes'] ?? 0)),
+                    explainabilityFacts: $this->factsForTaskExplainability($task),
+                    narrativeAnchor: $this->narrativeAnchorForTask($task),
                 ),
                 'raw' => $task,
             ];
@@ -246,6 +250,10 @@ final class TaskPrioritizationService
                     priorityScore: (int) ($event['priority_score'] ?? 0),
                     durationScore: (int) ($event['duration_score'] ?? 0),
                     studentFocusTierScore: 0,
+                    reasonCodePrimary: $this->reasonCodeForEvent((string) ($event['reasoning'] ?? '')),
+                    reasonCodesSecondary: ['time_bound', 'calendar_driven'],
+                    explainabilityFacts: $this->factsForEventExplainability($event),
+                    narrativeAnchor: $this->narrativeAnchorForEvent($event),
                 ),
                 'raw' => $event,
             ];
@@ -280,6 +288,10 @@ final class TaskPrioritizationService
                     priorityScore: (int) ($project['priority_score'] ?? 0),
                     durationScore: (int) ($project['duration_score'] ?? 0),
                     studentFocusTierScore: 0,
+                    reasonCodePrimary: $this->reasonCodeForProject((string) ($project['reasoning'] ?? '')),
+                    reasonCodesSecondary: ['project_momentum'],
+                    explainabilityFacts: $this->factsForProjectExplainability($project),
+                    narrativeAnchor: $this->narrativeAnchorForProject($project),
                 ),
                 'raw' => $project,
             ];
@@ -363,12 +375,26 @@ final class TaskPrioritizationService
         int $priorityScore,
         int $durationScore,
         int $studentFocusTierScore,
+        string $reasonCodePrimary = 'needs_attention',
+        array $reasonCodesSecondary = [],
+        array $explainabilityFacts = [],
+        array $narrativeAnchor = [],
     ): array {
         return [
             'entity_type' => $type,
             'urgency_bucket' => $urgencyBucket,
             'priority_label' => $priorityLabel,
             'quick_win' => $quickWinLabel,
+            'reason_code_primary' => $reasonCodePrimary,
+            'reason_codes_secondary' => array_values(array_unique(array_filter(array_map(
+                static fn (mixed $code): string => trim((string) $code),
+                $reasonCodesSecondary
+            ), static fn (string $code): bool => $code !== ''))),
+            'explainability_facts' => array_values(array_filter(
+                array_map(static fn (mixed $fact): array => is_array($fact) ? $fact : [], $explainabilityFacts),
+                static fn (array $fact): bool => isset($fact['key']) && isset($fact['value'])
+            )),
+            'narrative_anchor' => $narrativeAnchor,
             'score_total' => $score,
             'score_breakdown' => [
                 'deadline' => $deadlineScore,
@@ -1260,6 +1286,147 @@ final class TaskPrioritizationService
     /**
      * Generate human-readable reasoning for task selection.
      */
+    private function reasonCodeForTask(string $dueBucket, string $priority): string
+    {
+        $due = strtolower(trim($dueBucket));
+        $prio = strtolower(trim($priority));
+
+        if ($due === 'overdue') {
+            return 'overdue_task';
+        }
+        if ($due === 'due_today') {
+            return 'due_today_task';
+        }
+        if ($due === 'due_tomorrow') {
+            return 'due_tomorrow_task';
+        }
+        if ($prio === 'urgent' || $prio === 'high') {
+            return 'high_priority_task';
+        }
+
+        return 'next_best_task';
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function secondaryReasonCodesForTask(string $priority, int $durationMinutes): array
+    {
+        $codes = ['deadline_weighted'];
+
+        if (in_array(strtolower(trim($priority)), ['urgent', 'high'], true)) {
+            $codes[] = 'explicit_priority';
+        }
+        if ($durationMinutes > 0 && $durationMinutes <= 30) {
+            $codes[] = 'quick_win';
+        } elseif ($durationMinutes >= 120) {
+            $codes[] = 'long_block';
+        }
+
+        return $codes;
+    }
+
+    /**
+     * @param  array<string, mixed>  $task
+     * @return list<array{key: string, value: string}>
+     */
+    private function factsForTaskExplainability(array $task): array
+    {
+        return [
+            ['key' => 'priority', 'value' => strtolower(trim((string) ($task['priority'] ?? 'medium')))],
+            ['key' => 'due_bucket', 'value' => strtolower(trim((string) ($task['due_bucket'] ?? 'no_deadline')))],
+            ['key' => 'duration_minutes', 'value' => (string) ((int) ($task['duration_minutes'] ?? 0))],
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $task
+     * @return array<string, mixed>
+     */
+    private function narrativeAnchorForTask(array $task): array
+    {
+        return [
+            'title' => trim((string) ($task['title'] ?? '')),
+            'due_phrase' => trim((string) ($task['due_phrase'] ?? '')),
+            'priority' => strtolower(trim((string) ($task['priority'] ?? 'medium'))),
+        ];
+    }
+
+    private function reasonCodeForEvent(string $reasoning): string
+    {
+        $value = strtolower(trim($reasoning));
+
+        return match (true) {
+            str_contains($value, 'already started') => 'event_in_progress',
+            str_contains($value, 'today') => 'event_today',
+            str_contains($value, 'tomorrow') => 'event_tomorrow',
+            default => 'event_upcoming',
+        };
+    }
+
+    /**
+     * @param  array<string, mixed>  $event
+     * @return list<array{key: string, value: string}>
+     */
+    private function factsForEventExplainability(array $event): array
+    {
+        return [
+            ['key' => 'starts_at', 'value' => trim((string) ($event['starts_at'] ?? ''))],
+            ['key' => 'status', 'value' => trim((string) ($event['status'] ?? 'scheduled'))],
+            ['key' => 'all_day', 'value' => ((bool) ($event['all_day'] ?? false)) ? 'true' : 'false'],
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $event
+     * @return array<string, mixed>
+     */
+    private function narrativeAnchorForEvent(array $event): array
+    {
+        return [
+            'title' => trim((string) ($event['title'] ?? '')),
+            'starts_at' => trim((string) ($event['starts_at'] ?? '')),
+            'status' => trim((string) ($event['status'] ?? '')),
+        ];
+    }
+
+    private function reasonCodeForProject(string $reasoning): string
+    {
+        $value = strtolower(trim($reasoning));
+
+        return match (true) {
+            str_contains($value, 'overdue') => 'project_overdue',
+            str_contains($value, 'today') => 'project_due_today',
+            str_contains($value, 'soon') => 'project_due_soon',
+            default => 'project_active',
+        };
+    }
+
+    /**
+     * @param  array<string, mixed>  $project
+     * @return list<array{key: string, value: string}>
+     */
+    private function factsForProjectExplainability(array $project): array
+    {
+        return [
+            ['key' => 'end_at', 'value' => trim((string) ($project['end_at'] ?? ''))],
+            ['key' => 'status', 'value' => trim((string) ($project['status'] ?? 'active'))],
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $project
+     * @return array<string, mixed>
+     */
+    private function narrativeAnchorForProject(array $project): array
+    {
+        return [
+            'title' => trim((string) ($project['name'] ?? '')),
+            'end_at' => trim((string) ($project['end_at'] ?? '')),
+            'status' => trim((string) ($project['status'] ?? 'active')),
+        ];
+    }
+
     private function generateReasoning(array $task, \DateTimeImmutable $now): string
     {
         $priority = ucfirst($task['priority'] ?? 'medium');

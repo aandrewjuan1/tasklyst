@@ -54,6 +54,38 @@ final class TaskAssistantSchemas
                                 nullable: true
                             ),
                             new StringSchema(
+                                name: 'reason_code_primary',
+                                description: 'Primary deterministic reason code for this proposal placement.',
+                                nullable: true
+                            ),
+                            new ArraySchema(
+                                name: 'reason_codes_secondary',
+                                description: 'Secondary deterministic reason codes for this proposal.',
+                                items: new StringSchema(name: 'reason_code', description: 'One reason code.'),
+                                nullable: true
+                            ),
+                            new ArraySchema(
+                                name: 'explainability_facts',
+                                description: 'Structured key/value facts used by narrative synthesis.',
+                                items: new ObjectSchema(
+                                    name: 'explainability_fact',
+                                    description: 'Explainability fact key/value pair.',
+                                    properties: [
+                                        new StringSchema(name: 'key', description: 'Fact key.'),
+                                        new StringSchema(name: 'value', description: 'Fact value.'),
+                                    ],
+                                    requiredFields: ['key', 'value']
+                                ),
+                                nullable: true
+                            ),
+                            new ObjectSchema(
+                                name: 'narrative_anchor',
+                                description: 'Structured anchor values for student-facing explanation.',
+                                properties: [],
+                                requiredFields: [],
+                                nullable: true
+                            ),
+                            new StringSchema(
                                 name: 'start_datetime',
                                 description: 'Proposed ISO start datetime.'
                             ),
@@ -182,10 +214,70 @@ final class TaskAssistantSchemas
                     description: 'Short plain-language explanation of why these time windows were chosen.',
                     nullable: true
                 ),
+                new ObjectSchema(
+                    name: 'window_selection_struct',
+                    description: 'Deterministic structured explanation for window selection decisions.',
+                    nullable: true,
+                    properties: [
+                        new StringSchema(name: 'window_mode', description: 'window selection mode, e.g. requested_window or earliest_conflict_free.', nullable: true),
+                        new ObjectSchema(
+                            name: 'window_used',
+                            description: 'Requested window used by scheduler when applicable.',
+                            nullable: true,
+                            properties: [
+                                new StringSchema(name: 'start', description: 'Window start time.', nullable: true),
+                                new StringSchema(name: 'end', description: 'Window end time.', nullable: true),
+                            ],
+                            requiredFields: []
+                        ),
+                        new ObjectSchema(
+                            name: 'horizon_span',
+                            description: 'Schedule horizon span used during planning.',
+                            nullable: true,
+                            properties: [
+                                new StringSchema(name: 'start_date', description: 'Horizon start date.', nullable: true),
+                                new StringSchema(name: 'end_date', description: 'Horizon end date.', nullable: true),
+                            ],
+                            requiredFields: []
+                        ),
+                        new StringSchema(name: 'reason_code_primary', description: 'Primary deterministic reason code for window choice.', nullable: true),
+                    ],
+                    requiredFields: []
+                ),
                 new ArraySchema(
                     name: 'ordering_rationale',
                     description: 'One concise explanation per shown schedule row, matching the displayed order.',
                     items: new StringSchema(name: 'ordering_reason', description: 'One per-row rationale line.'),
+                    nullable: true
+                ),
+                new ArraySchema(
+                    name: 'ordering_rationale_struct',
+                    description: 'Structured per-row rationale records for schedule ordering.',
+                    items: new ObjectSchema(
+                        name: 'ordering_rationale_struct_row',
+                        description: 'Structured explanation row for one scheduled item.',
+                        properties: [
+                            new NumberSchema(name: 'rank', description: '1-based row rank.', nullable: true),
+                            new StringSchema(name: 'title', description: 'Row title.', nullable: true),
+                            new StringSchema(name: 'slot_start', description: 'Slot start datetime.', nullable: true),
+                            new StringSchema(name: 'fit_reason_code', description: 'Deterministic fit reason code.', nullable: true),
+                            new ArraySchema(
+                                name: 'fit_facts',
+                                description: 'Structured fit facts for downstream narrative rendering.',
+                                items: new ObjectSchema(
+                                    name: 'fit_fact',
+                                    description: 'Fit fact key/value pair.',
+                                    properties: [
+                                        new StringSchema(name: 'key', description: 'Fact key.'),
+                                        new StringSchema(name: 'value', description: 'Fact value.'),
+                                    ],
+                                    requiredFields: ['key', 'value']
+                                ),
+                                nullable: true
+                            ),
+                        ],
+                        requiredFields: []
+                    ),
                     nullable: true
                 ),
                 new ArraySchema(
@@ -200,6 +292,35 @@ final class TaskAssistantSchemas
                             new StringSchema(name: 'reason', description: 'Why this item blocks placement.'),
                         ],
                         requiredFields: ['title', 'blocked_window', 'reason']
+                    ),
+                    nullable: true
+                ),
+                new ArraySchema(
+                    name: 'blocking_reasons_struct',
+                    description: 'Structured blocker rows with deterministic reason codes.',
+                    items: new ObjectSchema(
+                        name: 'blocking_reason_struct',
+                        description: 'Structured blocker row with deterministic reason code.',
+                        properties: [
+                            new StringSchema(name: 'title', description: 'Blocking item title.', nullable: true),
+                            new StringSchema(name: 'blocked_window', description: 'Blocked time window label.', nullable: true),
+                            new StringSchema(name: 'block_reason_code', description: 'Deterministic blocker reason code.', nullable: true),
+                            new ArraySchema(
+                                name: 'reason_facts',
+                                description: 'Structured facts explaining the blocker.',
+                                items: new ObjectSchema(
+                                    name: 'reason_fact',
+                                    description: 'Blocker reason fact key/value pair.',
+                                    properties: [
+                                        new StringSchema(name: 'key', description: 'Fact key.'),
+                                        new StringSchema(name: 'value', description: 'Fact value.'),
+                                    ],
+                                    requiredFields: ['key', 'value']
+                                ),
+                                nullable: true
+                            ),
+                        ],
+                        requiredFields: []
                     ),
                     nullable: true
                 ),

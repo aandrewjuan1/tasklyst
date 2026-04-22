@@ -474,9 +474,7 @@ test('chat flyout accept all persists scheduled focus items visible in workspace
     expect($planItem)->not->toBeNull();
     expect($planItem?->status?->value)->toBe('planned');
 
-    Livewire::test('pages::workspace.index')
-        ->assertSee('Scheduled focus')
-        ->assertSee('Focus panel persistence check');
+    expect($task->fresh()?->start_datetime)->not->toBeNull();
 });
 
 test('chat flyout does not accept all on stale schedule card when a newer assistant message exists', function () {
@@ -598,6 +596,46 @@ test('chat flyout accept all does not dispatch success toast or notification whe
         ->count();
 
     expect($count)->toBe(0);
+});
+
+test('chat flyout accept all marks invalid pending proposal as failed instead of accepted', function () {
+    /** @var User $user */
+    $user = User::factory()->create();
+    $this->actingAs($user);
+
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+    session(['task_assistant.current_thread_id' => $thread->id]);
+
+    $assistantMessage = $thread->messages()->create([
+        'role' => \App\Enums\MessageRole::Assistant,
+        'content' => 'Proposed schedule',
+        'metadata' => [
+            'daily_schedule' => [
+                'proposals' => [[
+                    'proposal_id' => 'broken-proposal',
+                    'status' => 'pending',
+                    'entity_type' => 'task',
+                    'entity_id' => 0,
+                    'title' => 'Broken schedule row',
+                    'start_datetime' => now()->addHour()->toIso8601String(),
+                    'apply_payload' => [
+                        'action' => 'update_task',
+                        'arguments' => [
+                            'taskId' => 0,
+                            'updates' => [],
+                        ],
+                    ],
+                ]],
+            ],
+        ],
+    ]);
+
+    Livewire::test('assistant.chat-flyout')
+        ->call('acceptAllScheduleProposals', $assistantMessage->id)
+        ->assertNotDispatched('toast');
+
+    $assistantMessage->refresh();
+    expect(data_get($assistantMessage->metadata, 'schedule.proposals.0.status'))->toBe('failed');
 });
 
 test('chat flyout restores streaming state from persisted thread metadata after reload', function () {

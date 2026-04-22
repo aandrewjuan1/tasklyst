@@ -836,3 +836,35 @@ it('getTopTask uses real current time semantics for overdue checks', function ()
     expect($top)->not->toBeNull();
     expect($top['id'])->toBe(1);
 });
+
+it('emits structured explainability contract for ranked focus items', function (): void {
+    $service = app(TaskPrioritizationService::class);
+    $now = CarbonImmutable::now('UTC');
+
+    $snapshot = [
+        'today' => $now->toDateString(),
+        'timezone' => 'UTC',
+        'tasks' => [
+            [
+                'id' => 1,
+                'title' => 'Submit lab report',
+                'priority' => 'high',
+                'status' => 'to_do',
+                'ends_at' => $now->addHours(2)->toIso8601String(),
+                'duration_minutes' => 45,
+                'is_recurring' => false,
+            ],
+        ],
+        'events' => [],
+        'projects' => [],
+    ];
+
+    $ranked = $service->prioritizeFocus($snapshot);
+
+    expect($ranked)->not->toBeEmpty();
+    expect($ranked[0]['explainability'] ?? null)->toBeArray();
+    expect($ranked[0]['explainability']['reason_code_primary'] ?? null)->toBeString();
+    expect($ranked[0]['explainability']['reason_codes_secondary'] ?? null)->toBeArray();
+    expect($ranked[0]['explainability']['explainability_facts'] ?? null)->toBeArray();
+    expect($ranked[0]['explainability']['narrative_anchor'] ?? null)->toBeArray();
+});

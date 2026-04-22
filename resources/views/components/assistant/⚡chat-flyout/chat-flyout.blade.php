@@ -334,23 +334,7 @@
                                         if (! is_array($p)) {
                                             continue;
                                         }
-                                        if (($p['status'] ?? 'pending') !== 'pending') {
-                                            continue;
-                                        }
-                                        $ptitle = (string) ($p['title'] ?? '');
-                                        if ($ptitle === 'No schedulable items found') {
-                                            continue;
-                                        }
-                                        $ap = $p['apply_payload'] ?? null;
-                                        $hasPayload = is_array($ap) && $ap !== [];
-                                        $et = (string) ($p['entity_type'] ?? '');
-                                        $eid = (int) ($p['entity_id'] ?? 0);
-                                        $st = (string) ($p['start_datetime'] ?? '');
-                                        $en = (string) ($p['end_datetime'] ?? '');
-                                        $legacyOk = ($et === 'task' && $eid > 0 && $st !== '')
-                                            || ($et === 'event' && $eid > 0 && $st !== '' && $en !== '')
-                                            || ($et === 'project' && $eid > 0 && $st !== '');
-                                        if ($hasPayload || $legacyOk) {
+                                        if (\App\Support\LLM\SchedulableProposalPolicy::isPendingSchedulable($p)) {
                                             $pendingSchedulableCount++;
                                         }
                                     }

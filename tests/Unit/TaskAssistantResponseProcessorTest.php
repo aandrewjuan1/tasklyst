@@ -917,6 +917,63 @@ class TaskAssistantResponseProcessorTest extends TestCase
         $this->assertNotEmpty($result['errors']);
     }
 
+    public function test_daily_schedule_confirmation_validation_fails_when_option_actions_do_not_match_labels(): void
+    {
+        $processor = app(TaskAssistantResponseProcessor::class);
+
+        $result = $processor->processResponse('daily_schedule', [
+            'proposals' => [[
+                'proposal_id' => 'p1',
+                'status' => 'pending',
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'title' => 'Task A',
+                'start_datetime' => '2026-03-29T09:00:00+00:00',
+            ]],
+            'items' => [[
+                'title' => 'Task A',
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'start_datetime' => '2026-03-29T09:00:00+00:00',
+            ]],
+            'blocks' => [[
+                'start_time' => '09:00',
+                'end_time' => '09:30',
+            ]],
+            'schedule_variant' => 'daily',
+            'confirmation_required' => true,
+            'awaiting_user_decision' => true,
+            'confirmation_context' => [
+                'reason_code' => 'top_n_shortfall',
+                'requested_count' => 3,
+                'placed_count' => 1,
+                'requested_count_source' => 'explicit_user',
+                'reason_message' => 'Only one task fit in this window.',
+                'prompt' => 'Keep this draft or adjust your window?',
+                'options' => [
+                    'Keep this current draft',
+                    'Pick another time window',
+                    'Cancel scheduling for now',
+                ],
+                'option_actions' => [
+                    ['id' => 'pick_another_time_window', 'label' => 'Use this draft'],
+                    ['id' => 'pick_another_time_window', 'label' => 'Pick another time window'],
+                    ['id' => 'cancel_scheduling', 'label' => 'Cancel scheduling for now'],
+                ],
+            ],
+            'framing' => 'I paused before finalizing this draft.',
+            'reasoning' => 'I need your decision before applying anything.',
+            'confirmation' => 'Keep this draft or adjust your window?',
+        ], [
+            'tasks' => [['id' => 1]],
+            'events' => [],
+            'projects' => [],
+        ]);
+
+        $this->assertFalse($result['valid']);
+        $this->assertNotEmpty($result['errors']);
+    }
+
     public function test_listing_followup_validation_passes_for_well_formed_payload(): void
     {
         $processor = app(TaskAssistantResponseProcessor::class);
@@ -1001,5 +1058,152 @@ class TaskAssistantResponseProcessorTest extends TestCase
 
         $this->assertFalse($result['valid']);
         $this->assertNotEmpty($result['errors']);
+    }
+
+    public function test_prioritize_quality_normalization_rewrites_reasoning_when_it_duplicates_ordering_rationale(): void
+    {
+        $processor = app(TaskAssistantResponseProcessor::class);
+
+        $duplicateReasoning = '#1 A task: This task stands out because it is high priority and due today.';
+
+        $result = $processor->processResponse('prioritize', [
+            'items' => [[
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'title' => 'A task',
+                'priority' => 'high',
+                'due_phrase' => 'due today',
+                'due_on' => 'Mar 22, 2026',
+                'complexity_label' => 'Simple',
+                'rank_reason' => 'This task stands out because it is high priority and due today.',
+            ]],
+            'limit_used' => 1,
+            'focus' => [
+                'main_task' => 'A task',
+                'secondary_tasks' => [],
+            ],
+            'framing' => 'Here is your top task.',
+            'ordering_rationale' => [$duplicateReasoning],
+            'reasoning' => $duplicateReasoning,
+            'next_options' => 'If you want, I can schedule this for later today.',
+            'next_options_chip_texts' => [
+                'Schedule this for later',
+            ],
+        ], []);
+
+        $this->assertTrue($result['valid']);
+        $this->assertNotSame($duplicateReasoning, $result['structured_data']['reasoning']);
+    }
+
+    public function test_daily_schedule_quality_normalization_rewrites_mixed_daypart_claims_in_narrative(): void
+    {
+        $processor = app(TaskAssistantResponseProcessor::class);
+
+        $result = $processor->processResponse('daily_schedule', [
+            'proposals' => [[
+                'proposal_id' => 'p1',
+                'status' => 'pending',
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'title' => 'Task A',
+                'start_datetime' => '2026-03-29T09:00:00+00:00',
+                'end_datetime' => '2026-03-29T09:30:00+00:00',
+                'duration_minutes' => 30,
+                'apply_payload' => [
+                    'action' => 'update_task',
+                    'arguments' => ['taskId' => 1, 'updates' => []],
+                ],
+            ]],
+            'items' => [[
+                'title' => 'Task A',
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'start_datetime' => '2026-03-29T09:00:00+00:00',
+                'end_datetime' => '2026-03-29T09:30:00+00:00',
+                'duration_minutes' => 30,
+            ]],
+            'blocks' => [[
+                'start_time' => '09:00',
+                'end_time' => '09:30',
+                'label' => 'Task A',
+                'task_id' => 1,
+                'event_id' => null,
+                'note' => null,
+            ]],
+            'schedule_variant' => 'daily',
+            'framing' => 'I planned a morning and evening mix for this one block.',
+            'reasoning' => 'Morning and evening anchors both work here.',
+            'confirmation' => 'Do these times work, or should we adjust?',
+        ], [
+            'tasks' => [['id' => 1]],
+            'events' => [],
+            'projects' => [],
+        ]);
+
+        $this->assertTrue($result['valid']);
+        $this->assertStringNotContainsString('morning and evening', mb_strtolower((string) $result['structured_data']['framing']));
+    }
+
+    public function test_daily_schedule_validation_accepts_structured_explainability_contract_fields(): void
+    {
+        $processor = app(TaskAssistantResponseProcessor::class);
+
+        $result = $processor->processResponse('daily_schedule', [
+            'proposals' => [[
+                'proposal_id' => 'p1',
+                'status' => 'pending',
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'title' => 'Task A',
+                'reason_score' => 1200,
+                'reason_code_primary' => 'fit_window',
+                'reason_codes_secondary' => ['time_bound'],
+                'explainability_facts' => [['key' => 'slot', 'value' => 'evening']],
+                'narrative_anchor' => ['title' => 'Task A'],
+                'start_datetime' => '2026-03-29T09:00:00+00:00',
+                'end_datetime' => '2026-03-29T09:30:00+00:00',
+                'duration_minutes' => 30,
+                'apply_payload' => ['action' => 'update_task', 'arguments' => ['taskId' => 1, 'updates' => []]],
+            ]],
+            'items' => [[
+                'title' => 'Task A',
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'start_datetime' => '2026-03-29T09:00:00+00:00',
+                'end_datetime' => '2026-03-29T09:30:00+00:00',
+                'duration_minutes' => 30,
+            ]],
+            'blocks' => [[
+                'start_time' => '09:00',
+                'end_time' => '09:30',
+                'label' => 'Task A',
+                'task_id' => 1,
+                'event_id' => null,
+                'note' => null,
+            ]],
+            'schedule_variant' => 'daily',
+            'framing' => 'Here is a focused plan.',
+            'reasoning' => 'This keeps your workload realistic.',
+            'confirmation' => 'Do these times work for you?',
+            'window_selection_explanation' => 'I used your requested evening window.',
+            'window_selection_struct' => ['window_mode' => 'requested_window', 'reason_code_primary' => 'window_matched_request'],
+            'ordering_rationale' => ['#1 Task A: placed at 9:00 AM as one of the strongest fit windows.'],
+            'ordering_rationale_struct' => [[
+                'rank' => 1,
+                'title' => 'Task A',
+                'slot_start' => '2026-03-29T09:00:00+00:00',
+                'fit_reason_code' => 'strongest_fit_window',
+                'fit_facts' => [['key' => 'slot_label', 'value' => '9:00 AM']],
+            ]],
+            'blocking_reasons' => [],
+            'blocking_reasons_struct' => [],
+        ], [
+            'tasks' => [['id' => 1]],
+            'events' => [],
+            'projects' => [],
+        ]);
+
+        $this->assertTrue($result['valid']);
+        $this->assertSame([], $result['errors']);
     }
 }

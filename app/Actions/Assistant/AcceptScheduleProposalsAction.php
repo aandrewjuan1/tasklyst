@@ -70,7 +70,23 @@ final class AcceptScheduleProposalsAction
 
             $pendingSchedulableCount++;
             try {
-                $this->applyScheduleProposal($user, $proposal);
+                $applyResult = $this->applyScheduleProposal($user, $proposal);
+                if (! ($applyResult['applied'] ?? false)) {
+                    $message->refresh();
+                    $this->setProposalStatus($message, $fullPath, $index, 'failed');
+                    $failedCount++;
+
+                    Log::warning('task-assistant.proposal.accept_all_not_applied', [
+                        'layer' => 'action',
+                        'message_id' => $assistantMessageId,
+                        'proposal_index' => $index,
+                        'proposal_id' => $proposal['proposal_id'] ?? null,
+                        'reason' => $applyResult['reason'] ?? 'unknown',
+                    ]);
+
+                    continue;
+                }
+
                 $message->refresh();
                 $this->setProposalStatus($message, $fullPath, $index, 'accepted');
                 $acceptedCount++;
@@ -169,14 +185,13 @@ final class AcceptScheduleProposalsAction
 
     /**
      * @param  array<string, mixed>  $proposal
+     * @return array{applied: bool, reason?: string}
      */
-    private function applyScheduleProposal(User $user, array $proposal): void
+    private function applyScheduleProposal(User $user, array $proposal): array
     {
         $applyPayload = $proposal['apply_payload'] ?? null;
         if (is_array($applyPayload)) {
-            $this->applyFromPayload($user, $applyPayload);
-
-            return;
+            return $this->applyFromPayload($user, $applyPayload);
         }
 
         $entityType = (string) ($proposal['entity_type'] ?? '');
@@ -188,7 +203,7 @@ final class AcceptScheduleProposalsAction
         if ($entityType === 'task' && $entityId > 0 && $startDatetime !== '') {
             $task = Task::query()->forUser($user->id)->whereKey($entityId)->first();
             if (! $task) {
-                return;
+                return ['applied' => false, 'reason' => 'task_not_found'];
             }
 
             $attributes = ['start_datetime' => $startDatetime];
@@ -197,37 +212,42 @@ final class AcceptScheduleProposalsAction
             }
             app(TaskService::class)->updateTask($task, $attributes);
 
-            return;
+            return ['applied' => true];
         }
 
         if ($entityType === 'event' && $entityId > 0 && $startDatetime !== '' && $endDatetime !== '') {
             $event = Event::query()->forUser($user->id)->whereKey($entityId)->first();
             if (! $event) {
-                return;
+                return ['applied' => false, 'reason' => 'event_not_found'];
             }
             app(EventService::class)->updateEvent($event, [
                 'start_datetime' => $startDatetime,
                 'end_datetime' => $endDatetime,
             ]);
 
-            return;
+            return ['applied' => true];
         }
 
         if ($entityType === 'project' && $entityId > 0 && $startDatetime !== '') {
             $project = Project::query()->forUser($user->id)->whereKey($entityId)->first();
             if (! $project) {
-                return;
+                return ['applied' => false, 'reason' => 'project_not_found'];
             }
             app(ProjectService::class)->updateProject($project, [
                 'start_datetime' => $startDatetime,
             ]);
+
+            return ['applied' => true];
         }
+
+        return ['applied' => false, 'reason' => 'invalid_proposal_payload'];
     }
 
     /**
      * @param  array<string, mixed>  $applyPayload
+     * @return array{applied: bool, reason?: string}
      */
-    private function applyFromPayload(User $user, array $applyPayload): void
+    private function applyFromPayload(User $user, array $applyPayload): array
     {
         $applyAction = (string) ($applyPayload['action'] ?? $applyPayload['tool'] ?? '');
         $arguments = is_array($applyPayload['arguments'] ?? null) ? $applyPayload['arguments'] : [];
@@ -241,17 +261,17 @@ final class AcceptScheduleProposalsAction
                 'end_datetime' => $arguments['endDatetime'] ?? null,
             ]);
 
-            return;
+            return ['applied' => true];
         }
 
         if ($applyAction === 'update_task') {
             $taskId = (int) ($arguments['taskId'] ?? 0);
             if ($taskId <= 0) {
-                return;
+                return ['applied' => false, 'reason' => 'task_id_missing'];
             }
             $task = Task::query()->forUser($user->id)->whereKey($taskId)->first();
             if (! $task) {
-                return;
+                return ['applied' => false, 'reason' => 'task_not_found'];
             }
             $attributes = [];
             foreach ($updates as $update) {
@@ -271,19 +291,21 @@ final class AcceptScheduleProposalsAction
             }
             if ($attributes !== []) {
                 app(TaskService::class)->updateTask($task, $attributes);
+
+                return ['applied' => true];
             }
 
-            return;
+            return ['applied' => false, 'reason' => 'no_task_attributes'];
         }
 
         if ($applyAction === 'update_event') {
             $eventId = (int) ($arguments['eventId'] ?? 0);
             if ($eventId <= 0) {
-                return;
+                return ['applied' => false, 'reason' => 'event_id_missing'];
             }
             $event = Event::query()->forUser($user->id)->whereKey($eventId)->first();
             if (! $event) {
-                return;
+                return ['applied' => false, 'reason' => 'event_not_found'];
             }
             $attributes = [];
             foreach ($updates as $update) {
@@ -303,22 +325,24 @@ final class AcceptScheduleProposalsAction
             }
             if ($attributes !== []) {
                 app(EventService::class)->updateEvent($event, $attributes);
+
+                return ['applied' => true];
             }
 
-            return;
+            return ['applied' => false, 'reason' => 'no_event_attributes'];
         }
 
         if ($applyAction !== 'update_project') {
-            return;
+            return ['applied' => false, 'reason' => 'unsupported_action'];
         }
 
         $projectId = (int) ($arguments['projectId'] ?? 0);
         if ($projectId <= 0) {
-            return;
+            return ['applied' => false, 'reason' => 'project_id_missing'];
         }
         $project = Project::query()->forUser($user->id)->whereKey($projectId)->first();
         if (! $project) {
-            return;
+            return ['applied' => false, 'reason' => 'project_not_found'];
         }
         $attributes = [];
         foreach ($updates as $update) {
@@ -336,7 +360,11 @@ final class AcceptScheduleProposalsAction
         }
         if ($attributes !== []) {
             app(ProjectService::class)->updateProject($project, $attributes);
+
+            return ['applied' => true];
         }
+
+        return ['applied' => false, 'reason' => 'no_project_attributes'];
     }
 
     /**

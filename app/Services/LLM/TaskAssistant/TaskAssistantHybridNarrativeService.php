@@ -362,6 +362,7 @@ final class TaskAssistantHybridNarrativeService
             'Return JSON only: framing, reasoning, confirmation. Voice: warm, concise coach.'."\n".
             '- framing: 1–2 short sentences. First sentence: acknowledge their request in your own words (time intent like evening, or scope like how many tasks)—paraphrase; do not paste a long quote of the user. Use the same calendar day as the CONTEXT sentence above for when these blocks land (if CONTEXT says tomorrow, say tomorrow—do not describe the blocks as "today" unless CONTEXT says today). Second sentence (optional): brief hand-off to the schedule rows without repeating exact clock times or durations (the app shows those next).'."\n".
             '- reasoning: why this order fits the student (focus, deadlines, energy)—without quoting specific times or durations that duplicate the list. If the optional planning notes mention a partial block, unplaced units, or fallback mode, explain plainly what fit, what was blocked, and why the chosen windows are still the best available option.'."\n".
+            '- reasoning must add new coaching guidance (next-step recommendation) and must not restate deterministic rationale lines from window_selection_explanation/order rationale verbatim.'."\n".
             '- confirmation: clear check-in—do these times and block lengths feel workable? Invite them to describe tweaks in chat (earlier/later/longer/shorter/different order) and that nothing is final until they save. 1–3 sentences. Do not mention Accept all or UI buttons.'."\n\n".
             'STUDENT-FACING RULES: Write plain English only. Never say: placement window, default placement, planning horizon, digest, snapshot, BLOCKS_JSON, JSON, server-side, backend, or internal codenames like default_today or smart_default_spread. When a requested time/day could not be satisfied, be specific about blockers in user terms (for example classes or events overlapping), not generic filler.'."\n".
             'In framing, do not say: order below, the list below, ranked list, top to bottom, step at a time, or numbered list—this is a time-block schedule, not a priority ranking screen.'."\n".
@@ -1898,6 +1899,7 @@ TXT;
                 'doing_progress_coach is REQUIRED (non-null, non-empty) when DOING_COACH_REQUIRED is true—motivation only; must NOT contain any title from ITEMS_JSON. Keep it about staying steady on what they already started (Doing), and never smuggle ranked-only subjects (quizzes, lecture notes, readings, etc.) unless those words literally appear in DOING_TITLES_FOR_UI. When DOING_COACH_REQUIRED is false, doing_progress_coach MUST be null. '.
                 'filter_interpretation is OPTIONAL: one short sentence; the student sees it after the numbered list—explain how filters or wording shaped this slice; null if not helpful. assumptions is OPTIONAL: prefer null. Only include if strictly needed to interpret a filter (e.g. calendar today). Never assume the user already viewed their list; never invent calendar dates. null or empty if none. '.
                 'framing is REQUIRED: short intro only—open in natural assistant voice (I recommend, I suggest, Let\'s, We could, Here\'s what I\'d do—vary openings across turns). Sound human and supportive. When DOING_COACH_REQUIRED is true and LISTED_ITEM_COUNT >= 1, do NOT mention any ITEMS_JSON title in framing—orient to in-progress work or a smooth handoff to the ranked next steps below (say “the ranked list below” / “the next steps below” when LISTED_ITEM_COUNT > 1, not vague “this list” that could mean Doing). Never claim the student has “started” or is “already working on” the top ranked item in framing—those rows are To Do until marked Doing; describe “what to tackle next” only in reasoning. When LISTED_ITEM_COUNT >= 1 and there is no Doing, keep framing as a light intro—save "start with [top row]" for reasoning. Do not use impersonal brochure openers like "Here is your top priority in a simple order". '.
+                'Do not repeat the same ranking facts across ordering_rationale and reasoning. reasoning must add one practical action cue, not restate the entire scoring explanation. '.
                 'Never say the student "found", "discovered", or "has" a task "on their list" as if they unearthed it. Use "your attention" or "your focus", not "our attention". '.
                 'acknowledgment is OPTIONAL: include only when UX_INCLUDE_ACK is true; otherwise set it to null. When included, it must be exactly one short empathetic sentence. '.
                 $firstRowReasoningRule.
@@ -2286,6 +2288,7 @@ TXT;
             $cleanItems,
             $doingTitlesSanitize,
         );
+        $reasoning = $this->stripReasoningDuplicationAgainstOrdering($reasoning, $cleanItems);
 
         // Ensure reasoning stays anchored to the ranked list (especially item #1)—after cross-field dedupe.
         $reasoning = $this->enforceReasoningAnchorsTopItem((string) $reasoning, $cleanItems);
@@ -2358,6 +2361,43 @@ TXT;
             'doing_progress_coach' => $doingProgressCoachNarrative,
             'count_mismatch_explanation' => $countMismatchExplanation,
         ];
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $items
+     */
+    private function stripReasoningDuplicationAgainstOrdering(string $reasoning, array $items): string
+    {
+        $reasoning = trim($reasoning);
+        if ($reasoning === '' || $items === []) {
+            return $reasoning;
+        }
+
+        $orderingLines = [];
+        foreach ($items as $index => $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $title = trim((string) ($row['title'] ?? ''));
+            $rankReason = trim((string) ($row['rank_reason'] ?? ''));
+            if ($title === '' && $rankReason === '') {
+                continue;
+            }
+            $orderingLines[] = '#'.($index + 1).' '.$title.' '.$rankReason;
+        }
+
+        $orderingBlob = trim(implode(' ', $orderingLines));
+        if ($orderingBlob === '') {
+            return $reasoning;
+        }
+
+        if ($this->normalizeForSimilarity($orderingBlob) === $this->normalizeForSimilarity($reasoning)) {
+            $firstTitle = trim((string) data_get($items, '0.title', 'this top task'));
+
+            return "Start with {$firstTitle} first, keep the block focused, then reassess what to do next based on your energy and time.";
+        }
+
+        return $reasoning;
     }
 
     /**

@@ -202,6 +202,12 @@ final class TaskAssistantMessageFormatter
                 $data['ordering_rationale']
             ), static fn (string $line): bool => $line !== ''))
             : [];
+        $assumptions = is_array($data['assumptions'] ?? null)
+            ? array_values(array_filter(array_map(
+                static fn (mixed $line): string => trim((string) $line),
+                $data['assumptions']
+            ), static fn (string $line): bool => $line !== ''))
+            : [];
 
         $filterInterpretation = trim((string) ($data['filter_interpretation'] ?? ''));
         if ($filterInterpretation !== '' && $singularCoerceCount === 1) {
@@ -255,9 +261,20 @@ final class TaskAssistantMessageFormatter
                 $orderingRationale
             ));
         }
+        $assumptionsBlock = $this->formatAssumptionsPlain($assumptions);
+        if ($assumptionsBlock !== null) {
+            $paragraphs[] = $assumptionsBlock;
+        }
 
         if ($reasoning === '') {
             $reasoning = TaskAssistantPrioritizeOutputDefaults::reasoningWhenEmpty();
+        }
+
+        if ($orderingRationale !== []) {
+            $orderingBlob = implode(' ', $orderingRationale);
+            if ($this->tokenJaccardSimilarity($this->normalizeForDedupe($orderingBlob), $this->normalizeForDedupe($reasoning)) >= 0.62) {
+                $orderingRationale = array_slice($orderingRationale, 0, 2);
+            }
         }
 
         if ($singularCoerceCount === 1) {
@@ -278,7 +295,9 @@ final class TaskAssistantMessageFormatter
 
         $paragraphs[] = $nextOptions;
 
-        return trim(implode("\n\n", array_filter($paragraphs, static fn (string $p): bool => $p !== '')));
+        return trim(implode("\n\n", $this->dedupeParagraphs(
+            array_values(array_filter($paragraphs, static fn (string $p): bool => $p !== ''))
+        )));
     }
 
     /**
@@ -642,12 +661,41 @@ final class TaskAssistantMessageFormatter
             $paragraphs[] = $digestNote;
         }
         $windowSelectionExplanation = trim((string) ($data['window_selection_explanation'] ?? ''));
+        $windowSelectionStruct = is_array($data['window_selection_struct'] ?? null) ? $data['window_selection_struct'] : [];
         $orderingRationale = is_array($data['ordering_rationale'] ?? null) ? $data['ordering_rationale'] : [];
+        $orderingRationaleStruct = is_array($data['ordering_rationale_struct'] ?? null) ? $data['ordering_rationale_struct'] : [];
         $blockingReasons = is_array($data['blocking_reasons'] ?? null) ? $data['blocking_reasons'] : [];
+        $blockingReasonsStruct = is_array($data['blocking_reasons_struct'] ?? null) ? $data['blocking_reasons_struct'] : [];
         $fallbackChoiceExplanation = trim((string) ($data['fallback_choice_explanation'] ?? ''));
+        $summary = trim((string) ($data['summary'] ?? ''));
+        $assistantNote = trim((string) ($data['assistant_note'] ?? ''));
+        $strategyPoints = is_array($data['strategy_points'] ?? null) ? $data['strategy_points'] : [];
+        $suggestedNextSteps = is_array($data['suggested_next_steps'] ?? null) ? $data['suggested_next_steps'] : [];
+        $assumptions = is_array($data['assumptions'] ?? null) ? $data['assumptions'] : [];
         $whyPlanLines = [];
         if ($windowSelectionExplanation !== '') {
             $whyPlanLines[] = '• '.$windowSelectionExplanation;
+        } elseif ($windowSelectionStruct !== []) {
+            $windowMode = trim((string) ($windowSelectionStruct['window_mode'] ?? ''));
+            $reasonCode = trim((string) ($windowSelectionStruct['reason_code_primary'] ?? ''));
+            if ($windowMode !== '' || $reasonCode !== '') {
+                $whyPlanLines[] = '• '.$this->scheduleWindowReasonFromStruct($windowMode, $reasonCode);
+            }
+        }
+        if ($orderingRationaleStruct !== [] && $orderingRationale === []) {
+            foreach ($orderingRationaleStruct as $row) {
+                if (! is_array($row)) {
+                    continue;
+                }
+                $rank = (int) ($row['rank'] ?? 0);
+                $title = trim((string) ($row['title'] ?? ''));
+                $fitReasonCode = trim((string) ($row['fit_reason_code'] ?? ''));
+                if ($title === '') {
+                    continue;
+                }
+                $prefix = $rank > 0 ? "#{$rank} {$title}" : $title;
+                $whyPlanLines[] = '• '.$prefix.': '.$this->scheduleFitReasonFromCode($fitReasonCode);
+            }
         }
         foreach ($orderingRationale as $line) {
             $text = trim((string) $line);
@@ -676,6 +724,50 @@ final class TaskAssistantMessageFormatter
             if ($blockerLines !== []) {
                 $paragraphs[] = "What blocked your requested time:\n".implode("\n", $blockerLines);
             }
+        } elseif ($blockingReasonsStruct !== []) {
+            $blockerLines = [];
+            foreach ($blockingReasonsStruct as $reasonRow) {
+                if (! is_array($reasonRow)) {
+                    continue;
+                }
+                $title = trim((string) ($reasonRow['title'] ?? 'Busy item'));
+                $window = trim((string) ($reasonRow['blocked_window'] ?? 'requested window'));
+                $reasonCode = trim((string) ($reasonRow['block_reason_code'] ?? 'horizon_exhausted'));
+                $blockerLines[] = "• {$title} ({$window}): ".$this->scheduleBlockReasonFromCode($reasonCode);
+            }
+            if ($blockerLines !== []) {
+                $paragraphs[] = "What blocked your requested time:\n".implode("\n", $blockerLines);
+            }
+        }
+        $strategyLines = array_values(array_filter(array_map(
+            static fn (mixed $line): string => trim((string) $line),
+            $strategyPoints
+        ), static fn (string $line): bool => $line !== ''));
+        if ($strategyLines !== []) {
+            $paragraphs[] = "Strategy highlights:\n".implode("\n", array_map(
+                static fn (string $line): string => '• '.$line,
+                $strategyLines
+            ));
+        }
+        $nextStepLines = array_values(array_filter(array_map(
+            static fn (mixed $line): string => trim((string) $line),
+            $suggestedNextSteps
+        ), static fn (string $line): bool => $line !== ''));
+        if ($nextStepLines !== []) {
+            $paragraphs[] = "Suggested next steps:\n".implode("\n", array_map(
+                static fn (string $line): string => '• '.$line,
+                $nextStepLines
+            ));
+        }
+        $assumptionsBlock = $this->formatAssumptionsPlain($assumptions, 'Planning assumptions');
+        if ($assumptionsBlock !== null) {
+            $paragraphs[] = $assumptionsBlock;
+        }
+        if ($assistantNote !== '') {
+            $paragraphs[] = $assistantNote;
+        }
+        if ($summary !== '') {
+            $paragraphs[] = $summary;
         }
 
         if ($reasoning !== '') {
@@ -685,7 +777,38 @@ final class TaskAssistantMessageFormatter
             $paragraphs[] = $confirmation;
         }
 
-        return implode("\n\n", $paragraphs);
+        return implode("\n\n", $this->dedupeParagraphs(
+            array_values(array_filter($paragraphs, static fn (string $p): bool => trim($p) !== ''))
+        ));
+    }
+
+    private function scheduleWindowReasonFromStruct(string $windowMode, string $reasonCode): string
+    {
+        return match ($reasonCode) {
+            'window_matched_request' => 'I kept this plan aligned with the availability window you asked for.',
+            'window_auto_selected' => 'I used the earliest conflict-free windows across your planning horizon.',
+            default => $windowMode === 'requested_window'
+                ? 'I kept this plan aligned with your requested window.'
+                : 'I used realistic conflict-free windows for this plan.',
+        };
+    }
+
+    private function scheduleFitReasonFromCode(string $fitReasonCode): string
+    {
+        return match ($fitReasonCode) {
+            'strongest_fit_window' => 'placed in the strongest fit window for momentum and feasibility.',
+            'next_fit_window' => 'placed in the next feasible window that avoids conflicts.',
+            default => 'placed in a feasible window based on your constraints.',
+        };
+    }
+
+    private function scheduleBlockReasonFromCode(string $reasonCode): string
+    {
+        return match ($reasonCode) {
+            'count_limit_reached' => 'not scheduled yet because this pass reached the current item limit.',
+            'window_conflict' => 'overlaps your requested window constraints.',
+            default => 'no free slot was available inside your requested window.',
+        };
     }
 
     /**
@@ -1037,6 +1160,11 @@ final class TaskAssistantMessageFormatter
         $targetSlash = $target->format('m/d/Y');
         $targetPlain = $target->format('F j');
 
+        $hasRelativeDateLanguage = preg_match('/\b(today|tomorrow|tonight|this week|next week|weekend)\b/iu', $text) === 1;
+        if (! $hasRelativeDateLanguage) {
+            return $text;
+        }
+
         $normalized = preg_replace_callback(
             '/\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2}(?:st|nd|rd|th)?(?:,\s*\d{4})?\b/iu',
             static fn (): string => $targetShort,
@@ -1364,5 +1492,34 @@ final class TaskAssistantMessageFormatter
         }
 
         return $intersection / $union;
+    }
+
+    /**
+     * @param  list<string>  $paragraphs
+     * @return list<string>
+     */
+    private function dedupeParagraphs(array $paragraphs): array
+    {
+        $unique = [];
+        foreach ($paragraphs as $paragraph) {
+            $candidate = trim($paragraph);
+            if ($candidate === '') {
+                continue;
+            }
+            $norm = $this->normalizeForDedupe($candidate);
+            $isDuplicate = false;
+            foreach ($unique as $existing) {
+                $existingNorm = $this->normalizeForDedupe($existing);
+                if ($norm === $existingNorm || $this->tokenJaccardSimilarity($norm, $existingNorm) >= 0.9) {
+                    $isDuplicate = true;
+                    break;
+                }
+            }
+            if (! $isDuplicate) {
+                $unique[] = $candidate;
+            }
+        }
+
+        return $unique;
     }
 }

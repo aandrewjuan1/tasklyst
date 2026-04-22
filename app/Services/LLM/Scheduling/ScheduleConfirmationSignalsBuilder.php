@@ -53,6 +53,18 @@ final class ScheduleConfirmationSignalsBuilder
             'window_selection_explanation' => $this->buildWindowSelectionExplanation($requestedScope, $engineNotes),
             'fallback_choice_explanation' => $this->buildFallbackChoiceExplanation($engineNotes),
         ];
+        $digest['explainability_struct'] = [
+            'window_selection' => [
+                'reason_code_primary' => $this->windowSelectionReasonCode($requestedScope),
+                'time_window' => is_array($requestedScope['time_window'] ?? null) ? $requestedScope['time_window'] : null,
+                'horizon' => is_array($requestedScope['schedule_horizon'] ?? null) ? $requestedScope['schedule_horizon'] : null,
+            ],
+            'fallback' => [
+                'reason_code_primary' => $this->fallbackReasonCode($engineNotes),
+                'fallback_mode' => (string) ($engineNotes['fallback_mode'] ?? ''),
+                'fallback_trigger_reason' => (string) ($engineNotes['fallback_trigger_reason'] ?? ''),
+            ],
+        ];
 
         return $digest;
     }
@@ -93,6 +105,34 @@ final class ScheduleConfirmationSignalsBuilder
         return match ($fallbackMode) {
             'auto_relaxed_today_or_tomorrow' => 'Fallback widened placement to nearby days when the original window had no valid fit.',
             default => 'Fallback mode was used to keep a feasible schedule draft.',
+        };
+    }
+
+    /**
+     * @param  array<string, mixed>  $requestedScope
+     */
+    private function windowSelectionReasonCode(array $requestedScope): string
+    {
+        $window = is_array($requestedScope['time_window'] ?? null) ? $requestedScope['time_window'] : null;
+        $start = is_array($window) ? trim((string) ($window['start'] ?? '')) : '';
+        $end = is_array($window) ? trim((string) ($window['end'] ?? '')) : '';
+
+        return ($start !== '' && $end !== '') ? 'window_matched_request' : 'window_auto_selected';
+    }
+
+    /**
+     * @param  array<string, mixed>  $engineNotes
+     */
+    private function fallbackReasonCode(array $engineNotes): string
+    {
+        $fallbackMode = trim((string) ($engineNotes['fallback_mode'] ?? ''));
+        if ($fallbackMode === '') {
+            return 'no_fallback_needed';
+        }
+
+        return match ($fallbackMode) {
+            'auto_relaxed_today_or_tomorrow' => 'fallback_auto_relaxed_window',
+            default => 'fallback_other_mode',
         };
     }
 

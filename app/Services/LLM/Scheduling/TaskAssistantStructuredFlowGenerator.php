@@ -155,6 +155,9 @@ final class TaskAssistantStructuredFlowGenerator
             'ordering_rationale' => $scheduleExplainability['ordering_rationale'],
             'blocking_reasons' => $scheduleExplainability['blocking_reasons'],
             'fallback_choice_explanation' => $scheduleExplainability['fallback_choice_explanation'],
+            'window_selection_struct' => $scheduleExplainability['window_selection_struct'] ?? null,
+            'ordering_rationale_struct' => $scheduleExplainability['ordering_rationale_struct'] ?? [],
+            'blocking_reasons_struct' => $scheduleExplainability['blocking_reasons_struct'] ?? [],
             'confirmation_required' => false,
             'awaiting_user_decision' => false,
             'confirmation_context' => null,
@@ -371,6 +374,9 @@ final class TaskAssistantStructuredFlowGenerator
             'ordering_rationale' => $scheduleExplainability['ordering_rationale'],
             'blocking_reasons' => $scheduleExplainability['blocking_reasons'],
             'fallback_choice_explanation' => $scheduleExplainability['fallback_choice_explanation'],
+            'window_selection_struct' => $scheduleExplainability['window_selection_struct'] ?? null,
+            'ordering_rationale_struct' => $scheduleExplainability['ordering_rationale_struct'] ?? [],
+            'blocking_reasons_struct' => $scheduleExplainability['blocking_reasons_struct'] ?? [],
             'confirmation_required' => false,
             'awaiting_user_decision' => false,
             'confirmation_context' => null,
@@ -405,7 +411,10 @@ final class TaskAssistantStructuredFlowGenerator
      *   window_selection_explanation: string,
      *   ordering_rationale: list<string>,
      *   blocking_reasons: list<array{title:string,blocked_window:string,reason:string}>,
-     *   fallback_choice_explanation: string|null
+     *   fallback_choice_explanation: string|null,
+     *   window_selection_struct: array<string, mixed>,
+     *   ordering_rationale_struct: list<array<string, mixed>>,
+     *   blocking_reasons_struct: list<array<string, mixed>>
      * }
      */
     private function buildScheduleExplainability(
@@ -424,13 +433,14 @@ final class TaskAssistantStructuredFlowGenerator
         $meaningfulWindow = $windowStart !== '' && $windowEnd !== '' && ! ($windowStart === '00:00' && $windowEnd === '23:59');
 
         $windowSelectionExplanation = $meaningfulWindow
-            ? "I prioritized slots between {$windowStart} and {$windowEnd} so this plan fits the time window you asked for."
+            ? 'I prioritized slots between '.$this->formatClockLabel($windowStart).' and '.$this->formatClockLabel($windowEnd).' so this plan fits the time window you asked for.'
             : 'I chose the earliest realistic windows that avoid conflicts and keep your top items moving.';
         if ($horizonStart !== '' && $horizonEnd !== '' && $horizonStart !== $horizonEnd) {
             $windowSelectionExplanation .= " I spread placements across {$horizonStart} to {$horizonEnd} when needed.";
         }
 
         $orderingRationale = [];
+        $orderingRationaleStruct = [];
         foreach ($proposals as $index => $proposal) {
             if (! is_array($proposal)) {
                 continue;
@@ -451,9 +461,20 @@ final class TaskAssistantStructuredFlowGenerator
             $orderingRationale[] = $startLabel !== ''
                 ? '#'.($index + 1)." {$title}: placed at {$startLabel} as one of the strongest fit windows."
                 : '#'.($index + 1)." {$title}: placed in the next strongest fit window.";
+            $orderingRationaleStruct[] = [
+                'rank' => $index + 1,
+                'title' => $title,
+                'slot_start' => $startRaw !== '' ? $startRaw : null,
+                'fit_reason_code' => $startRaw !== '' ? 'strongest_fit_window' : 'next_fit_window',
+                'fit_facts' => [
+                    ['key' => 'has_explicit_slot', 'value' => $startRaw !== '' ? 'true' : 'false'],
+                    ['key' => 'slot_label', 'value' => $startLabel !== '' ? $startLabel : 'n/a'],
+                ],
+            ];
         }
 
         $blockingReasons = [];
+        $blockingReasonsStruct = [];
         $unplacedUnits = is_array($digest['unplaced_units'] ?? null) ? $digest['unplaced_units'] : [];
         foreach ($unplacedUnits as $unit) {
             if (! is_array($unit)) {
@@ -461,17 +482,31 @@ final class TaskAssistantStructuredFlowGenerator
             }
             $title = trim((string) ($unit['title'] ?? 'Unplaced item'));
             $reason = (string) ($unit['reason'] ?? 'horizon_exhausted');
+            $reasonCode = match ($reason) {
+                'count_limit' => 'count_limit_reached',
+                'window_conflict' => 'window_conflict',
+                default => 'horizon_exhausted',
+            };
             $humanReason = match ($reason) {
                 'count_limit' => 'Not scheduled yet because we reached the current item limit.',
                 default => 'No free slot was available inside the requested schedule window.',
             };
             $blockedWindow = $meaningfulWindow
-                ? "{$windowStart}-{$windowEnd}"
+                ? $this->formatClockLabel($windowStart).'-'.$this->formatClockLabel($windowEnd)
                 : (($horizonStart !== '' && $horizonEnd !== '') ? "{$horizonStart} to {$horizonEnd}" : 'current planning window');
             $blockingReasons[] = [
                 'title' => $title !== '' ? $title : 'Unplaced item',
                 'blocked_window' => $blockedWindow,
                 'reason' => $humanReason,
+            ];
+            $blockingReasonsStruct[] = [
+                'title' => $title !== '' ? $title : 'Unplaced item',
+                'blocked_window' => $blockedWindow,
+                'block_reason_code' => $reasonCode,
+                'reason_facts' => [
+                    ['key' => 'source_reason', 'value' => $reason],
+                    ['key' => 'window_context', 'value' => $blockedWindow],
+                ],
             ];
         }
 
@@ -495,7 +530,33 @@ final class TaskAssistantStructuredFlowGenerator
             'ordering_rationale' => $orderingRationale,
             'blocking_reasons' => $blockingReasons,
             'fallback_choice_explanation' => $fallbackChoiceExplanation,
+            'window_selection_struct' => [
+                'window_mode' => $meaningfulWindow ? 'requested_window' : 'earliest_conflict_free',
+                'window_used' => $meaningfulWindow
+                    ? ['start' => $windowStart, 'end' => $windowEnd]
+                    : null,
+                'horizon_span' => ['start_date' => $horizonStart, 'end_date' => $horizonEnd],
+                'fallback_used' => $fallbackMode !== '',
+                'reason_code_primary' => $meaningfulWindow ? 'window_matched_request' : 'window_auto_selected',
+            ],
+            'ordering_rationale_struct' => $orderingRationaleStruct,
+            'blocking_reasons_struct' => $blockingReasonsStruct,
         ];
+    }
+
+    private function formatClockLabel(string $time): string
+    {
+        $raw = trim($time);
+        if ($raw === '') {
+            return '';
+        }
+
+        $parsed = \DateTimeImmutable::createFromFormat('H:i', $raw);
+        if (! $parsed instanceof \DateTimeImmutable) {
+            return $raw;
+        }
+
+        return $parsed->format('g:i A');
     }
 
     /**
@@ -2296,6 +2357,16 @@ final class TaskAssistantStructuredFlowGenerator
             'entity_id' => $candidate['entity_id'],
             'title' => $candidate['title'],
             'reason_score' => $candidate['score'],
+            'reason_code_primary' => (string) ($candidate['reason_code_primary'] ?? 'fit_window'),
+            'reason_codes_secondary' => array_values(array_filter(array_map(
+                static fn (mixed $code): string => trim((string) $code),
+                is_array($candidate['reason_codes_secondary'] ?? null) ? $candidate['reason_codes_secondary'] : []
+            ), static fn (string $code): bool => $code !== '')),
+            'explainability_facts' => array_values(array_filter(array_map(
+                static fn (mixed $fact): array => is_array($fact) ? $fact : [],
+                is_array($candidate['explainability_facts'] ?? null) ? $candidate['explainability_facts'] : []
+            ), static fn (array $fact): bool => isset($fact['key']) && isset($fact['value']))),
+            'narrative_anchor' => is_array($candidate['narrative_anchor'] ?? null) ? $candidate['narrative_anchor'] : [],
             'start_datetime' => $startAt->format(\DateTimeInterface::ATOM),
             'end_datetime' => $candidate['entity_type'] === 'project' ? null : $endAt->format(\DateTimeInterface::ATOM),
             'duration_minutes' => $candidate['entity_type'] === 'event' ? null : $minutes,
@@ -2326,6 +2397,14 @@ final class TaskAssistantStructuredFlowGenerator
             'entity_id' => null,
             'title' => 'No schedulable items found',
             'reason_score' => 0,
+            'reason_code_primary' => 'no_schedulable_items',
+            'reason_codes_secondary' => ['window_conflict'],
+            'explainability_facts' => [
+                ['key' => 'horizon_mode', 'value' => $multiDayHorizon ? 'range' : 'daily'],
+            ],
+            'narrative_anchor' => [
+                'title' => 'No schedulable items found',
+            ],
             'start_datetime' => $anchorForFallback->format(\DateTimeInterface::ATOM),
             'end_datetime' => $anchorForFallback->modify('+30 minutes')->format(\DateTimeInterface::ATOM),
             'duration_minutes' => 30,

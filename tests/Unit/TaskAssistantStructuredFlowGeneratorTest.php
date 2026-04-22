@@ -262,6 +262,38 @@ it('records unplaced units when proposal count_limit is reached', function (): v
     expect($unplacedReasons)->toContain('count_limit');
 });
 
+it('builds structured schedule explainability records alongside legacy rationale text', function (): void {
+    $generator = app(TaskAssistantStructuredFlowGenerator::class);
+    $method = new ReflectionMethod(TaskAssistantStructuredFlowGenerator::class, 'buildScheduleExplainability');
+    $method->setAccessible(true);
+
+    $snapshot = [
+        'time_window' => ['start' => '18:00', 'end' => '22:00'],
+        'schedule_horizon' => ['start_date' => '2026-04-22', 'end_date' => '2026-04-24'],
+    ];
+    $context = [];
+    $proposals = [[
+        'title' => 'Practice coding interview problems',
+        'start_datetime' => '2026-04-22T18:00:00+00:00',
+    ]];
+    $digest = [
+        'unplaced_units' => [[
+            'title' => 'Review DSA notes',
+            'reason' => 'window_conflict',
+        ]],
+        'fallback_mode' => 'auto_relaxed_today_or_tomorrow',
+    ];
+
+    $result = $method->invoke($generator, $snapshot, $context, $proposals, $digest, []);
+
+    expect($result['window_selection_struct'] ?? null)->toBeArray();
+    expect($result['window_selection_struct']['reason_code_primary'] ?? null)->toBeString();
+    expect($result['ordering_rationale_struct'] ?? null)->toBeArray();
+    expect($result['ordering_rationale_struct'][0]['fit_reason_code'] ?? null)->toBeString();
+    expect($result['blocking_reasons_struct'] ?? null)->toBeArray();
+    expect($result['blocking_reasons_struct'][0]['block_reason_code'] ?? null)->toBeString();
+});
+
 it('does not truncate too far when the available same-day window is too small', function (): void {
     config([
         'task-assistant.schedule.max_horizon_days' => 2,
