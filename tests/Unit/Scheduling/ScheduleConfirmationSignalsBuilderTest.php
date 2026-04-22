@@ -123,3 +123,35 @@ it('treats scheduled tasks as busy when finding nearest available window', funct
     expect((string) ($out['confirmation_signals']['nearest_available_window']['start_time'] ?? ''))->toBe('11:00');
     expect((string) ($out['confirmation_signals']['nearest_available_window']['daypart'] ?? ''))->toBe('morning');
 });
+
+it('falls back to same-day afternoon when requested morning window is full', function (): void {
+    $builder = new ScheduleConfirmationSignalsBuilder;
+    $snapshot = [
+        'timezone' => 'UTC',
+        'today' => '2026-04-02',
+        'time_window' => ['start' => '08:00', 'end' => '12:00'],
+        'schedule_horizon' => [
+            'mode' => 'single_day',
+            'start_date' => '2026-04-02',
+            'end_date' => '2026-04-02',
+            'label' => 'explicit_date_month_day',
+        ],
+        'events_for_busy' => [[
+            'starts_at' => '2026-04-02T08:00:00+00:00',
+            'ends_at' => '2026-04-02T12:00:00+00:00',
+        ]],
+        'school_class_busy_intervals' => [],
+        'tasks' => [],
+    ];
+    $context = ['time_window_strict' => false];
+    $digest = [
+        'unplaced_units' => [],
+        'partial_placed_count' => 0,
+        'top_n_shortfall' => false,
+    ];
+
+    $out = $builder->enrich($snapshot, $context, $digest, [], ['time_window_hint' => 'morning']);
+
+    expect((string) ($out['confirmation_signals']['nearest_available_window']['date'] ?? ''))->toBe('2026-04-02');
+    expect((string) ($out['confirmation_signals']['nearest_available_window']['daypart'] ?? ''))->toBe('afternoon');
+});

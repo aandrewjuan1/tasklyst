@@ -1100,7 +1100,7 @@ final class TaskAssistantResponseProcessor
                         'Cancel scheduling for now',
                     ],
                     'explicit_day_not_feasible' => [
-                        'Pick another time this week',
+                        'Schedule them later this week instead',
                     ],
                     'later_window_not_feasible' => [
                         'Yes, continue with tomorrow',
@@ -1143,7 +1143,7 @@ final class TaskAssistantResponseProcessor
                         'pick_another_time_window' => [
                             'Pick another time window',
                             'Widen to nearby days',
-                            'Pick another time this week',
+                            'Schedule them later this week instead',
                         ],
                         'cancel_scheduling' => [
                             'Cancel scheduling for now',

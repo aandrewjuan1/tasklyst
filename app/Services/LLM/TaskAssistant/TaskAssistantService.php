@@ -2936,8 +2936,8 @@ final class TaskAssistantService
 
         $hasDraftToKeep = $proposalsCount > 0;
         $defaultOptions = $hasDraftToKeep
-            ? ['Continue with that plan', 'Pick another time this week']
-            : [$nearestActionLabel, 'Pick another time this week'];
+            ? ['Continue with that plan', 'Schedule them later this week instead']
+            : [$nearestActionLabel, 'Schedule them later this week instead'];
 
         if ($strictDate !== null) {
             $datePhrase = CarbonImmutable::parse($strictDate)->format('M j, Y');
@@ -2946,11 +2946,11 @@ final class TaskAssistantService
             $reasonCode = 'explicit_day_not_feasible';
             $options = [
                 $nearestActionLabel,
-                'Pick another time this week',
+                'Schedule them later this week instead',
             ];
             $optionActions = [
                 ['id' => 'try_tomorrow_morning', 'label' => $nearestActionLabel],
-                ['id' => 'pick_another_time_window', 'label' => 'Pick another time this week'],
+                ['id' => 'pick_another_time_window', 'label' => 'Schedule them later this week instead'],
             ];
         } elseif ($topNShortfall) {
             $taskNoun = $proposalsCount === 1 ? 'task' : 'tasks';
@@ -2963,11 +2963,11 @@ final class TaskAssistantService
             $reasonCode = 'top_n_shortfall';
             $options = [
                 'Continue with that plan',
-                'Pick another time this week',
+                'Schedule them later this week instead',
             ];
             $optionActions = [
                 ['id' => 'use_current_draft', 'label' => 'Continue with that plan'],
-                ['id' => 'pick_another_time_window', 'label' => 'Pick another time this week'],
+                ['id' => 'pick_another_time_window', 'label' => 'Schedule them later this week instead'],
             ];
         } elseif (in_array('empty_placement', $triggers, true)) {
             $reasonCode = 'empty_placement_no_fit';
@@ -2978,7 +2978,7 @@ final class TaskAssistantService
             $options = $defaultOptions;
             $optionActions = [
                 ['id' => 'try_tomorrow_morning', 'label' => $nearestActionLabel],
-                ['id' => 'pick_another_time_window', 'label' => 'Pick another time this week'],
+                ['id' => 'pick_another_time_window', 'label' => 'Schedule them later this week instead'],
             ];
         } elseif (in_array('adaptive_relaxed_placement', $triggers, true)) {
             $reasonCode = 'adaptive_relaxed_placement';
@@ -2986,11 +2986,11 @@ final class TaskAssistantService
             $prompt = "I can keep this draft starting around {$datePhrase}, or we can try different times. What works for you?";
             $options = [
                 'Continue with that plan',
-                'Pick another time this week',
+                'Schedule them later this week instead',
             ];
             $optionActions = [
                 ['id' => 'use_current_draft', 'label' => 'Continue with that plan'],
-                ['id' => 'pick_another_time_window', 'label' => 'Pick another time this week'],
+                ['id' => 'pick_another_time_window', 'label' => 'Schedule them later this week instead'],
             ];
         } elseif (in_array('requested_window_unsatisfied', $triggers, true) || in_array('hinted_window_unsatisfied', $triggers, true)) {
             $reasonCode = 'alternative_outside_requested_window';
@@ -2999,7 +2999,7 @@ final class TaskAssistantService
             $options = $defaultOptions;
             $optionActions = [
                 ['id' => $hasDraftToKeep ? 'use_current_draft' : 'try_tomorrow_morning', 'label' => $hasDraftToKeep ? 'Continue with that plan' : $nearestActionLabel],
-                ['id' => 'pick_another_time_window', 'label' => 'Pick another time this week'],
+                ['id' => 'pick_another_time_window', 'label' => 'Schedule them later this week instead'],
             ];
         } elseif (in_array('placement_outside_horizon', $triggers, true)) {
             $reasonCode = 'placement_outside_horizon';
@@ -3008,7 +3008,7 @@ final class TaskAssistantService
             $options = $defaultOptions;
             $optionActions = [
                 ['id' => $hasDraftToKeep ? 'use_current_draft' : 'try_tomorrow_morning', 'label' => $hasDraftToKeep ? 'Continue with that plan' : $nearestActionLabel],
-                ['id' => 'pick_another_time_window', 'label' => 'Pick another time this week'],
+                ['id' => 'pick_another_time_window', 'label' => 'Schedule them later this week instead'],
             ];
         } elseif (in_array('unplaced_units', $triggers, true)) {
             $reasonCode = 'unplaced_explicit_targets';
@@ -3019,7 +3019,7 @@ final class TaskAssistantService
             $options = $defaultOptions;
             $optionActions = [
                 ['id' => $hasDraftToKeep ? 'use_current_draft' : 'try_tomorrow_morning', 'label' => $hasDraftToKeep ? 'Continue with that plan' : $nearestActionLabel],
-                ['id' => 'pick_another_time_window', 'label' => 'Pick another time this week'],
+                ['id' => 'pick_another_time_window', 'label' => 'Schedule them later this week instead'],
             ];
         } elseif (in_array('strict_window_no_fit', $triggers, true)) {
             $reasonCode = 'strict_window_no_fit';
@@ -3030,7 +3030,7 @@ final class TaskAssistantService
             $options = $defaultOptions;
             $optionActions = [
                 ['id' => 'try_tomorrow_morning', 'label' => $nearestActionLabel],
-                ['id' => 'pick_another_time_window', 'label' => 'Pick another time this week'],
+                ['id' => 'pick_another_time_window', 'label' => 'Schedule them later this week instead'],
             ];
         } elseif ($plan->timeWindowHint === 'later') {
             $prompt = $hasDraftToKeep
@@ -3041,11 +3041,11 @@ final class TaskAssistantService
             $reasonMessage = 'There is not enough free time left in your requested "later today" window.';
             $reasonCode = 'later_window_not_feasible';
             $options = $hasDraftToKeep
-                ? ['Continue with that plan', 'Pick another time this week']
-                : [$nearestActionLabel, 'Pick another time this week'];
+                ? ['Continue with that plan', 'Schedule them later this week instead']
+                : [$nearestActionLabel, 'Schedule them later this week instead'];
             $optionActions = [
                 ['id' => 'try_tomorrow_morning', 'label' => $nearestActionLabel],
-                ['id' => 'pick_another_time_window', 'label' => 'Pick another time this week'],
+                ['id' => 'pick_another_time_window', 'label' => 'Schedule them later this week instead'],
             ];
         } else {
             $reasonCode = 'schedule_confirmation_needed';
@@ -3054,7 +3054,7 @@ final class TaskAssistantService
             $options = $defaultOptions;
             $optionActions = [
                 ['id' => $hasDraftToKeep ? 'use_current_draft' : 'try_tomorrow_morning', 'label' => $hasDraftToKeep ? 'Continue with that plan' : $nearestActionLabel],
-                ['id' => 'pick_another_time_window', 'label' => 'Pick another time this week'],
+                ['id' => 'pick_another_time_window', 'label' => 'Schedule them later this week instead'],
             ];
         }
 
@@ -3784,17 +3784,42 @@ PROMPT)
         }
 
         if ($actionId === 'pick_another_time_window') {
-            $this->conversationState->clearPendingScheduleFallback($thread);
-            $this->publishScheduleClarificationResponse(
-                thread: $thread,
-                assistantMessage: $assistantMessage,
-                proposals: [],
-                clarification: 'Sure - tell me the exact time window you want (for example: tomorrow 8 AM to 12 PM).',
-                examples: [
-                    'tomorrow 8am to 12pm',
-                    'this week evenings',
-                ],
+            $pendingData = is_array($pendingState['schedule_data'] ?? null) ? $pendingState['schedule_data'] : [];
+            $pendingContext = is_array($pendingData['confirmation_context'] ?? null) ? $pendingData['confirmation_context'] : [];
+            $requestedCount = max(
+                1,
+                (int) ($pendingContext['requested_count'] ?? data_get($pendingData, 'placement_digest.requested_count', 3))
             );
+            $targets = $this->targetEntitiesFromScheduleProposals(
+                is_array($pendingData['proposals'] ?? null) ? $pendingData['proposals'] : []
+            );
+            $constraints = $this->routingPolicy->extractConstraintsForFlow(
+                $thread,
+                $userMessageContent,
+                TaskAssistantFlowNames::PRIORITIZE_SCHEDULE
+            );
+            $constraints['count_limit'] = $requestedCount;
+            $constraints['target_entities'] = $targets;
+            if (! is_string($constraints['time_window_hint'] ?? null) || trim((string) $constraints['time_window_hint']) === '') {
+                $constraints['time_window_hint'] = 'later';
+            }
+
+            $this->conversationState->clearPendingScheduleFallback($thread);
+            $plan = new ExecutionPlan(
+                flow: TaskAssistantFlowNames::PRIORITIZE_SCHEDULE,
+                confidence: 1.0,
+                clarificationNeeded: false,
+                clarificationQuestion: null,
+                reasonCodes: ['fallback_action_prioritize_schedule_later_this_week'],
+                constraints: $constraints,
+                targetEntities: $targets,
+                timeWindowHint: is_string($constraints['time_window_hint'] ?? null) ? $constraints['time_window_hint'] : null,
+                countLimit: max(1, min((int) ($constraints['count_limit'] ?? 3), 10)),
+                generationProfile: 'schedule',
+            );
+            $this->persistRoutingTrace($assistantMessage, $plan, $plan);
+            $this->logRoutingDecision($thread, $assistantMessage, $plan);
+            $this->runPrioritizeScheduleFlow($thread, $userMessage, $assistantMessage, $userMessageContent, $plan);
 
             return true;
         }

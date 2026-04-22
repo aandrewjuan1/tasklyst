@@ -440,6 +440,9 @@ final class ScheduleConfirmationSignalsBuilder
     {
         $horizon = is_array($requestedScope['schedule_horizon'] ?? null) ? $requestedScope['schedule_horizon'] : [];
         $timeWindow = is_array($requestedScope['time_window'] ?? null) ? $requestedScope['time_window'] : [];
+        $timeWindowHint = is_string($requestedScope['time_window_hint'] ?? null)
+            ? trim((string) $requestedScope['time_window_hint'])
+            : '';
 
         $windowStart = trim((string) ($timeWindow['start'] ?? '08:00'));
         $windowEnd = trim((string) ($timeWindow['end'] ?? '22:00'));
@@ -459,19 +462,73 @@ final class ScheduleConfirmationSignalsBuilder
             $startDate = new \DateTimeImmutable('now', $timezone);
         }
 
+        $windowCandidates = $this->buildNearestWindowCandidates($windowStart, $windowEnd, $timeWindowHint);
         $dayRange = 7;
         for ($offset = 0; $offset <= $dayRange; $offset++) {
             $day = $startDate->modify("+{$offset} day");
             $busy = $this->collectBusyIntervalsForDay($snapshot, $day, $timezone);
-            $slot = $this->findFirstFreeWindowForDay($day, $windowStart, $windowEnd, $busy, $timezone);
-            if ($slot === null) {
-                continue;
-            }
+            foreach ($windowCandidates as $candidateWindow) {
+                $slot = $this->findFirstFreeWindowForDay(
+                    day: $day,
+                    windowStart: (string) $candidateWindow['start'],
+                    windowEnd: (string) $candidateWindow['end'],
+                    busyIntervals: $busy,
+                    timezone: $timezone
+                );
+                if ($slot === null) {
+                    continue;
+                }
 
-            return $slot;
+                return $slot;
+            }
         }
 
         return null;
+    }
+
+    /**
+     * @return list<array{start: string, end: string}>
+     */
+    private function buildNearestWindowCandidates(string $windowStart, string $windowEnd, string $timeWindowHint): array
+    {
+        $candidates = [];
+        $append = static function (array &$rows, string $start, string $end): void {
+            $key = "{$start}|{$end}";
+            foreach ($rows as $row) {
+                if ("{$row['start']}|{$row['end']}" === $key) {
+                    return;
+                }
+            }
+            $rows[] = ['start' => $start, 'end' => $end];
+        };
+
+        $append($candidates, $windowStart, $windowEnd);
+
+        $normalizedHint = mb_strtolower(trim($timeWindowHint));
+        if (
+            $normalizedHint === 'morning'
+            || str_contains($normalizedHint, 'morning')
+            || ($windowStart <= '08:00' && $windowEnd <= '12:30')
+        ) {
+            $append($candidates, '12:00', '18:00');
+            $append($candidates, '18:00', '22:00');
+            $append($candidates, '08:00', '12:00');
+        } elseif (
+            $normalizedHint === 'later'
+            || $normalizedHint === 'afternoon'
+            || str_contains($normalizedHint, 'later')
+            || str_contains($normalizedHint, 'afternoon')
+        ) {
+            $append($candidates, '12:00', '18:00');
+            $append($candidates, '18:00', '22:00');
+            $append($candidates, '08:00', '12:00');
+        } else {
+            $append($candidates, '08:00', '12:00');
+            $append($candidates, '12:00', '18:00');
+            $append($candidates, '18:00', '22:00');
+        }
+
+        return $candidates;
     }
 
     /**
