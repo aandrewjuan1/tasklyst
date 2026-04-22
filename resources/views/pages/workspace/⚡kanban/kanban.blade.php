@@ -69,7 +69,7 @@
         'moveErrorToast' => __('Failed to move task. Please try again.'),
     ];
 
-    $scheduledFocusGroups = is_array($scheduledFocusPlanGroups ?? null) ? $scheduledFocusPlanGroups : ['today' => [], 'tomorrow' => [], 'upcoming' => []];
+    $scheduledFocusGroups = is_array($scheduledFocusPlanGroups ?? null) ? $scheduledFocusPlanGroups : [];
     $scheduledFocusTotalCount = (int) ($scheduledFocusPlanTotalCount ?? 0);
     $hasScheduledFocusPanel = $scheduledFocusTotalCount > 0;
 @endphp

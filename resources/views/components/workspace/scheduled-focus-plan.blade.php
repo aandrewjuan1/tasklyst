@@ -1,5 +1,5 @@
 @props([
-    'groups' => ['today' => [], 'tomorrow' => [], 'upcoming' => []],
+    'groups' => [],
     'totalCount' => 0,
     'appearance' => 'default',
 ])
@@ -7,15 +7,8 @@
 @php
     $appearance = in_array($appearance, ['default', 'compact'], true) ? $appearance : 'default';
     $isCompact = $appearance === 'compact';
-    $todayItems = is_array($groups['today'] ?? null) ? $groups['today'] : [];
-    $tomorrowItems = is_array($groups['tomorrow'] ?? null) ? $groups['tomorrow'] : [];
-    $upcomingItems = is_array($groups['upcoming'] ?? null) ? $groups['upcoming'] : [];
+    $grouped = is_array($groups ?? null) ? $groups : [];
     $panelId = $isCompact ? 'workspace-scheduled-focus-compact' : 'workspace-scheduled-focus-default';
-    $grouped = [
-        'today' => ['label' => __('Today'), 'items' => $todayItems],
-        'tomorrow' => ['label' => __('Tomorrow'), 'items' => $tomorrowItems],
-        'upcoming' => ['label' => __('Upcoming'), 'items' => $upcomingItems],
-    ];
 @endphp
 
 <script>
@@ -75,6 +68,17 @@
                 delete this.pendingDismissalEntityKeys[key];
             }
         },
+        isGroupVisible(items) {
+            if (!Array.isArray(items) || items.length === 0) {
+                return false;
+            }
+
+            return items.some((item) => {
+                const kind = String(item?.entity_type || '');
+                const entityId = Number(item?.entity_id || 0);
+                return !this.isEntityRemoved(kind, entityId);
+            });
+        },
         emitInfoToast(message) {
             const nowMs = Date.now();
             if ((nowMs - Number(this.lastInfoToastAtMs || 0)) < this.infoToastCooldownMs) {
@@ -98,17 +102,30 @@
             const kind = String(detail?.kind || '');
             const itemId = Number(detail?.itemId || 0);
             const property = String(detail?.property || '');
+            const normalizedValue = String(detail?.value ?? '').toLowerCase();
             if (! ['task', 'event', 'project'].includes(kind) || itemId < 1 || property === '') {
                 return;
             }
-            if (['startDatetime', 'endDatetime', 'startTime', 'endTime'].includes(property)) {
-                if (this.isDismissalPending(kind, itemId)) {
+            const timingChanged = ['startDatetime', 'endDatetime', 'startTime', 'endTime'].includes(property);
+            const becameCompleted = property === 'status'
+                && (
+                    (kind === 'task' && normalizedValue === 'done')
+                    || (kind === 'event' && normalizedValue === 'completed')
+                );
+
+            if (timingChanged || becameCompleted) {
+                if (this.isDismissalPending(kind, itemId) || this.isEntityRemoved(kind, itemId)) {
                     return;
                 }
                 this.removeEntity(kind, itemId);
-                this.emitInfoToast(@js(__('Removed from Scheduled Focus because the scheduled time changed.')));
+                if (becameCompleted) {
+                    this.emitInfoToast(@js(__('Removed from Scheduled Focus because it is completed.')));
+                } else {
+                    this.emitInfoToast(@js(__('Removed from Scheduled Focus because the scheduled time changed.')));
+                }
                 this.markDismissalPending(kind, itemId);
-                $wire.$parent.$call('dismissScheduledFocusForEntity', kind, itemId, 'entity_datetime_updated')
+                const reason = becameCompleted ? 'entity_completed' : 'entity_datetime_updated';
+                $wire.$parent.$call('dismissScheduledFocusForEntity', kind, itemId, reason)
                     .catch(() => {
                         this.restoreEntity(kind, itemId);
                     })
@@ -197,7 +214,7 @@
                 <flux:icon name="sparkles" class="size-3.5" />
             </span>
             <flux:text id="{{ $panelId }}-title" class="{{ $isCompact ? 'text-[10px]' : 'text-[11px] sm:text-xs' }} truncate font-semibold uppercase tracking-[0.12em] text-violet-800 dark:text-violet-200">
-                {{ __('AI Scheduled Focus') }}
+                {{ __('AI Proposed Schedule') }}
             </flux:text>
         </div>
         <div class="inline-flex items-center gap-1.5 sm:gap-2">
@@ -230,16 +247,19 @@
         ])
     >
         @foreach ($grouped as $group)
-            @if (count($group['items']) > 0)
-                <div @class(['space-y-1.5', 'shrink-0' => $isCompact])>
-                    <flux:text class="{{ $isCompact ? 'text-[9px]' : 'text-[10px] sm:text-[11px]' }} font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                        {{ $group['label'] }}
+            @if (count((array) ($group['items'] ?? [])) > 0)
+                <div
+                    x-show="isGroupVisible(@js((array) ($group['items'] ?? [])))"
+                    @class(['space-y-1.5', 'shrink-0' => $isCompact])
+                >
+                    <flux:text class="{{ $isCompact ? 'text-[10px]' : 'text-[11px] sm:text-xs' }} font-bold uppercase tracking-[0.08em] text-muted-foreground">
+                        {{ (string) ($group['label'] ?? __('No date')) }}
                     </flux:text>
                     <div @class([
                         'space-y-1.5',
                         'flex gap-2 overflow-x-auto pb-1 pt-0.5' => $isCompact,
                     ])>
-                        @foreach ($group['items'] as $item)
+                        @foreach ((array) ($group['items'] ?? []) as $item)
                             @php
                                 $entityType = (string) ($item['entity_type'] ?? 'task');
                                 $entityTypePillClass = (string) ($item['entity_type_pill_class'] ?? 'lic-item-type-pill--task');

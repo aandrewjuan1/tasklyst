@@ -587,49 +587,7 @@ new class extends Component
             acceptedCount: $acceptedCount,
         ));
         app(UserNotificationBroadcastService::class)->broadcastInboxUpdated($user);
-        $this->createScheduleAcceptAllFollowupMessage($acceptedCount);
-        $this->refreshMessages();
-
         $this->dispatch('assistant-schedule-plan-updated');
-    }
-
-    private function createScheduleAcceptAllFollowupMessage(int $acceptedCount): void
-    {
-        $user = Auth::user();
-        if (! $this->thread || ! $user || $acceptedCount <= 0) {
-            return;
-        }
-
-        $chips = $this->filterContinueStyleQuickChips(
-            app(TaskAssistantQuickChipResolver::class)->resolveForPostScheduleAccept(
-                user: $user,
-                thread: $this->thread,
-                limit: 3,
-            )
-        );
-        if ($chips === []) {
-            $chips = [
-                __('Show my next 3 priorities'),
-                __('Schedule my most important task'),
-                __('Plan tomorrow for me'),
-            ];
-        }
-
-        $message = trans_choice(
-            'Done. I applied :count schedule update. What should we do next?|Done. I applied :count schedule updates. What should we do next?',
-            $acceptedCount,
-            ['count' => $acceptedCount]
-        );
-
-        $this->thread->messages()->create([
-            'role' => MessageRole::Assistant,
-            'content' => $message,
-            'metadata' => [
-                'schedule' => [
-                    'next_options_chip_texts' => $chips,
-                ],
-            ],
-        ]);
     }
 
     /**

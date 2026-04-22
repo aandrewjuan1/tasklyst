@@ -63,14 +63,10 @@ new class extends Component
     public ?array $pomodoroSettings = null;
 
     /**
-     * @var array{today: array<int, array<string, mixed>>, tomorrow: array<int, array<string, mixed>>, upcoming: array<int, array<string, mixed>>}
+     * @var array<int, array{key: string, label: string, items: array<int, array<string, mixed>>}>
      */
     #[Reactive]
-    public array $scheduledFocusPlanGroups = [
-        'today' => [],
-        'tomorrow' => [],
-        'upcoming' => [],
-    ];
+    public array $scheduledFocusPlanGroups = [];
 
     #[Reactive]
     public int $scheduledFocusPlanTotalCount = 0;

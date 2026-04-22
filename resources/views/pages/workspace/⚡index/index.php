@@ -867,18 +867,47 @@ class extends Component
     }
 
     /**
-     * @return array{today: array<int, array<string, mixed>>, tomorrow: array<int, array<string, mixed>>, upcoming: array<int, array<string, mixed>>}
+     * @return array<int, array{key: string, label: string, items: array<int, array<string, mixed>>}>
      */
     #[Computed]
     public function scheduledFocusPlanGroups(): array
     {
         $entries = $this->scheduledFocusPlanEntries;
+        $timezone = (string) config('app.timezone', 'UTC');
+        $today = \Carbon\CarbonImmutable::now($timezone)->startOfDay();
+        $tomorrow = $today->addDay();
 
-        return [
-            'today' => $entries->where('bucket', 'today')->values()->all(),
-            'tomorrow' => $entries->where('bucket', 'tomorrow')->values()->all(),
-            'upcoming' => $entries->where('bucket', 'upcoming')->values()->all(),
-        ];
+        return $entries
+            ->groupBy(function (array $entry): string {
+                $plannedStartAt = (string) ($entry['planned_start_at'] ?? '');
+                if ($plannedStartAt === '') {
+                    return 'undated';
+                }
+
+                return \Carbon\Carbon::parse($plannedStartAt)->toDateString();
+            })
+            ->sortKeys()
+            ->map(function (Collection $items, string $dayKey) use ($timezone, $today, $tomorrow): array {
+                $label = (string) __('No date');
+                if ($dayKey !== 'undated') {
+                    $day = \Carbon\CarbonImmutable::parse($dayKey, $timezone)->startOfDay();
+                    if ($day->equalTo($today)) {
+                        $label = (string) __('Today');
+                    } elseif ($day->equalTo($tomorrow)) {
+                        $label = (string) __('Tomorrow');
+                    } else {
+                        $label = $day->translatedFormat('l, F j');
+                    }
+                }
+
+                return [
+                    'key' => $dayKey,
+                    'label' => $label,
+                    'items' => $items->values()->all(),
+                ];
+            })
+            ->values()
+            ->all();
     }
 
     #[Computed]
@@ -977,7 +1006,6 @@ class extends Component
 
         $this->deactivateScheduledFocusForEntity($entityType, $entityId, $reason);
         $this->refreshWorkspaceListInPlace();
-        $this->dispatch('assistant-schedule-plan-updated');
     }
 
     public function rescheduleScheduledFocusItem(int $planItemId, ?string $startAt, ?string $endAt = null): void

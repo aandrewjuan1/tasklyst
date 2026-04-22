@@ -444,8 +444,17 @@ trait HandlesTasks
             return ['success' => true, 'recurringTaskId' => $task->recurringTask?->id];
         }
 
-        if (in_array($property, ['startDatetime', 'endDatetime'], true) && method_exists($this, 'deactivateScheduledFocusForEntity')) {
-            $this->deactivateScheduledFocusForEntity('task', (int) $task->id, 'task_datetime_updated');
+        if (method_exists($this, 'deactivateScheduledFocusForEntity')) {
+            if (in_array($property, ['startDatetime', 'endDatetime'], true)) {
+                $this->deactivateScheduledFocusForEntity('task', (int) $task->id, 'task_datetime_updated');
+            }
+
+            if ($property === 'status') {
+                $newStatus = strtolower(trim((string) ($result->newValue ?? '')));
+                if ($newStatus === strtolower(TaskStatus::Done->value)) {
+                    $this->deactivateScheduledFocusForEntity('task', (int) $task->id, 'task_completed');
+                }
+            }
         }
 
         $this->dispatch('assistant-schedule-plan-updated');

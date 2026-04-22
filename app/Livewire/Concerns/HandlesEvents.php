@@ -480,8 +480,17 @@ trait HandlesEvents
             return ['success' => true, 'recurringEventId' => $event->recurringEvent?->id];
         }
 
-        if (in_array($property, ['startDatetime', 'endDatetime'], true) && method_exists($this, 'deactivateScheduledFocusForEntity')) {
-            $this->deactivateScheduledFocusForEntity('event', (int) $event->id, 'event_datetime_updated');
+        if (method_exists($this, 'deactivateScheduledFocusForEntity')) {
+            if (in_array($property, ['startDatetime', 'endDatetime'], true)) {
+                $this->deactivateScheduledFocusForEntity('event', (int) $event->id, 'event_datetime_updated');
+            }
+
+            if ($property === 'status') {
+                $newStatus = strtolower(trim((string) ($result->newValue ?? '')));
+                if ($newStatus === strtolower(EventStatus::Completed->value)) {
+                    $this->deactivateScheduledFocusForEntity('event', (int) $event->id, 'event_completed');
+                }
+            }
         }
 
         $this->dispatch('assistant-schedule-plan-updated');

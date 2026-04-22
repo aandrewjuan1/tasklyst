@@ -28,7 +28,7 @@
         $showCompleted = (bool) ($filters['showCompleted'] ?? false);
         $completedItems = $showCompleted ? $completedEntries->values() : collect();
         $hasAnyListContent = $allItems->isNotEmpty() || $completedItems->isNotEmpty();
-        $scheduledFocusGroups = is_array($scheduledFocusPlanGroups ?? null) ? $scheduledFocusPlanGroups : ['today' => [], 'tomorrow' => [], 'upcoming' => []];
+        $scheduledFocusGroups = is_array($scheduledFocusPlanGroups ?? null) ? $scheduledFocusPlanGroups : [];
         $scheduledFocusTotalCount = (int) ($scheduledFocusPlanTotalCount ?? 0);
         $hasScheduledFocusPanel = $scheduledFocusTotalCount > 0;
     @endphp
