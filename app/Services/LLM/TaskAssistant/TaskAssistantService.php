@@ -1254,8 +1254,14 @@ final class TaskAssistantService
     {
         $priorityLabel = $priority === '' ? 'medium' : $priority;
         $dueDetail = $duePhrase === '' ? 'no due date' : $duePhrase;
+        $effortPhrase = match (strtolower(trim($complexityLabel))) {
+            'complex' => 'higher effort',
+            'moderate' => 'manageable effort',
+            'simple' => 'quick effort',
+            default => 'unknown effort',
+        };
 
-        return "This task stands out because it's {$priorityLabel} priority, {$dueDetail}, and {$complexityLabel} complexity.";
+        return "This task stands out because it's {$priorityLabel} priority, {$dueDetail}, and {$effortPhrase}.";
     }
 
     private function buildPrioritizeRankingMethodSummary(): string

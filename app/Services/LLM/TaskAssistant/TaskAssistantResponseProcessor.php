@@ -131,6 +131,26 @@ final class TaskAssistantResponseProcessor
             ];
         }
 
+        if ($reasoning !== '') {
+            $normalizedReasoning = $this->normalizePrioritizeEffortPhrases($reasoning);
+            if ($normalizedReasoning !== $reasoning) {
+                $data['reasoning'] = $normalizedReasoning;
+                $reasoning = $normalizedReasoning;
+                $corrections['prioritize_reasoning_effort_phrase_normalized'] = true;
+            }
+        }
+
+        $items = is_array($data['items'] ?? null) ? $data['items'] : [];
+        if ($items !== [] && ! $this->reasoningMentionsTopTitle((string) ($data['reasoning'] ?? ''), $items)) {
+            $firstTitle = trim((string) data_get($items, '0.title', 'this top task'));
+            if ($firstTitle === '') {
+                $firstTitle = 'this top task';
+            }
+            $rewritten = "Start with {$firstTitle} first, then take a focused pass before moving to the next item. Keeping this step short helps you build momentum without overload.";
+            $data['reasoning'] = TaskAssistantPrioritizeOutputDefaults::clampPrioritizeReasoning($rewritten);
+            $corrections['prioritize_reasoning_top_title_enforced'] = true;
+        }
+
         if (is_array($orderingRationale) && count($orderingRationale) > 6) {
             $data['ordering_rationale'] = array_slice($orderingRationale, 0, 6);
             $corrections['prioritize_ordering_rationale_trimmed'] = [
@@ -604,6 +624,14 @@ final class TaskAssistantResponseProcessor
                 $validator->errors()->add('reasoning', 'reasoning must add coaching value and not restate ordering_rationale verbatim.');
             }
 
+            if ($items !== [] && ! $this->reasoningMentionsTopTitle($reasoning, $items)) {
+                $validator->errors()->add('reasoning', 'reasoning must explicitly name the top-ranked item title when items are present.');
+            }
+
+            if ($this->containsAwkwardComplexityPhrases($reasoning)) {
+                $validator->errors()->add('reasoning', 'reasoning contains awkward complexity wording; use friendly effort language.');
+            }
+
             if ($this->countSentences($reasoning) > 5) {
                 $validator->errors()->add('reasoning', 'reasoning should stay concise (max 5 sentences).');
             }
@@ -628,6 +656,49 @@ final class TaskAssistantResponseProcessor
             'data' => $data,
             'errors' => [],
         ];
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $items
+     */
+    private function reasoningMentionsTopTitle(string $reasoning, array $items): bool
+    {
+        $reasoning = trim($reasoning);
+        if ($reasoning === '' || $items === []) {
+            return true;
+        }
+
+        $firstTitle = trim((string) data_get($items, '0.title', ''));
+        if ($firstTitle === '') {
+            return true;
+        }
+
+        return mb_stripos($reasoning, $firstTitle) !== false;
+    }
+
+    private function containsAwkwardComplexityPhrases(string $text): bool
+    {
+        return preg_match('/\b(complex|moderate|simple)\s+complexity\b/iu', $text) === 1;
+    }
+
+    private function normalizePrioritizeEffortPhrases(string $text): string
+    {
+        $out = trim($text);
+        if ($out === '') {
+            return $out;
+        }
+
+        $replacements = [
+            '/\bcomplex\s+complexity\b/iu' => 'higher effort',
+            '/\bmoderate\s+complexity\b/iu' => 'manageable effort',
+            '/\bsimple\s+complexity\b/iu' => 'quick effort',
+        ];
+
+        foreach ($replacements as $pattern => $replacement) {
+            $out = preg_replace($pattern, $replacement, $out) ?? $out;
+        }
+
+        return trim($out);
     }
 
     private function validateDailyScheduleData(array $data, array $snapshot): array

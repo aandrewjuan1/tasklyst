@@ -72,6 +72,25 @@ class TaskAssistantMessageFormatterTest extends TestCase
         $this->assertStringContainsString('due today (Mar 22, 2026)', $out);
     }
 
+    public function test_prioritize_clamps_framing_to_single_non_redundant_sentence_when_items_exist(): void
+    {
+        $out = $this->formatter->format('prioritize', [
+            'framing' => 'Here are 3 tasks ordered by urgency. Start with the list below and keep your first pass short.',
+            'limit_used' => 3,
+            'items' => [
+                ['entity_type' => 'task', 'entity_id' => 1, 'title' => 'A', 'priority' => 'high', 'due_phrase' => 'due today', 'due_on' => 'Mar 22, 2026', 'complexity_label' => 'Simple'],
+                ['entity_type' => 'task', 'entity_id' => 2, 'title' => 'B', 'priority' => 'medium', 'due_phrase' => 'due tomorrow', 'due_on' => 'Mar 23, 2026', 'complexity_label' => 'Moderate'],
+                ['entity_type' => 'task', 'entity_id' => 3, 'title' => 'C', 'priority' => 'low', 'due_phrase' => 'due this week', 'due_on' => 'Mar 25, 2026', 'complexity_label' => 'Complex'],
+            ],
+            'reasoning' => 'Start with A first because it has the nearest due date.',
+            'next_options' => 'If you want, I can schedule these tasks for later.',
+        ]);
+
+        $this->assertStringNotContainsString('Here are 3 tasks ordered by urgency.', $out);
+        $this->assertStringContainsString('Here is your focused next-step slice', $out);
+        $this->assertStringNotContainsString('Start with the list below and keep your first pass short.', $out);
+    }
+
     public function test_prioritize_renders_assumptions_block_when_present(): void
     {
         $out = $this->formatter->format('prioritize', [
@@ -362,6 +381,22 @@ class TaskAssistantMessageFormatterTest extends TestCase
         $this->assertStringContainsString('Why this order:', $out);
         $this->assertStringContainsString('If you want, I can schedule these tasks for later.', $out);
         $this->assertLessThanOrEqual(6, substr_count($out, $duplicate));
+    }
+
+    public function test_prioritize_normalizes_awkward_complexity_wording_in_reasoning(): void
+    {
+        $out = $this->formatter->format('prioritize', [
+            'framing' => 'Here is your focused next-step slice.',
+            'limit_used' => 1,
+            'items' => [
+                ['entity_type' => 'task', 'entity_id' => 1, 'title' => 'A', 'priority' => 'high', 'due_phrase' => 'due today', 'due_on' => 'Mar 22, 2026', 'complexity_label' => 'Complex'],
+            ],
+            'reasoning' => 'Start with A first because it is high priority and has Complex complexity.',
+            'next_options' => 'If you want, I can schedule this for later.',
+        ]);
+
+        $this->assertStringNotContainsString('Complex complexity', $out);
+        $this->assertStringContainsString('higher effort', $out);
     }
 
     public function test_prioritize_dedupes_when_framing_starts_with_acknowledgment(): void
@@ -1076,9 +1111,9 @@ class TaskAssistantMessageFormatterTest extends TestCase
         ]);
 
         $this->assertStringContainsString('Why this plan:', $out);
-        $this->assertStringContainsString('These items are already scheduled for tomorrow:', $out);
-        $this->assertStringContainsString('Chemistry lab (9:30 AM-11:00 AM)', $out);
-        $this->assertStringNotContainsString('This overlaps your requested slot.', $out);
+        $this->assertStringNotContainsString('These items are already scheduled for tomorrow:', $out);
+        $this->assertStringNotContainsString('Chemistry lab (9:30 AM-11:00 AM)', $out);
+        $this->assertStringNotContainsString('#1 Math worksheet: early slot keeps momentum.', $out);
     }
 
     public function test_daily_schedule_uses_structured_explainability_when_legacy_text_fields_are_empty(): void
@@ -1130,8 +1165,52 @@ class TaskAssistantMessageFormatterTest extends TestCase
         ]);
 
         $this->assertStringContainsString('Why this plan:', $out);
-        $this->assertStringContainsString('Math worksheet', $out);
-        $this->assertStringContainsString('These items are already scheduled in your requested window:', $out);
-        $this->assertStringContainsString('Chemistry lab (9:30 AM-11:00 AM)', $out);
+        $this->assertStringNotContainsString('These items are already scheduled in your requested window:', $out);
+        $this->assertStringNotContainsString('Chemistry lab (9:30 AM-11:00 AM)', $out);
+        $this->assertStringNotContainsString('placed in the strongest fit window', $out);
+    }
+
+    public function test_daily_schedule_prioritize_schedule_success_adds_prioritized_lead_line(): void
+    {
+        $out = $this->formatter->format('daily_schedule', [
+            'schedule_source' => 'prioritize_schedule',
+            'proposals' => [[
+                'proposal_id' => 'p1',
+                'status' => 'pending',
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'title' => 'Task A',
+                'start_datetime' => '2026-04-23T08:00:00+08:00',
+                'end_datetime' => '2026-04-23T09:00:00+08:00',
+                'duration_minutes' => 60,
+            ]],
+            'items' => [[
+                'title' => 'Task A',
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'start_datetime' => '2026-04-23T08:00:00+08:00',
+                'end_datetime' => '2026-04-23T09:00:00+08:00',
+                'duration_minutes' => 60,
+            ]],
+            'blocks' => [[
+                'start_time' => '08:00',
+                'end_time' => '09:00',
+                'label' => 'Task A',
+            ]],
+            'framing' => 'Here is your plan.',
+            'reasoning' => 'I spread placements across 2026-04-22 to 2026-04-24 when needed.',
+            'confirmation' => 'Do these times work?',
+            'window_selection_explanation' => 'I used your requested range first.',
+            'ordering_rationale' => ['#1 Task A: placed at Apr 23 8:00 AM as one of the strongest fit windows.'],
+            'blocking_reasons' => [[
+                'title' => 'Class',
+                'blocked_window' => '6:45 AM-10:15 AM',
+            ]],
+        ]);
+
+        $this->assertStringContainsString('Here are your prioritized items, placed into schedule blocks:', $out);
+        $this->assertStringContainsString('Apr 22 to Apr 24', $out);
+        $this->assertStringNotContainsString('#1 Task A', $out);
+        $this->assertStringNotContainsString('These items are already scheduled', $out);
     }
 }

@@ -1898,11 +1898,13 @@ TXT;
                 'In acknowledgment, framing, reasoning, and next_options: NEVER mention snapshot, "snapshot data", JSON, ITEMS_JSON, FILTER_CONTEXT, backend, database, or internal technical terms—the student only sees plain English. '.
                 'doing_progress_coach is REQUIRED (non-null, non-empty) when DOING_COACH_REQUIRED is true—motivation only; must NOT contain any title from ITEMS_JSON. Keep it about staying steady on what they already started (Doing), and never smuggle ranked-only subjects (quizzes, lecture notes, readings, etc.) unless those words literally appear in DOING_TITLES_FOR_UI. When DOING_COACH_REQUIRED is false, doing_progress_coach MUST be null. '.
                 'filter_interpretation is OPTIONAL: one short sentence; the student sees it after the numbered list—explain how filters or wording shaped this slice; null if not helpful. assumptions is OPTIONAL: prefer null. Only include if strictly needed to interpret a filter (e.g. calendar today). Never assume the user already viewed their list; never invent calendar dates. null or empty if none. '.
-                'framing is REQUIRED: short intro only—open in natural assistant voice (I recommend, I suggest, Let\'s, We could, Here\'s what I\'d do—vary openings across turns). Sound human and supportive. When DOING_COACH_REQUIRED is true and LISTED_ITEM_COUNT >= 1, do NOT mention any ITEMS_JSON title in framing—orient to in-progress work or a smooth handoff to the ranked next steps below (say “the ranked list below” / “the next steps below” when LISTED_ITEM_COUNT > 1, not vague “this list” that could mean Doing). Never claim the student has “started” or is “already working on” the top ranked item in framing—those rows are To Do until marked Doing; describe “what to tackle next” only in reasoning. When LISTED_ITEM_COUNT >= 1 and there is no Doing, keep framing as a light intro—save "start with [top row]" for reasoning. Do not use impersonal brochure openers like "Here is your top priority in a simple order". '.
+                'framing is REQUIRED: short intro only—exactly ONE concise sentence when LISTED_ITEM_COUNT >= 1. open in natural assistant voice (I recommend, I suggest, Let\'s, We could, Here\'s what I\'d do—vary openings across turns). Sound human and supportive. Do not restate the item count, list order, or ranking method in framing. When DOING_COACH_REQUIRED is true and LISTED_ITEM_COUNT >= 1, do NOT mention any ITEMS_JSON title in framing—orient to in-progress work or a smooth handoff to the ranked next steps below (say “the ranked list below” / “the next steps below” when LISTED_ITEM_COUNT > 1, not vague “this list” that could mean Doing). Never claim the student has “started” or is “already working on” the top ranked item in framing—those rows are To Do until marked Doing; describe “what to tackle next” only in reasoning. When LISTED_ITEM_COUNT >= 1 and there is no Doing, keep framing as a light intro—save "start with [top row]" for reasoning. Do not use impersonal brochure openers like "Here is your top priority in a simple order". '.
                 'Do not repeat the same ranking facts across ordering_rationale and reasoning. reasoning must add one practical action cue, not restate the entire scoring explanation. '.
                 'Never say the student "found", "discovered", or "has" a task "on their list" as if they unearthed it. Use "your attention" or "your focus", not "our attention". '.
                 'acknowledgment is OPTIONAL: include only when UX_INCLUDE_ACK is true; otherwise set it to null. When included, it must be exactly one short empathetic sentence. '.
                 $firstRowReasoningRule.
+                'When LISTED_ITEM_COUNT >= 1, reasoning must name the exact first-row title in the same paragraph before any pronoun reference like "this task" or "it". '.
+                'Do not use tautological effort phrases like "Complex complexity" or "Moderate complexity"; prefer friendlier effort wording such as "higher effort", "manageable effort", or "quick effort". '.
                 'next_options is REQUIRED: 1-2 sentences; the student sees this LAST after reasoning. Offer follow-up (e.g., scheduling, widening filters when the slice is empty). Keep it scheduling-focused—main empathy and coaching belong earlier. Do not re-summarize the ranked list here. Do not suggest rescheduling tasks that were already completed; if you mention rescheduling, it should be about the remaining tasks. '.
                 'next_options_chip_texts is REQUIRED: array of 1-2 short chip strings to let the student trigger that follow-up (no question marks). '.
                 'count_mismatch_explanation is OPTIONAL and nullable. When COUNT_MISMATCH_REQUIRED is true, it is REQUIRED and must be one short supportive sentence grounded in REQUESTED_COUNT and ACTUAL_COUNT. When COUNT_MISMATCH_REQUIRED is false, it MUST be null. '.
@@ -2292,10 +2294,12 @@ TXT;
 
         // Ensure reasoning stays anchored to the ranked list (especially item #1)—after cross-field dedupe.
         $reasoning = $this->enforceReasoningAnchorsTopItem((string) $reasoning, $cleanItems);
+        $reasoning = $this->normalizeEffortWording((string) $reasoning);
         $reasoning = $this->normalizeReasoningOverdueGrammar((string) $reasoning, $cleanItems);
         $reasoning = $this->stripOverdueDurationAgeClaimsWhenDuePhraseIsOverdue((string) $reasoning, $cleanItems);
         $reasoning = $this->enforceReasoningIncludesFirstRowDuePhraseWhenMissing((string) $reasoning, $cleanItems);
         $reasoning = $this->ensurePrioritizeReasoningHasCoachingTone((string) $reasoning, $cleanItems, $doingCoachRequired);
+        $framing = $this->normalizePrioritizeFramingForList((string) $framing, $cleanItems);
 
         $nextOptions = TaskAssistantPrioritizeOutputDefaults::dedupePrioritizeNextVersusPriorFields(
             (string) $nextOptions,
@@ -2361,6 +2365,55 @@ TXT;
             'doing_progress_coach' => $doingProgressCoachNarrative,
             'count_mismatch_explanation' => $countMismatchExplanation,
         ];
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $items
+     */
+    private function normalizePrioritizeFramingForList(string $framing, array $items): string
+    {
+        $framing = trim($framing);
+        if ($framing === '') {
+            return $framing;
+        }
+
+        if ($items === []) {
+            return $framing;
+        }
+
+        // Keep a concise single-sentence intro when ranked rows are present.
+        $sentences = preg_split('/(?<=[.!?])\s+/u', $framing, -1, PREG_SPLIT_NO_EMPTY) ?: [$framing];
+        $firstSentence = trim((string) ($sentences[0] ?? $framing));
+        if ($firstSentence === '') {
+            $firstSentence = $framing;
+        }
+
+        // Avoid count/list-order restatement in framing (already rendered by list + method summary).
+        $firstSentence = preg_replace('/\bhere (?:are|is)\s+\d+\s+(?:tasks?|items?|priorities)\b/iu', 'Here is your focused next-step slice', $firstSentence) ?? $firstSentence;
+        $firstSentence = preg_replace('/\b(?:ordered by|ranked by)\b[^.?!]*/iu', '', $firstSentence) ?? $firstSentence;
+        $firstSentence = preg_replace('/\s{2,}/u', ' ', $firstSentence) ?? $firstSentence;
+
+        return trim(rtrim($firstSentence, " \t\n\r\0\x0B"));
+    }
+
+    private function normalizeEffortWording(string $text): string
+    {
+        $out = trim($text);
+        if ($out === '') {
+            return $out;
+        }
+
+        $replacements = [
+            '/\bcomplex\s+complexity\b/iu' => 'higher effort',
+            '/\bmoderate\s+complexity\b/iu' => 'manageable effort',
+            '/\bsimple\s+complexity\b/iu' => 'quick effort',
+        ];
+
+        foreach ($replacements as $pattern => $replacement) {
+            $out = preg_replace($pattern, $replacement, $out) ?? $out;
+        }
+
+        return trim($out);
     }
 
     /**

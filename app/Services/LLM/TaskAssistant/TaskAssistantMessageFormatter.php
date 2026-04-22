@@ -222,6 +222,11 @@ final class TaskAssistantMessageFormatter
         $hasDoingSection = $doingProgressCoach !== '';
         $lines = $this->formatPrioritizeItemLines($items);
 
+        if (! $hasDoingSection) {
+            $framing = $this->normalizePrioritizeFramingForRankedItems($framing, $items);
+        }
+        $reasoning = $this->normalizePrioritizeEffortPhrases($reasoning);
+
         $paragraphs = [];
 
         if ($acknowledgment !== '') {
@@ -277,6 +282,20 @@ final class TaskAssistantMessageFormatter
             }
         }
 
+        if ($orderingRationale !== []) {
+            $firstOrdering = trim((string) ($orderingRationale[0] ?? ''));
+            if (
+                $firstOrdering !== ''
+                && $this->tokenJaccardSimilarity(
+                    $this->normalizeForDedupe($firstOrdering),
+                    $this->normalizeForDedupe($reasoning)
+                ) >= 0.72
+            ) {
+                $topTitle = trim((string) data_get($items, '0.title', 'this top task'));
+                $reasoning = "Start with {$topTitle} first, keep this block focused, then reassess your next step based on your energy and available time.";
+            }
+        }
+
         if ($singularCoerceCount === 1) {
             $reasoning = TaskAssistantPrioritizeOutputDefaults::coerceSingularPrioritizeNarrative($reasoning, $singularCoerceCount, $items);
         }
@@ -298,6 +317,49 @@ final class TaskAssistantMessageFormatter
         return trim(implode("\n\n", $this->dedupeParagraphs(
             array_values(array_filter($paragraphs, static fn (string $p): bool => $p !== ''))
         )));
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $items
+     */
+    private function normalizePrioritizeFramingForRankedItems(string $framing, array $items): string
+    {
+        $framing = trim($framing);
+        if ($framing === '' || $items === []) {
+            return $framing;
+        }
+
+        $sentences = preg_split('/(?<=[.!?])\s+/u', $framing, -1, PREG_SPLIT_NO_EMPTY) ?: [$framing];
+        $firstSentence = trim((string) ($sentences[0] ?? $framing));
+        if ($firstSentence === '') {
+            $firstSentence = $framing;
+        }
+
+        $firstSentence = preg_replace('/\bhere (?:are|is)\s+\d+\s+(?:tasks?|items?|priorities)\b/iu', 'Here is your focused next-step slice', $firstSentence) ?? $firstSentence;
+        $firstSentence = preg_replace('/\b(?:ordered by|ranked by)\b[^.?!]*/iu', '', $firstSentence) ?? $firstSentence;
+        $firstSentence = preg_replace('/\s{2,}/u', ' ', $firstSentence) ?? $firstSentence;
+
+        return trim($firstSentence);
+    }
+
+    private function normalizePrioritizeEffortPhrases(string $text): string
+    {
+        $out = trim($text);
+        if ($out === '') {
+            return $out;
+        }
+
+        $replacements = [
+            '/\bcomplex\s+complexity\b/iu' => 'higher effort',
+            '/\bmoderate\s+complexity\b/iu' => 'manageable effort',
+            '/\bsimple\s+complexity\b/iu' => 'quick effort',
+        ];
+
+        foreach ($replacements as $pattern => $replacement) {
+            $out = preg_replace($pattern, $replacement, $out) ?? $out;
+        }
+
+        return trim($out);
     }
 
     /**
@@ -597,6 +659,9 @@ final class TaskAssistantMessageFormatter
             return $this->formatScheduleFallbackConfirmationMessage($data);
         }
 
+        $proposals = is_array($data['proposals'] ?? null) ? $data['proposals'] : [];
+        $hasSuccessfulProposals = count($proposals) > 0;
+        $scheduleSource = trim((string) ($data['schedule_source'] ?? 'schedule'));
         $framing = TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy(trim((string) ($data['framing'] ?? '')));
         $reasoning = TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy(trim((string) ($data['reasoning'] ?? '')));
         $confirmation = TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy(trim((string) ($data['confirmation'] ?? '')));
@@ -652,6 +717,9 @@ final class TaskAssistantMessageFormatter
                 $lines[] = $line;
             }
             if ($lines !== []) {
+                if ($hasSuccessfulProposals && $scheduleSource === 'prioritize_schedule') {
+                    $paragraphs[] = 'Here are your prioritized items, placed into schedule blocks:';
+                }
                 $paragraphs[] = implode("\n", $lines);
             }
         }
@@ -660,7 +728,7 @@ final class TaskAssistantMessageFormatter
         if ($digestNote !== '') {
             $paragraphs[] = $digestNote;
         }
-        $windowSelectionExplanation = trim((string) ($data['window_selection_explanation'] ?? ''));
+        $windowSelectionExplanation = $this->humanizeIsoDateRanges(trim((string) ($data['window_selection_explanation'] ?? '')));
         $windowSelectionStruct = is_array($data['window_selection_struct'] ?? null) ? $data['window_selection_struct'] : [];
         $orderingRationale = is_array($data['ordering_rationale'] ?? null) ? $data['ordering_rationale'] : [];
         $orderingRationaleStruct = is_array($data['ordering_rationale_struct'] ?? null) ? $data['ordering_rationale_struct'] : [];
@@ -682,7 +750,7 @@ final class TaskAssistantMessageFormatter
                 $whyPlanLines[] = '• '.$this->scheduleWindowReasonFromStruct($windowMode, $reasonCode);
             }
         }
-        if ($orderingRationaleStruct !== [] && $orderingRationale === []) {
+        if (! $hasSuccessfulProposals && $orderingRationaleStruct !== [] && $orderingRationale === []) {
             foreach ($orderingRationaleStruct as $row) {
                 if (! is_array($row)) {
                     continue;
@@ -697,12 +765,14 @@ final class TaskAssistantMessageFormatter
                 $whyPlanLines[] = '• '.$prefix.': '.$this->scheduleFitReasonFromCode($fitReasonCode);
             }
         }
-        foreach ($orderingRationale as $line) {
-            $text = trim((string) $line);
-            if ($text === '') {
-                continue;
+        if (! $hasSuccessfulProposals) {
+            foreach ($orderingRationale as $line) {
+                $text = trim((string) $line);
+                if ($text === '') {
+                    continue;
+                }
+                $whyPlanLines[] = '• '.$text;
             }
-            $whyPlanLines[] = '• '.$text;
         }
         if ($fallbackChoiceExplanation !== '') {
             $whyPlanLines[] = '• '.$fallbackChoiceExplanation;
@@ -710,16 +780,18 @@ final class TaskAssistantMessageFormatter
         if ($whyPlanLines !== []) {
             $paragraphs[] = "Why this plan:\n".implode("\n", $whyPlanLines);
         }
-        $blockingSectionTitle = $this->resolveBlockingSectionTitle($data);
-        if ($blockingReasons !== []) {
-            $blockerLines = $this->formatBlockingItemOnlyLines($blockingReasons);
-            if ($blockerLines !== []) {
-                $paragraphs[] = $blockingSectionTitle."\n".implode("\n", $blockerLines);
-            }
-        } elseif ($blockingReasonsStruct !== []) {
-            $blockerLines = $this->formatBlockingItemOnlyLines($blockingReasonsStruct);
-            if ($blockerLines !== []) {
-                $paragraphs[] = $blockingSectionTitle."\n".implode("\n", $blockerLines);
+        if (! $hasSuccessfulProposals) {
+            $blockingSectionTitle = $this->resolveBlockingSectionTitle($data);
+            if ($blockingReasons !== []) {
+                $blockerLines = $this->formatBlockingItemOnlyLines($blockingReasons);
+                if ($blockerLines !== []) {
+                    $paragraphs[] = $blockingSectionTitle."\n".implode("\n", $blockerLines);
+                }
+            } elseif ($blockingReasonsStruct !== []) {
+                $blockerLines = $this->formatBlockingItemOnlyLines($blockingReasonsStruct);
+                if ($blockerLines !== []) {
+                    $paragraphs[] = $blockingSectionTitle."\n".implode("\n", $blockerLines);
+                }
             }
         }
         $strategyLines = array_values(array_filter(array_map(
@@ -754,10 +826,10 @@ final class TaskAssistantMessageFormatter
         }
 
         if ($reasoning !== '') {
-            $paragraphs[] = $reasoning;
+            $paragraphs[] = $this->humanizeIsoDateRanges($reasoning);
         }
         if ($confirmation !== '') {
-            $paragraphs[] = $confirmation;
+            $paragraphs[] = $this->humanizeIsoDateRanges($confirmation);
         }
 
         return implode("\n\n", $this->dedupeParagraphs(
@@ -1103,6 +1175,45 @@ final class TaskAssistantMessageFormatter
 
         try {
             return (new \DateTimeImmutable($value))->format('M j, Y');
+        } catch (\Throwable) {
+            return '';
+        }
+    }
+
+    private function humanizeIsoDateRanges(string $text): string
+    {
+        $value = trim($text);
+        if ($value === '') {
+            return '';
+        }
+
+        $value = (string) preg_replace_callback(
+            '/\b(\d{4}-\d{2}-\d{2})\s+(to|-)\s+(\d{4}-\d{2}-\d{2})\b/u',
+            function (array $matches): string {
+                $start = $this->formatIsoDateForNarrative((string) ($matches[1] ?? ''));
+                $end = $this->formatIsoDateForNarrative((string) ($matches[3] ?? ''));
+                if ($start === '' || $end === '') {
+                    return (string) ($matches[0] ?? '');
+                }
+
+                return $start.' to '.$end;
+            },
+            $value
+        );
+
+        $value = (string) preg_replace_callback(
+            '/\b\d{4}-\d{2}-\d{2}\b/u',
+            fn (array $matches): string => $this->formatIsoDateForNarrative((string) ($matches[0] ?? '')) ?: (string) ($matches[0] ?? ''),
+            $value
+        );
+
+        return $value;
+    }
+
+    private function formatIsoDateForNarrative(string $isoDate): string
+    {
+        try {
+            return (new \DateTimeImmutable($isoDate))->format('M j');
         } catch (\Throwable) {
             return '';
         }

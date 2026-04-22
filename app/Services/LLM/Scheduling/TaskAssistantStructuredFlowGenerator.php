@@ -143,6 +143,9 @@ final class TaskAssistantStructuredFlowGenerator
 
         $data = [
             'schema_version' => self::SCHEDULE_SCHEMA_VERSION,
+            'schedule_source' => is_string($options['schedule_source'] ?? null)
+                ? (string) $options['schedule_source']
+                : 'schedule',
             'proposals' => $proposals,
             'blocks' => $blocks,
             'items' => $items,
@@ -396,6 +399,9 @@ final class TaskAssistantStructuredFlowGenerator
 
         $data = [
             'schema_version' => self::SCHEDULE_SCHEMA_VERSION,
+            'schedule_source' => is_string($context['schedule_source'] ?? null)
+                ? (string) $context['schedule_source']
+                : 'schedule',
             'proposals' => $proposals,
             'blocks' => $blocks,
             'items' => $items,

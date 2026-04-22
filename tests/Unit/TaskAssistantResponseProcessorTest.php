@@ -7,7 +7,7 @@ use Tests\TestCase;
 
 class TaskAssistantResponseProcessorTest extends TestCase
 {
-    public function test_prioritize_validation_fails_when_reasoning_duplicates_framing(): void
+    public function test_prioritize_quality_normalization_rewrites_reasoning_when_it_duplicates_framing(): void
     {
         $processor = app(TaskAssistantResponseProcessor::class);
         $same = 'Start with what is due soon so you can make real progress.';
@@ -37,8 +37,8 @@ class TaskAssistantResponseProcessorTest extends TestCase
             ],
         ], []);
 
-        $this->assertFalse($result['valid']);
-        $this->assertNotEmpty($result['errors']);
+        $this->assertTrue($result['valid']);
+        $this->assertNotSame($same, (string) ($result['structured_data']['reasoning'] ?? ''));
     }
 
     public function test_prioritize_validation_passes_for_well_formed_payload(): void
@@ -1149,6 +1149,70 @@ class TaskAssistantResponseProcessorTest extends TestCase
 
         $this->assertTrue($result['valid']);
         $this->assertNotSame($duplicateReasoning, $result['structured_data']['reasoning']);
+    }
+
+    public function test_prioritize_quality_normalization_enforces_top_title_anchor_in_reasoning(): void
+    {
+        $processor = app(TaskAssistantResponseProcessor::class);
+
+        $result = $processor->processResponse('prioritize', [
+            'items' => [[
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'title' => 'Top task title',
+                'priority' => 'high',
+                'due_phrase' => 'due today',
+                'due_on' => 'Mar 22, 2026',
+                'complexity_label' => 'Simple',
+            ]],
+            'limit_used' => 1,
+            'focus' => [
+                'main_task' => 'Top task title',
+                'secondary_tasks' => [],
+            ],
+            'framing' => 'Here is your focused next-step slice.',
+            'ordering_rationale' => ['#1 Top task title: Highest urgency right now.'],
+            'reasoning' => 'This task should go first so you can build momentum.',
+            'next_options' => 'If you want, I can schedule this for later.',
+            'next_options_chip_texts' => [
+                'Schedule this for later',
+            ],
+        ], []);
+
+        $this->assertTrue($result['valid']);
+        $this->assertStringContainsString('Top task title', (string) ($result['structured_data']['reasoning'] ?? ''));
+    }
+
+    public function test_prioritize_quality_normalization_rewrites_awkward_complexity_phrase(): void
+    {
+        $processor = app(TaskAssistantResponseProcessor::class);
+
+        $result = $processor->processResponse('prioritize', [
+            'items' => [[
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'title' => 'A task',
+                'priority' => 'high',
+                'due_phrase' => 'due today',
+                'due_on' => 'Mar 22, 2026',
+                'complexity_label' => 'Complex',
+            ]],
+            'limit_used' => 1,
+            'focus' => [
+                'main_task' => 'A task',
+                'secondary_tasks' => [],
+            ],
+            'framing' => 'Here is your focused next-step slice.',
+            'reasoning' => 'Start with A task first because it has Complex complexity.',
+            'next_options' => 'If you want, I can schedule this for later.',
+            'next_options_chip_texts' => [
+                'Schedule this for later',
+            ],
+        ], []);
+
+        $this->assertTrue($result['valid']);
+        $this->assertStringNotContainsString('Complex complexity', (string) ($result['structured_data']['reasoning'] ?? ''));
+        $this->assertStringContainsString('higher effort', (string) ($result['structured_data']['reasoning'] ?? ''));
     }
 
     public function test_daily_schedule_quality_normalization_rewrites_mixed_daypart_claims_in_narrative(): void
