@@ -918,6 +918,15 @@ final class TaskAssistantMessageFormatter
         }
         $blockingReasons = is_array($data['blocking_reasons'] ?? null) ? $data['blocking_reasons'] : [];
         if ($blockingReasons !== []) {
+            $blockingReasons = array_values(array_filter($blockingReasons, static function (mixed $row): bool {
+                if (! is_array($row)) {
+                    return false;
+                }
+
+                $reason = mb_strtolower(trim((string) ($row['reason'] ?? '')));
+
+                return str_contains($reason, 'overlap');
+            }));
             $blockerLines = $this->formatBlockingItemOnlyLines($blockingReasons);
             if ($blockerLines !== []) {
                 $paragraphs[] = $this->resolveBlockingSectionTitle($data)."\n".implode("\n", $blockerLines);

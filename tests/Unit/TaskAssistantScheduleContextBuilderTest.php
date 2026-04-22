@@ -51,6 +51,38 @@ class TaskAssistantScheduleContextBuilderTest extends TestCase
         $this->assertSame('22:00', $analysis['time_window']['end'] ?? null);
     }
 
+    public function test_it_derives_time_window_for_later_morning_relative_to_now(): void
+    {
+        $builder = app(TaskAssistantScheduleContextBuilder::class);
+
+        $analysis = $builder->build('Schedule this for later morning', [
+            'tasks' => [],
+            'timezone' => 'UTC',
+            'today' => '2026-03-31',
+            'now' => '2026-03-31T09:22:00+00:00',
+        ]);
+
+        $this->assertSame('09:30', $analysis['time_window']['start'] ?? null);
+        $this->assertSame('12:00', $analysis['time_window']['end'] ?? null);
+        $this->assertContains('intent_time_window_later_daypart_dynamic', $analysis['schedule_intent_reason_codes'] ?? []);
+    }
+
+    public function test_it_derives_time_window_for_later_evening_relative_to_now(): void
+    {
+        $builder = app(TaskAssistantScheduleContextBuilder::class);
+
+        $analysis = $builder->build('Schedule this for later evening', [
+            'tasks' => [],
+            'timezone' => 'UTC',
+            'today' => '2026-03-31',
+            'now' => '2026-03-31T19:07:00+00:00',
+        ]);
+
+        $this->assertSame('19:15', $analysis['time_window']['start'] ?? null);
+        $this->assertSame('22:00', $analysis['time_window']['end'] ?? null);
+        $this->assertContains('intent_time_window_later_daypart_dynamic', $analysis['schedule_intent_reason_codes'] ?? []);
+    }
+
     public function test_it_derives_time_window_for_afternoon_onwards_until_evening_cutoff(): void
     {
         $builder = app(TaskAssistantScheduleContextBuilder::class);

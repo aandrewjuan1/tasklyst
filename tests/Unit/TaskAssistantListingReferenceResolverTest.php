@@ -87,6 +87,39 @@ test('those N returns first N items', function (): void {
     expect($targets[1]['entity_id'])->toBe(20);
 });
 
+test('single deictic reference after prioritize listing resolves full ranked set', function (): void {
+    $resolver = new TaskAssistantListingReferenceResolver;
+    $listing = sampleLastListing();
+
+    $targets = $resolver->resolveForSchedule('schedule it for later today', $listing, 'schedule');
+
+    expect($targets)->toHaveCount(3);
+    expect($targets[0]['entity_id'])->toBe(10);
+    expect($targets[1]['entity_id'])->toBe(20);
+    expect($targets[2]['entity_id'])->toBe(30);
+});
+
+test('single deictic reference after schedule listing stays single target', function (): void {
+    $resolver = new TaskAssistantListingReferenceResolver;
+    $listing = sampleLastListing();
+    $listing['source_flow'] = 'schedule';
+
+    $targets = $resolver->resolveForSchedule('schedule it for later today', $listing, 'schedule');
+
+    expect($targets)->toHaveCount(1);
+    expect($targets[0]['entity_id'])->toBe(10);
+});
+
+test('temporal phrase this week is not treated as single deictic item reference', function (): void {
+    $resolver = new TaskAssistantListingReferenceResolver;
+    $listing = sampleLastListing();
+    $listing['source_flow'] = 'schedule';
+
+    $targets = $resolver->resolveForSchedule('pick another time this week', $listing, 'schedule');
+
+    expect($targets)->toBe([]);
+});
+
 /**
  * @return array{
  *   source_flow: string,

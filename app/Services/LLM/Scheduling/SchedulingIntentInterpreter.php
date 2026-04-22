@@ -89,9 +89,15 @@ final class SchedulingIntentInterpreter
         // Precedence: explicit evening > afternoon > morning.
         if ($hasEvening) {
             $reasonCodes[] = 'intent_time_window_evening';
+            $start = '18:00';
+            $end = '22:00';
+            if ($hasLater) {
+                $start = $this->resolveLaterStartWithinDaypart($localNow, $start, $end);
+                $reasonCodes[] = 'intent_time_window_later_daypart_dynamic';
+            }
 
             return [
-                'time_window' => ['start' => '18:00', 'end' => '22:00'],
+                'time_window' => ['start' => $start, 'end' => $end],
                 'intent_flags' => [
                     'has_later' => $hasLater,
                     'has_morning' => $hasMorning,
@@ -111,6 +117,11 @@ final class SchedulingIntentInterpreter
 
             $start = '15:00';
             $end = '18:00';
+
+            if ($hasLater) {
+                $start = $this->resolveLaterStartWithinDaypart($localNow, $start, $end);
+                $reasonCodes[] = 'intent_time_window_later_daypart_dynamic';
+            }
 
             if ($hasOnwards) {
                 $end = $defaultEnd;
@@ -135,13 +146,18 @@ final class SchedulingIntentInterpreter
 
         if ($hasMorning) {
             $reasonCodes[] = 'intent_time_window_morning';
+            $start = '08:00';
             $end = $hasOnwards ? $defaultEnd : '12:00';
+            if ($hasLater) {
+                $start = $this->resolveLaterStartWithinDaypart($localNow, $start, $end);
+                $reasonCodes[] = 'intent_time_window_later_daypart_dynamic';
+            }
             if ($hasOnwards) {
                 $reasonCodes[] = 'intent_time_window_onwards_to_default_end';
             }
 
             return [
-                'time_window' => ['start' => '08:00', 'end' => $end],
+                'time_window' => ['start' => $start, 'end' => $end],
                 'intent_flags' => [
                     'has_later' => $hasLater,
                     'has_morning' => $hasMorning,
@@ -226,6 +242,17 @@ final class SchedulingIntentInterpreter
         }
 
         return $start;
+    }
+
+    private function resolveLaterStartWithinDaypart(CarbonImmutable $localNow, string $daypartStart, string $daypartEnd): string
+    {
+        $roundedStart = $this->resolveLaterStartTime($localNow, $daypartStart, $daypartEnd);
+
+        if ($roundedStart >= $daypartEnd) {
+            return $daypartEnd;
+        }
+
+        return $roundedStart < $daypartStart ? $daypartStart : $roundedStart;
     }
 
     /**

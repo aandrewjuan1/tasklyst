@@ -1100,8 +1100,7 @@ final class TaskAssistantResponseProcessor
                         'Cancel scheduling for now',
                     ],
                     'explicit_day_not_feasible' => [
-                        'Widen to nearby days',
-                        'Cancel scheduling for now',
+                        'Pick another time this week',
                     ],
                     'later_window_not_feasible' => [
                         'Yes, continue with tomorrow',
@@ -1117,6 +1116,13 @@ final class TaskAssistantResponseProcessor
                             $validator->errors()->add('confirmation_context.options', 'confirmation_context.options must include deterministic options for the reason_code.');
                             break;
                         }
+                    }
+                }
+                if ($reasonCode === 'explicit_day_not_feasible') {
+                    $hasScheduleSuggestion = collect($options)
+                        ->contains(static fn (mixed $option): bool => is_string($option) && str_starts_with(trim($option), 'Schedule for '));
+                    if (! $hasScheduleSuggestion) {
+                        $validator->errors()->add('confirmation_context.options', 'confirmation_context.options must include a nearest-daypart scheduling suggestion for explicit_day_not_feasible.');
                     }
                 }
                 if ($optionActions !== []) {

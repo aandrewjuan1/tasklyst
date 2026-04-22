@@ -38,14 +38,19 @@
                     @php
                         $greetingName = auth()->user()?->firstName() ?? '';
                     @endphp
-                    <div class="flex w-full min-w-0 items-center justify-between gap-3 sm:gap-4">
-                        <h2 class="min-w-0 flex-1 text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
-                            @if ($greetingName !== '')
-                                {{ __('Workspace — Hello, :name!', ['name' => $greetingName]) }}
-                            @else
-                                {{ __('Workspace — Hello!') }}
-                            @endif
-                        </h2>
+                    <div class="flex w-full min-w-0 items-start justify-between gap-3 sm:gap-4">
+                        <div class="min-w-0 flex-1 space-y-1">
+                            <h2 class="min-w-0 text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+                                @if ($greetingName !== '')
+                                    {{ __('Workspace — Hello, :name!', ['name' => $greetingName]) }}
+                                @else
+                                    {{ __('Workspace — Hello!') }}
+                                @endif
+                            </h2>
+                            <p class="max-w-2xl text-sm text-muted-foreground">
+                                {{ __('Build your day in one place: add tasks, classes, and deadlines, then use filters to focus on what matters next.') }}
+                            </p>
+                        </div>
                         <div class="inline-flex shrink-0 items-center">
                             <x-notifications.bell-cluster variant="hero" />
                         </div>
@@ -138,7 +143,7 @@
             </div>
 
             <div
-                class="lg:hidden sticky top-0 z-20 -mx-0.5 mb-2 flex items-center justify-between gap-2 rounded-xl border border-border/55 bg-background/90 px-3 py-2 shadow-sm backdrop-blur-md supports-[backdrop-filter]:bg-background/75 dark:border-zinc-600/45 dark:bg-zinc-950/90"
+                class="lg:hidden sticky top-0 z-20 -mx-0.5 mb-2 flex items-center justify-between gap-2 rounded-xl border border-border/55 bg-background/90 px-3 py-2 shadow-sm backdrop-blur-md supports-backdrop-filter:bg-background/75 dark:border-zinc-600/45 dark:bg-zinc-950/90"
                 role="status"
                 aria-live="polite"
                 data-testid="workspace-mobile-selected-date-bar"

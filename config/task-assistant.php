@@ -119,6 +119,15 @@ return [
         'inter_chunk_delay_ms' => (int) env('TASK_ASSISTANT_INTER_CHUNK_DELAY_MS', 24),
         'max_typing_effect_ms' => (int) env('TASK_ASSISTANT_MAX_TYPING_EFFECT_MS', 900),
         'health_timeout_seconds' => (int) env('TASK_ASSISTANT_STREAM_HEALTH_TIMEOUT_SECONDS', 20),
+        // Fallback polling cadence when realtime broadcast is unavailable.
+        'fallback_poll_initial_ms' => (int) env('TASK_ASSISTANT_FALLBACK_POLL_INITIAL_MS', 2000),
+        'fallback_poll_mid_ms' => (int) env('TASK_ASSISTANT_FALLBACK_POLL_MID_MS', 3500),
+        'fallback_poll_slow_ms' => (int) env('TASK_ASSISTANT_FALLBACK_POLL_SLOW_MS', 5000),
+        // Escalation windows for adaptive fallback polling.
+        'fallback_poll_mid_after_ms' => (int) env('TASK_ASSISTANT_FALLBACK_POLL_MID_AFTER_MS', 10000),
+        'fallback_poll_slow_after_ms' => (int) env('TASK_ASSISTANT_FALLBACK_POLL_SLOW_AFTER_MS', 25000),
+        // Health timeout checks should run less frequently than fallback polling.
+        'timeout_poll_ms' => (int) env('TASK_ASSISTANT_TIMEOUT_POLL_MS', 10000),
         // Re-check "stop streaming" signal every N chunks (reduces DB pressure during long streams).
         'stop_check_interval_chunks' => (int) env('TASK_ASSISTANT_STREAM_STOP_CHECK_INTERVAL_CHUNKS', 4),
         // Minimum elapsed time between cancellation checks to avoid query bursts on very fast chunk loops.

@@ -534,7 +534,7 @@ class extends Component
      *   starts_at_iso:string|null,
      *   ends_at_iso:string|null,
      *   time_label:string,
-     *   state:'now'|'next'|'later',
+     *   state:'past'|'now'|'next'|'later',
      *   workspace_url:string
      * }>
      */
@@ -566,8 +566,14 @@ class extends Component
                 [$startsAt, $endsAt] = $this->resolveDashboardSchoolClassDateWindow($class, $selectedDate);
                 $state = 'later';
 
-                if ($startsAt !== null && $endsAt !== null && $now->between($startsAt, $endsAt)) {
-                    $state = 'now';
+                if ($startsAt !== null && $endsAt !== null) {
+                    if ($now->between($startsAt, $endsAt)) {
+                        $state = 'now';
+                    } elseif ($endsAt->lessThan($now)) {
+                        $state = 'past';
+                    }
+                } elseif ($startsAt !== null && $startsAt->lessThanOrEqualTo($now)) {
+                    $state = 'past';
                 }
 
                 return [
@@ -602,7 +608,7 @@ class extends Component
          *   starts_at_iso:string|null,
          *   ends_at_iso:string|null,
          *   time_label:string,
-         *   state:'now'|'next'|'later',
+         *   state:'past'|'now'|'next'|'later',
          *   workspace_url:string
          * }> $rowList */
         $rowList = $rows

@@ -94,3 +94,33 @@ test('whole-day planning prompt promotes bare schedule to prioritize_schedule', 
     expect($out->flow)->toBe('prioritize_schedule')
         ->and($out->reasonCodes)->toContain('schedule_promoted_prioritize_schedule_day_planning');
 });
+
+test('schedule edit phrasing with afternoon does not remap to prioritize', function (): void {
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $plan = new ExecutionPlan(
+        flow: 'schedule',
+        confidence: 0.81,
+        clarificationNeeded: false,
+        clarificationQuestion: null,
+        reasonCodes: ['llm_intent_scheduling'],
+        constraints: [],
+        targetEntities: [],
+        timeWindowHint: 'later_afternoon',
+        countLimit: 3,
+        generationProfile: 'schedule',
+    );
+
+    $method = new \ReflectionMethod(TaskAssistantService::class, 'maybeRemapScheduleToPrioritize');
+    $method->setAccessible(true);
+    $out = $method->invoke(
+        app(TaskAssistantService::class),
+        $thread,
+        $plan,
+        'move at afternoon'
+    );
+
+    expect($out->flow)->toBe('schedule')
+        ->and($out->reasonCodes)->not->toContain('schedule_rerouted_no_listing_context');
+});

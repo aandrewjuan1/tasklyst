@@ -105,6 +105,15 @@ final class TaskAssistantListingReferenceResolver
             return $this->toTargetEntities($items);
         }
 
+        if ($this->matchesSingleDeicticReference($normalizedMessage)) {
+            $sourceFlow = (string) ($lastListing['source_flow'] ?? '');
+            if ($sourceFlow === 'prioritize') {
+                return $this->toTargetEntities($items);
+            }
+
+            return $this->sliceEntities($items, 0, 1);
+        }
+
         // Handle single-item ordinal phrasing:
         // - "schedule only the first one for later"
         // - "put last one in the evening"
@@ -377,6 +386,17 @@ final class TaskAssistantListingReferenceResolver
     private function matchesThoseThemAbove(string $normalized): bool
     {
         return preg_match('/\b(those|them|the\s+above)\b/i', $normalized) === 1;
+    }
+
+    private function matchesSingleDeicticReference(string $normalized): bool
+    {
+        // Do not treat temporal phrases like "this week" / "this afternoon"
+        // as entity deictic references.
+        if (preg_match('/\bthis\s+(week|month|year|morning|afternoon|evening|night|today|tomorrow)\b/i', $normalized) === 1) {
+            return false;
+        }
+
+        return preg_match('/\b(it|this|that|this\s+one|that\s+one|same\s+one)\b/i', $normalized) === 1;
     }
 
     private function matchThoseCount(string $normalized): ?int

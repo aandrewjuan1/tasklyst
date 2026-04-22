@@ -405,25 +405,11 @@ final class IntentRoutingPolicy
             $targetEntities = $this->targetsFromListingHead($listing, $countLimit);
         }
 
-        // If we resolved explicit schedule targets from the user's last ordered listing
-        // ("those/the above"/sliced subsets), align how many we schedule with that resolved set.
-        // This prevents unintentionally truncating the user's requested batch size.
-        if (
-            ($resolvedFlow === 'schedule' || $resolvedFlow === 'prioritize_schedule')
-            && $targetEntities !== []
-            && ! $this->isLikelyDeicticScheduleFollowup($normalized)
-            && $countLimit > count($targetEntities)
-        ) {
-            $targetEntities = [];
-        }
-
         if (($resolvedFlow === 'schedule' || $resolvedFlow === 'prioritize_schedule' || $resolvedFlow === 'listing_followup') && $targetEntities !== []) {
             $isDeicticFollowup = $this->isLikelyDeicticScheduleFollowup($normalized);
-            $shouldAlignWithResolvedTargets = ! $countLimitExplicitlyRequested
+            $shouldAlignWithResolvedTargets = $resolvedFlow === 'schedule'
+                || ! $countLimitExplicitlyRequested
                 || $isDeicticFollowup;
-            if ($resolvedFlow === 'prioritize_schedule' && ! $isDeicticFollowup) {
-                $shouldAlignWithResolvedTargets = false;
-            }
 
             if ($shouldAlignWithResolvedTargets) {
                 $countLimit = max(1, count($targetEntities));
@@ -555,6 +541,12 @@ final class IntentRoutingPolicy
                             return $lastListing;
                         }
                     }
+                    if ($this->isOrdinalOrIndexedReferenceRequest($normalizedContent) && is_array($lastListing)) {
+                        $listingItems = is_array($lastListing['items'] ?? null) ? $lastListing['items'] : [];
+                        if (count($listingItems) > count($items)) {
+                            return $lastListing;
+                        }
+                    }
 
                     return [
                         'source_flow' => 'schedule',
@@ -574,6 +566,23 @@ final class IntentRoutingPolicy
         }
 
         return preg_match('/\b(all|them all|those all|all of them|all those)\b/u', $normalized) === 1;
+    }
+
+    private function isOrdinalOrIndexedReferenceRequest(string $normalized): bool
+    {
+        if ($normalized === '') {
+            return false;
+        }
+        if (preg_match('/\b(top|first)\s+\d+\b/u', $normalized) === 1) {
+            return false;
+        }
+
+        return preg_match(
+            '/\b(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|last|bottom|top)\b/u',
+            $normalized
+        ) === 1
+            || preg_match('/(?:#\s*)\d+\b/u', $normalized) === 1
+            || preg_match('/\b(item|task)\s*#?\s*\d+\b/u', $normalized) === 1;
     }
 
     /**

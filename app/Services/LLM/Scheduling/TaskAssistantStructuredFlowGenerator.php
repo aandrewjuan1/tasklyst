@@ -960,6 +960,24 @@ final class TaskAssistantStructuredFlowGenerator
         $eventsForBusy = is_array($contextualSnapshot['events'] ?? null)
             ? $contextualSnapshot['events']
             : [];
+
+        $pendingBusyIntervals = is_array($options['pending_busy_intervals'] ?? null)
+            ? $options['pending_busy_intervals']
+            : [];
+        if ($pendingBusyIntervals !== []) {
+            $eventsForBusy = array_values(array_merge(
+                $eventsForBusy,
+                array_values(array_filter($pendingBusyIntervals, static function (mixed $row): bool {
+                    if (! is_array($row)) {
+                        return false;
+                    }
+
+                    return trim((string) ($row['starts_at'] ?? '')) !== ''
+                        && trim((string) ($row['ends_at'] ?? '')) !== '';
+                }))
+            ));
+        }
+
         $contextualSnapshot['events_for_busy'] = $eventsForBusy;
 
         $targetEntities = $options['target_entities'] ?? [];
@@ -1940,6 +1958,7 @@ final class TaskAssistantStructuredFlowGenerator
         int $targetIndex,
         int $scheduleUserId,
         array $refinementDayOptions = [],
+        array $pendingBusyIntervals = [],
     ): array {
         if ($targetIndex < 0 || $targetIndex >= count($workingProposals)) {
             return ['ok' => false, 'merged_proposals' => $workingProposals, 'error' => 'invalid_target_index'];
@@ -1966,6 +1985,7 @@ final class TaskAssistantStructuredFlowGenerator
         $options = [
             'target_entities' => $targetEntities,
             'schedule_user_id' => $scheduleUserId,
+            'pending_busy_intervals' => $pendingBusyIntervals,
             'refinement_anchor_date' => is_string($refinementDayOptions['refinement_anchor_date'] ?? null)
                 ? (string) $refinementDayOptions['refinement_anchor_date']
                 : null,
@@ -3058,13 +3078,18 @@ final class TaskAssistantStructuredFlowGenerator
         \DateTimeZone $timezone
     ): ?\DateTimeImmutable {
         $explicitEnd = $this->safeDateTime($task['ends_at'] ?? null, $timezone);
-        if ($explicitEnd instanceof \DateTimeImmutable) {
-            return $explicitEnd;
-        }
-
         $durationMinutes = max(0, (int) ($task['duration_minutes'] ?? 0));
         if ($durationMinutes > 0) {
-            return $taskStart->modify("+{$durationMinutes} minutes");
+            $durationEnd = $taskStart->modify("+{$durationMinutes} minutes");
+            if ($explicitEnd instanceof \DateTimeImmutable && $explicitEnd > $taskStart) {
+                return $explicitEnd < $durationEnd ? $explicitEnd : $durationEnd;
+            }
+
+            return $durationEnd;
+        }
+
+        if ($explicitEnd instanceof \DateTimeImmutable && $explicitEnd > $taskStart) {
+            return $explicitEnd;
         }
 
         return null;

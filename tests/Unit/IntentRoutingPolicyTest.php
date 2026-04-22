@@ -307,6 +307,36 @@ test('schedule top task resolves single target and count limit one', function ()
     expect((int) $decision->constraints['target_entities'][0]['entity_id'])->toBe(10);
 });
 
+test('schedule second one after single-target schedule context resolves from larger ranked listing', function (): void {
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'intent' => 'scheduling',
+                'confidence' => 0.9,
+                'rationale' => 'Scheduling follow-up.',
+            ])
+            ->withUsage(new Usage(1, 2)),
+    ]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+    $state = app(\App\Services\LLM\TaskAssistant\TaskAssistantConversationStateService::class);
+    $state->rememberPrioritizedItems($thread, [
+        ['entity_type' => 'task', 'entity_id' => 10, 'title' => 'Task A'],
+        ['entity_type' => 'task', 'entity_id' => 20, 'title' => 'Task B'],
+        ['entity_type' => 'task', 'entity_id' => 30, 'title' => 'Task C'],
+    ], 3);
+    $state->rememberScheduleContext($thread, [
+        ['entity_type' => 'task', 'entity_id' => 10, 'title' => 'Task A'],
+    ], 'later');
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'now schedule the second one later as well');
+
+    expect($decision->constraints['target_entities'])->toHaveCount(1);
+    expect((int) $decision->constraints['target_entities'][0]['entity_id'])->toBe(20);
+    expect($decision->constraints['count_limit'])->toBe(1);
+});
+
 test('schedule my top 1 tasks for later routes to prioritize_schedule with single count', function (): void {
     $user = User::factory()->create();
     $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
@@ -655,6 +685,52 @@ test('deictic explicit count schedule follow-up still aligns with resolved targe
     );
 
     $decision = app(IntentRoutingPolicy::class)->decide($thread, 'schedule those 3 this week');
+
+    expect($decision->flow)->toBe('schedule');
+    expect($decision->constraints['target_entities'])->toHaveCount(1);
+    expect($decision->constraints['count_limit'])->toBe(1);
+});
+
+test('schedule it after multi-item prioritize listing resolves the full ranked set', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+    $stateService = app(\App\Services\LLM\TaskAssistant\TaskAssistantConversationStateService::class);
+    $stateService->rememberLastListing(
+        $thread,
+        'prioritize',
+        [
+            ['entity_type' => 'task', 'entity_id' => 901, 'title' => 'A'],
+            ['entity_type' => 'task', 'entity_id' => 902, 'title' => 'B'],
+            ['entity_type' => 'task', 'entity_id' => 903, 'title' => 'C'],
+        ],
+        null,
+    );
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'schedule it for later today');
+
+    expect($decision->flow)->toBe('schedule');
+    expect($decision->constraints['target_entities'])->toHaveCount(3);
+    expect($decision->constraints['count_limit'])->toBe(3);
+});
+
+test('schedule it after single-item prioritize listing remains single target', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+    $stateService = app(\App\Services\LLM\TaskAssistant\TaskAssistantConversationStateService::class);
+    $stateService->rememberLastListing(
+        $thread,
+        'prioritize',
+        [
+            ['entity_type' => 'task', 'entity_id' => 901, 'title' => 'A'],
+        ],
+        null,
+    );
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'schedule it for later today');
 
     expect($decision->flow)->toBe('schedule');
     expect($decision->constraints['target_entities'])->toHaveCount(1);

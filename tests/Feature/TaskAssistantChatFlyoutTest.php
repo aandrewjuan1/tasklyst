@@ -163,7 +163,9 @@ test('chat flyout empty-state quick chip deterministic action mapping follows co
     ['What are my top 3 tasks', 'chip_prioritize_top_three'],
     ['Schedule my most important task', 'chip_prioritize_schedule_top_one'],
     ['What should I focus on today', 'chip_prioritize_top_one'],
-    ['Schedule top 1 for later', 'chip_prioritize_schedule_top_one'],
+    ['Schedule my top 1 task for later', 'chip_prioritize_schedule_top_one'],
+    ['Schedule the ranked task for later today', 'chip_schedule_ranked_top_one'],
+    ['Schedule all ranked tasks for later today', 'chip_schedule_ranked_set'],
     ['Create a plan for tomorrow', 'chip_prioritize_schedule'],
 ]);
 
@@ -253,7 +255,7 @@ test('chat flyout evening new chat includes tomorrow and later scheduling chips'
         ->assertSet('isStreaming', false)
         ->assertCount('emptyStateQuickChips', 4)
         ->assertSee('Create a plan for tomorrow')
-        ->assertSee('Schedule top 1 for later');
+        ->assertSee('Schedule my top 1 task for later');
 
     CarbonImmutable::setTestNow();
 });

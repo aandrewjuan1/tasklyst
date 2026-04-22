@@ -50,7 +50,7 @@ test('resolver includes both evening chips when pending schedule fallback exists
 
     expect($chips)->toHaveCount(4);
     expect($chips)->toContain('Create a plan for tomorrow');
-    expect($chips)->toContain('Schedule top 1 for later');
+    expect($chips)->toContain('Schedule my top 1 task for later');
     expect($chips)->not->toContain('Create a plan for today');
     expect($chips)->not->toContain('Continue my pending schedule draft');
     expect($chips[0] ?? null)->toBe('Create a plan for tomorrow');
@@ -131,7 +131,7 @@ test('resolver morning avoids later-window and reprioritize chips', function ():
 
     $chips = app(TaskAssistantQuickChipResolver::class)->resolveForEmptyState($user, $thread, 6);
 
-    expect($chips)->not->toContain('Schedule top 1 for later');
+    expect($chips)->not->toContain('Schedule my top 1 task for later');
     expect($chips)->not->toContain('Re-prioritize my remaining tasks');
     expect($chips)->toContain('Create a plan for today');
 
@@ -164,7 +164,7 @@ test('resolver evening allows reprioritize and later scheduling chips', function
     $chips = app(TaskAssistantQuickChipResolver::class)->resolveForEmptyState($user, $thread, 6);
 
     expect($chips)->toContain('Re-prioritize my remaining tasks');
-    expect($chips)->toContain('Schedule top 1 for later');
+    expect($chips)->toContain('Schedule my top 1 task for later');
     expect($chips)->toContain('Create a plan for tomorrow');
 
     CarbonImmutable::setTestNow();

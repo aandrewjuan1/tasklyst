@@ -1909,7 +1909,9 @@ test('explicit requested date no-fit requires confirmation instead of silent day
     expect($converted['confirmation_required'] ?? null)->toBeTrue();
     expect($converted['awaiting_user_decision'] ?? null)->toBeTrue();
     expect($converted['confirmation_context']['reason_code'] ?? null)->toBe('explicit_day_not_feasible');
-    expect($converted['confirmation_context']['options'] ?? [])->toContain('Widen to nearby days');
+    expect((array) ($converted['confirmation_context']['options'] ?? []))
+        ->toContain('Schedule for the closest available daypart')
+        ->toContain('Pick another time this week');
 });
 
 test('fallback confirmation narrative does not claim explicit top-N for generic plan request', function (): void {
@@ -2036,8 +2038,8 @@ test('fallback confirmation keeps horizon wording for implicit tomorrow requests
                     'daypart' => 'afternoon',
                     'start_time' => '13:00',
                     'end_time' => '16:00',
-                    'window_label' => '1:00 PM-4:00 PM',
-                    'display_label' => 'Apr 24, 2026 1:00 PM-4:00 PM',
+                    'window_label' => 'afternoon',
+                    'display_label' => 'Apr 24, 2026 afternoon',
                 ],
             ],
         ],
@@ -2052,7 +2054,8 @@ test('fallback confirmation keeps horizon wording for implicit tomorrow requests
     expect((string) ($converted['confirmation_context']['reason_message'] ?? ''))->not->toContain('8:00 AM');
     expect((string) ($converted['confirmation_context']['reason_message'] ?? ''))->not->toContain('22 hours');
     expect((string) ($converted['confirmation_context']['requested_horizon_label'] ?? ''))->toBe('tomorrow');
-    expect((string) ($converted['confirmation_context']['option_actions'][0]['label'] ?? ''))->toBe('Schedule for Apr 24');
+    expect((string) ($converted['confirmation_context']['option_actions'][0]['label'] ?? ''))->toBe('Schedule for Apr 24 afternoon');
+    expect((string) ($converted['confirmation_context']['option_actions'][0]['label'] ?? ''))->not->toContain('PM');
 });
 
 test('pending schedule fallback proceeds on affirmative follow-up', function (): void {
@@ -2808,4 +2811,64 @@ test('processQueuedMessage routes prioritize-schedule top-one chip actions deter
     expect($assistantMessage->metadata['routing_trace']['initial_flow'] ?? null)->toBe('prioritize_schedule');
     expect($assistantMessage->metadata['routing_trace']['initial_reason_codes'] ?? [])
         ->toContain('client_action_chip_prioritize_schedule_top_one');
+});
+
+test('processQueuedMessage routes ranked-set schedule chip actions deterministically', function (): void {
+    config(['task-assistant.intent.use_llm' => true]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $userMessage = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'Schedule all ranked tasks for later today',
+        'metadata' => [
+            'client_action' => [
+                'id' => 'chip_schedule_ranked_set',
+                'source' => 'next_option_chip',
+            ],
+        ],
+    ]);
+    $assistantMessage = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
+
+    $assistantMessage->refresh();
+
+    expect($assistantMessage->metadata['routing_trace']['initial_flow'] ?? null)->toBe('schedule');
+    expect($assistantMessage->metadata['routing_trace']['initial_reason_codes'] ?? [])
+        ->toContain('client_action_chip_schedule_ranked_set');
+});
+
+test('processQueuedMessage routes ranked-top-one schedule chip actions deterministically', function (): void {
+    config(['task-assistant.intent.use_llm' => true]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $userMessage = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'Schedule the ranked task for later today',
+        'metadata' => [
+            'client_action' => [
+                'id' => 'chip_schedule_ranked_top_one',
+                'source' => 'next_option_chip',
+            ],
+        ],
+    ]);
+    $assistantMessage = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
+
+    $assistantMessage->refresh();
+
+    expect($assistantMessage->metadata['routing_trace']['initial_flow'] ?? null)->toBe('schedule');
+    expect($assistantMessage->metadata['routing_trace']['initial_reason_codes'] ?? [])
+        ->toContain('client_action_chip_schedule_ranked_top_one');
 });

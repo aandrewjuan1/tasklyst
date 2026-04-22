@@ -11,6 +11,14 @@
         loadingTimer: null,
         streamingTimeoutPollTimer: null,
         streamingFallbackPollTimer: null,
+        streamingFallbackStartedAtMs: null,
+        pageVisibilityListener: null,
+        fallbackPollInitialMs: @js(max(250, (int) config('task-assistant.streaming.fallback_poll_initial_ms', 2000))),
+        fallbackPollMidMs: @js(max(250, (int) config('task-assistant.streaming.fallback_poll_mid_ms', 3500))),
+        fallbackPollSlowMs: @js(max(250, (int) config('task-assistant.streaming.fallback_poll_slow_ms', 5000))),
+        fallbackPollMidAfterMs: @js(max(1000, (int) config('task-assistant.streaming.fallback_poll_mid_after_ms', 10000))),
+        fallbackPollSlowAfterMs: @js(max(2000, (int) config('task-assistant.streaming.fallback_poll_slow_after_ms', 25000))),
+        timeoutPollMs: @js(max(1000, (int) config('task-assistant.streaming.timeout_poll_ms', 10000))),
         scrollQueued: false,
         pendingScrollBehavior: 'smooth',
         wasStreaming: false,
@@ -42,20 +50,26 @@
             if (this.streamingTimeoutPollTimer) {
                 return;
             }
-
-            this.streamingTimeoutPollTimer = setInterval(() => {
+            this.queueStreamingTimeoutPoll();
+        },
+        queueStreamingTimeoutPoll() {
+            this.streamingTimeoutPollTimer = setTimeout(() => {
+                this.streamingTimeoutPollTimer = null;
                 if (!this.$wire.isStreaming) {
-                    this.stopStreamingTimeoutPolling();
+                    return;
+                }
+                if (document.visibilityState !== 'visible') {
+                    this.queueStreamingTimeoutPoll();
 
                     return;
                 }
-
                 this.$wire.checkStreamingTimeout();
-            }, 5000);
+                this.queueStreamingTimeoutPoll();
+            }, this.timeoutPollMs);
         },
         stopStreamingTimeoutPolling() {
             if (this.streamingTimeoutPollTimer) {
-                clearInterval(this.streamingTimeoutPollTimer);
+                clearTimeout(this.streamingTimeoutPollTimer);
                 this.streamingTimeoutPollTimer = null;
             }
         },
@@ -66,22 +80,67 @@
             if (!this.noRealtimeBroadcast || this.streamingFallbackPollTimer) {
                 return;
             }
+            this.streamingFallbackStartedAtMs = Date.now();
+            this.queueStreamingFallbackPoll();
+        },
+        getStreamingFallbackPollIntervalMs() {
+            const startedAtMs = this.streamingFallbackStartedAtMs ?? Date.now();
+            const elapsedMs = Math.max(0, Date.now() - startedAtMs);
+            if (elapsedMs >= this.fallbackPollSlowAfterMs) {
+                return this.fallbackPollSlowMs;
+            }
+            if (elapsedMs >= this.fallbackPollMidAfterMs) {
+                return this.fallbackPollMidMs;
+            }
 
-            this.streamingFallbackPollTimer = setInterval(() => {
+            return this.fallbackPollInitialMs;
+        },
+        queueStreamingFallbackPoll() {
+            const intervalMs = this.getStreamingFallbackPollIntervalMs();
+            this.streamingFallbackPollTimer = setTimeout(() => {
+                this.streamingFallbackPollTimer = null;
                 if (!this.$wire.isStreaming) {
-                    this.stopStreamingFallbackPolling();
+                    return;
+                }
+                if (document.visibilityState !== 'visible') {
+                    this.queueStreamingFallbackPoll();
 
                     return;
                 }
-
                 this.$wire.pollStreamingFallback();
-            }, 1500);
+                this.queueStreamingFallbackPoll();
+            }, intervalMs);
         },
         stopStreamingFallbackPolling() {
             if (this.streamingFallbackPollTimer) {
-                clearInterval(this.streamingFallbackPollTimer);
+                clearTimeout(this.streamingFallbackPollTimer);
                 this.streamingFallbackPollTimer = null;
             }
+            this.streamingFallbackStartedAtMs = null;
+        },
+        registerVisibilityPollingListener() {
+            if (this.pageVisibilityListener) {
+                return;
+            }
+            this.pageVisibilityListener = () => {
+                if (document.visibilityState !== 'visible' || !this.$wire.isStreaming) {
+                    return;
+                }
+                if (this.noRealtimeBroadcast && !this.streamingFallbackPollTimer) {
+                    this.queueStreamingFallbackPoll();
+                }
+                if (!this.streamingTimeoutPollTimer) {
+                    this.queueStreamingTimeoutPoll();
+                }
+            };
+            document.addEventListener('visibilitychange', this.pageVisibilityListener);
+        },
+        unregisterVisibilityPollingListener() {
+            if (!this.pageVisibilityListener) {
+                return;
+            }
+            document.removeEventListener('visibilitychange', this.pageVisibilityListener);
+            this.pageVisibilityListener = null;
         },
         isNearBottom(thresholdPx = 80) {
             const container = this.$refs.messagesContainer ?? null;
@@ -129,6 +188,7 @@
         },
         init() {
             this.detectRealtimeBroadcastAvailability();
+            this.registerVisibilityPollingListener();
             this.$nextTick(() => this.queueScrollToBottom('auto'));
             this.wasStreaming = !! this.$wire.isStreaming;
             this.allowAutoScrollOnStreamEnd = this.isNearBottom(180);
@@ -174,6 +234,7 @@
             this.stopLoadingPhraseRotation();
             this.stopStreamingTimeoutPolling();
             this.stopStreamingFallbackPolling();
+            this.unregisterVisibilityPollingListener();
             if (this.scrollStateRaf) {
                 cancelAnimationFrame(this.scrollStateRaf);
                 this.scrollStateRaf = null;

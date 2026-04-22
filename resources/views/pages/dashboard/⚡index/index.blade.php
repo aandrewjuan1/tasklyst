@@ -52,6 +52,7 @@
 
     $schoolClassStatePill = static function (string $state): array {
         return match ($state) {
+            'past' => ['label' => __('Past'), 'class' => 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200'],
             'now' => ['label' => __('Now'), 'class' => 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200'],
             'next' => ['label' => __('Next'), 'class' => 'bg-blue-100 text-blue-800 dark:bg-blue-950/50 dark:text-blue-200'],
             default => ['label' => __('Later'), 'class' => 'bg-muted text-muted-foreground'],
@@ -156,7 +157,7 @@
                                         class="inline-flex items-center gap-2 rounded-xl bg-brand-blue px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-blue/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/50"
                                     >
                                         <flux:icon name="sparkles" class="size-4" />
-                                        <span>{{ __('Ask AI assistant') }}</span>
+                                        <span>{{ __('Use AI assistant') }}</span>
                                     </button>
                                 </flux:modal.trigger>
                             @endauth

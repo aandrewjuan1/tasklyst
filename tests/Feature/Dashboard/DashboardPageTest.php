@@ -306,6 +306,49 @@ test('dashboard today classes panel renders rows with state badges and workspace
     Carbon::setTestNow();
 });
 
+test('dashboard today classes panel marks ended classes as past', function () {
+    Carbon::setTestNow(Carbon::parse('2026-04-12 20:00:00'));
+    $user = User::factory()->create();
+    $selectedDate = '2026-04-12';
+
+    SchoolClass::factory()->for($user)->create([
+        'subject_name' => 'Morning Class',
+        'start_time' => '07:00:00',
+        'end_time' => '10:00:00',
+        'start_datetime' => Carbon::parse('2026-04-12 07:00:00'),
+        'end_datetime' => Carbon::parse('2026-04-12 10:00:00'),
+    ]);
+
+    SchoolClass::factory()->for($user)->create([
+        'subject_name' => 'Evening Class',
+        'start_time' => '19:00:00',
+        'end_time' => '21:00:00',
+        'start_datetime' => Carbon::parse('2026-04-12 19:00:00'),
+        'end_datetime' => Carbon::parse('2026-04-12 21:00:00'),
+    ]);
+
+    SchoolClass::factory()->for($user)->create([
+        'subject_name' => 'Night Class',
+        'start_time' => '22:00:00',
+        'end_time' => '23:00:00',
+        'start_datetime' => Carbon::parse('2026-04-12 22:00:00'),
+        'end_datetime' => Carbon::parse('2026-04-12 23:00:00'),
+    ]);
+
+    $response = $this->actingAs($user)->get(route('dashboard', ['date' => $selectedDate]));
+
+    $response->assertSuccessful();
+    $response->assertSee('Morning Class', false);
+    $response->assertSee('Evening Class', false);
+    $response->assertSee('Night Class', false);
+    $response->assertSee('Past', false);
+    $response->assertSee('Now', false);
+    $response->assertSee('Next', false);
+    $response->assertDontSee('Later', false);
+
+    Carbon::setTestNow();
+});
+
 test('dashboard today classes panel shows see all and empty state appropriately', function () {
     Carbon::setTestNow(Carbon::parse('2026-04-12 08:00:00'));
     $user = User::factory()->create();

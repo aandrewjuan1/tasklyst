@@ -118,6 +118,34 @@ it('preserves full events list in events_for_busy when targets are task-only', f
     expect($out['events_for_busy'] ?? [])->toHaveCount(1);
 });
 
+it('merges pending busy intervals into events_for_busy snapshot stream', function (): void {
+    $generator = app(TaskAssistantStructuredFlowGenerator::class);
+    $method = new ReflectionMethod(TaskAssistantStructuredFlowGenerator::class, 'applyContextToSnapshot');
+    $method->setAccessible(true);
+
+    $snapshot = [
+        'timezone' => 'UTC',
+        'today' => '2026-03-29',
+        'tasks' => [],
+        'events' => [
+            ['id' => 100, 'title' => 'Existing busy', 'starts_at' => '2026-03-29T18:00:00+00:00', 'ends_at' => '2026-03-29T19:00:00+00:00'],
+        ],
+        'projects' => [],
+    ];
+    $context = ['schedule_horizon' => ['mode' => 'single_day', 'start_date' => '2026-03-29', 'end_date' => '2026-03-29', 'label' => 'default_today']];
+    $options = [
+        'pending_busy_intervals' => [
+            ['id' => -1, 'title' => 'pending_schedule: task a', 'starts_at' => '2026-03-29T08:00:00+00:00', 'ends_at' => '2026-03-29T08:45:00+00:00'],
+            ['id' => -2, 'title' => 'pending_schedule: task b', 'starts_at' => '2026-03-29T09:00:00+00:00', 'ends_at' => '2026-03-29T09:45:00+00:00'],
+        ],
+    ];
+
+    /** @var array<string, mixed> $out */
+    $out = $method->invoke($generator, $snapshot, $context, $options);
+
+    expect($out['events_for_busy'] ?? [])->toHaveCount(3);
+});
+
 it('merges missing target task ids from the database into the contextual snapshot', function (): void {
     $user = User::factory()->create();
     $missing = Task::factory()->for($user)->create([
@@ -228,6 +256,26 @@ it('schedules a task atomically when duration fits the window', function (): voi
     expect((int) ($proposals[0]['duration_minutes'] ?? 0))->toBe(240);
     expect((string) ($proposals[0]['title'] ?? ''))->not->toContain('(part');
     expect(is_array($digest['unplaced_units'] ?? null) ? count($digest['unplaced_units']) : 0)->toBe(0);
+});
+
+it('uses task duration to bound busy end when due date is much later', function (): void {
+    $generator = app(TaskAssistantStructuredFlowGenerator::class);
+    $method = new ReflectionMethod(TaskAssistantStructuredFlowGenerator::class, 'resolveTaskBusyEnd');
+    $method->setAccessible(true);
+
+    $start = new DateTimeImmutable('2026-04-23T08:00:00+00:00');
+    $end = $method->invoke(
+        $generator,
+        [
+            'ends_at' => '2026-04-26T19:01:00+00:00',
+            'duration_minutes' => 45,
+        ],
+        $start,
+        new DateTimeZone('UTC')
+    );
+
+    expect($end)->toBeInstanceOf(DateTimeImmutable::class);
+    expect($end->format('Y-m-d H:i'))->toBe('2026-04-23 08:45');
 });
 
 it('records unplaced units when proposal count_limit is reached', function (): void {

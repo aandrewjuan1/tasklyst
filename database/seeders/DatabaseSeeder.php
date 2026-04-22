@@ -8,8 +8,11 @@ class DatabaseSeeder extends Seeder
 {
     public function run(): void
     {
-        // Intentionally empty default seed set.
-        // Manual run for realistic student data:
+        $this->call([
+            AndrewJuanExactDatasetSeeder::class,
+        ]);
+
+        // Manual run for alternate realistic student data:
         // php artisan db:seed --class=AndrewJuanRealisticSeeder
     }
 }

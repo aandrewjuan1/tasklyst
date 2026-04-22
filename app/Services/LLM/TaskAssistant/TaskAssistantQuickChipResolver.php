@@ -112,19 +112,19 @@ final class TaskAssistantQuickChipResolver
                 __('What should I focus on today'),
             ],
             'afternoon' => [
-                __('Schedule top 1 for later'),
+                __('Schedule my top 1 task for later'),
                 __('What are my top 3 tasks'),
                 __('Create a plan for today'),
                 __('What should I focus on today'),
             ],
             'evening' => [
                 __('Create a plan for tomorrow'),
-                __('Schedule top 1 for later'),
+                __('Schedule my top 1 task for later'),
                 __('What are my top 3 tasks'),
                 __('What should I focus on today'),
             ],
             'midnight' => [
-                __('Schedule top 1 for later'),
+                __('Schedule my top 1 task for later'),
                 __('What are my top 3 tasks'),
                 __('What should I focus on today'),
             ],

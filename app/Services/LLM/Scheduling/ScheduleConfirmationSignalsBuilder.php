@@ -534,6 +534,46 @@ final class ScheduleConfirmationSignalsBuilder
             ];
         }
 
+        $tasks = is_array($snapshot['tasks'] ?? null) ? $snapshot['tasks'] : [];
+        foreach ($tasks as $task) {
+            if (! is_array($task)) {
+                continue;
+            }
+            $startRaw = trim((string) ($task['starts_at'] ?? $task['start_datetime'] ?? ''));
+            if ($startRaw === '') {
+                continue;
+            }
+            try {
+                $start = (new \DateTimeImmutable($startRaw))->setTimezone($timezone);
+            } catch (\Throwable) {
+                continue;
+            }
+
+            $endRaw = trim((string) ($task['ends_at'] ?? $task['end_datetime'] ?? ''));
+            if ($endRaw !== '') {
+                try {
+                    $end = (new \DateTimeImmutable($endRaw))->setTimezone($timezone);
+                } catch (\Throwable) {
+                    $end = null;
+                }
+            } else {
+                $durationMinutes = max(1, (int) ($task['duration'] ?? $task['duration_minutes'] ?? 0));
+                $end = $start->modify("+{$durationMinutes} minutes");
+            }
+
+            if (! $end instanceof \DateTimeImmutable || $end <= $start) {
+                continue;
+            }
+            if ($end <= $dayStart || $start >= $dayEnd) {
+                continue;
+            }
+
+            $intervals[] = [
+                'start' => $start < $dayStart ? $dayStart : $start,
+                'end' => $end > $dayEnd ? $dayEnd : $end,
+            ];
+        }
+
         usort($intervals, static fn (array $a, array $b): int => $a['start'] <=> $b['start']);
 
         return $intervals;
@@ -602,8 +642,6 @@ final class ScheduleConfirmationSignalsBuilder
     private function formatNearestWindowCandidate(\DateTimeImmutable $day, \DateTimeImmutable $start, \DateTimeImmutable $end): array
     {
         $dayLabel = $day->format('M j, Y');
-        $startLabel = $start->format('g:i A');
-        $endLabel = $end->format('g:i A');
         $daypart = match (true) {
             (int) $start->format('H') < 12 => 'morning',
             (int) $start->format('H') < 18 => 'afternoon',
@@ -617,8 +655,8 @@ final class ScheduleConfirmationSignalsBuilder
             'daypart' => $daypart,
             'start_time' => $start->format('H:i'),
             'end_time' => $end->format('H:i'),
-            'window_label' => "{$startLabel}-{$endLabel}",
-            'display_label' => "{$dayLabel} {$startLabel}-{$endLabel}",
+            'window_label' => $daypart,
+            'display_label' => "{$dayLabel} {$daypart}",
         ];
     }
 }
