@@ -426,7 +426,7 @@ test('event status completed deactivates scheduled focus persistently', function
         ->and($item->dismissed_at)->not->toBeNull();
 });
 
-test('panel hides when last item is removed and reappears when new proposal is accepted', function (): void {
+test('panel stays visible with empty state when last item is removed and still renders new proposals', function (): void {
     Carbon::setTestNow(Carbon::parse('2026-04-20 10:00:00', config('app.timezone')));
     $this->actingAs($this->user);
 
@@ -471,7 +471,9 @@ test('panel hides when last item is removed and reappears when new proposal is a
 
     $this->get(route('workspace'))
         ->assertSuccessful()
-        ->assertDontSee('AI Proposed Schedule');
+        ->assertSee('AI Proposed Schedule')
+        ->assertSee('No scheduled focus items yet')
+        ->assertSee('Generate Schedule');
 
     AssistantSchedulePlanItem::query()->create([
         'assistant_schedule_plan_id' => $plan->id,
@@ -493,4 +495,14 @@ test('panel hides when last item is removed and reappears when new proposal is a
         ->assertSuccessful()
         ->assertSee('AI Proposed Schedule')
         ->assertSee('New Accepted Proposal');
+});
+
+test('workspace kanban view shows scheduled focus empty state when there are no plan items', function (): void {
+    $this->actingAs($this->user);
+
+    $this->get(route('workspace', ['view' => 'kanban']))
+        ->assertSuccessful()
+        ->assertSee('AI Proposed Schedule')
+        ->assertSee('No scheduled focus items yet')
+        ->assertSee('Generate Schedule');
 });

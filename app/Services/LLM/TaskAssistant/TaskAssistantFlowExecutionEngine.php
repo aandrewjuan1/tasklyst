@@ -104,7 +104,7 @@ final class TaskAssistantFlowExecutionEngine
 
         $assistantContent = $finalValid
             ? (string) ($processedResponse['formatted_content'] ?? '')
-            : $assistantFallbackContent;
+            : $this->buildInvalidFlowFallbackContent($flow, $payload, $assistantFallbackContent);
 
         if ($this->processingGuard->isMessageStopped($assistantMessage)) {
             Log::info('task-assistant.flow_execution', [
@@ -229,6 +229,74 @@ final class TaskAssistantFlowExecutionEngine
             ],
             default => [],
         };
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function buildInvalidFlowFallbackContent(string $flow, array $payload, string $assistantFallbackContent): string
+    {
+        $segments = match ($flow) {
+            'daily_schedule' => $this->collectDailyScheduleFallbackSegments($payload),
+            'prioritize' => $this->collectPrioritizeFallbackSegments($payload),
+            default => [],
+        };
+
+        if ($segments === []) {
+            return $assistantFallbackContent;
+        }
+
+        $combined = trim(implode("\n\n", $segments));
+        if ($combined === '') {
+            return $assistantFallbackContent;
+        }
+
+        if (mb_strlen($combined) > 1800) {
+            return trim(mb_substr($combined, 0, 1799)).'…';
+        }
+
+        return $combined;
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return list<string>
+     */
+    private function collectDailyScheduleFallbackSegments(array $payload): array
+    {
+        $segments = [];
+        foreach (['framing', 'reasoning', 'confirmation'] as $key) {
+            $value = trim((string) ($payload[$key] ?? ''));
+            if ($value !== '') {
+                $segments[] = $value;
+            }
+        }
+
+        if ($segments === []) {
+            $prompt = trim((string) data_get($payload, 'confirmation_context.prompt', ''));
+            if ($prompt !== '') {
+                $segments[] = $prompt;
+            }
+        }
+
+        return $segments;
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return list<string>
+     */
+    private function collectPrioritizeFallbackSegments(array $payload): array
+    {
+        $segments = [];
+        foreach (['acknowledgment', 'framing', 'reasoning', 'next_options'] as $key) {
+            $value = trim((string) ($payload[$key] ?? ''));
+            if ($value !== '') {
+                $segments[] = $value;
+            }
+        }
+
+        return $segments;
     }
 
     /**

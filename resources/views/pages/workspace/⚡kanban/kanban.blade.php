@@ -71,7 +71,6 @@
 
     $scheduledFocusGroups = is_array($scheduledFocusPlanGroups ?? null) ? $scheduledFocusPlanGroups : [];
     $scheduledFocusTotalCount = (int) ($scheduledFocusPlanTotalCount ?? 0);
-    $hasScheduledFocusPanel = $scheduledFocusTotalCount > 0;
 @endphp
 
 <div class="space-y-4">
@@ -88,13 +87,11 @@
         :board-is-empty="$kanbanBoardIsEmpty"
     />
 
-    @if ($hasScheduledFocusPanel)
-        <x-workspace.scheduled-focus-plan
-            appearance="compact"
-            :groups="$scheduledFocusGroups"
-            :total-count="$scheduledFocusTotalCount"
-        />
-    @endif
+    <x-workspace.scheduled-focus-plan
+        appearance="compact"
+        :groups="$scheduledFocusGroups"
+        :total-count="$scheduledFocusTotalCount"
+    />
 
 <div
     class="w-full space-y-4"

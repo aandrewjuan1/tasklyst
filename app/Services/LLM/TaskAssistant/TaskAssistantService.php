@@ -907,6 +907,76 @@ final class TaskAssistantService
     }
 
     /**
+     * @param  array<string, mixed>  $snapshot
+     */
+    private function countTodoTasksFromSnapshot(array $snapshot): int
+    {
+        $tasks = is_array($snapshot['tasks'] ?? null) ? $snapshot['tasks'] : [];
+        $count = 0;
+        foreach ($tasks as $task) {
+            if (! is_array($task)) {
+                continue;
+            }
+            if (($task['status'] ?? null) === TaskStatus::ToDo->value) {
+                $count++;
+            }
+        }
+
+        return $count;
+    }
+
+    /**
+     * @param  list<string>  $doingTitles
+     * @return array{valid: bool, data: array<string, mixed>, errors: list<string>}
+     */
+    private function buildDoingOnlyScheduleGenerationResult(array $doingTitles, ?string $timeWindowHint, int $countLimit): array
+    {
+        $firstTitle = trim((string) ($doingTitles[0] ?? 'your current task'));
+        $focusLine = $firstTitle !== '' ? $firstTitle : 'your current task';
+        $windowLine = $timeWindowHint !== null && $timeWindowHint !== ''
+            ? " for {$timeWindowHint}"
+            : '';
+        $framing = "I will not schedule tasks already marked as in progress. Right now, your focus should stay on {$focusLine}.";
+        $reasoning = "You asked to schedule top {$countLimit}{$windowLine}, but only in-progress work is available. Finish the current task first, then ask me to schedule the next to-do task.";
+        $confirmation = 'Once you move a task to To Do, ask me again and I will schedule it.';
+
+        $data = [
+            'schema_version' => ScheduleDraftMetadataNormalizer::SCHEMA_VERSION,
+            'proposals' => [],
+            'blocks' => [],
+            'items' => [],
+            'schedule_variant' => 'daily',
+            'framing' => $framing,
+            'reasoning' => $reasoning,
+            'confirmation' => $confirmation,
+            'schedule_empty_placement' => true,
+            'placement_digest' => [],
+            'window_selection_explanation' => '',
+            'ordering_rationale' => [],
+            'blocking_reasons' => [],
+            'fallback_choice_explanation' => null,
+            'window_selection_struct' => [],
+            'ordering_rationale_struct' => [],
+            'blocking_reasons_struct' => [],
+            'confirmation_required' => false,
+            'awaiting_user_decision' => false,
+            'confirmation_context' => null,
+            'fallback_preview' => null,
+        ];
+        $normalized = $this->scheduleDraftMetadataNormalizer->normalizeAndValidate([
+            'schedule' => $data,
+            'structured' => ['data' => $data],
+        ]);
+        $canonicalData = is_array($normalized['canonical_data'] ?? null) ? $normalized['canonical_data'] : $data;
+
+        return [
+            'valid' => true,
+            'data' => $canonicalData,
+            'errors' => [],
+        ];
+    }
+
+    /**
      * Standardize prioritize follow-up options (text + chips) to avoid odd model outputs.
      *
      * @return array{next_options: string, next_options_chip_texts: list<string>}
@@ -1764,20 +1834,34 @@ final class TaskAssistantService
         $scheduleTargets = $plan->targetEntities;
         $timeWindowHint = $plan->timeWindowHint;
         $explicitRequestedCount = $this->extractExplicitRequestedCount($content);
-
-        $result = $this->structuredFlowGenerator->generateDailySchedule(
-            thread: $thread,
-            userMessageContent: $content,
-            historyMessages: $historyMessages,
-            options: [
-                'target_entities' => $scheduleTargets,
-                'schedule_source' => 'schedule',
-                'time_window_hint' => $timeWindowHint,
-                'count_limit' => $plan->countLimit,
-                'explicit_requested_count' => $explicitRequestedCount,
-                'schedule_user_id' => $thread->user_id,
-            ]
+        $snapshot = $this->candidateProvider->candidatesForUser(
+            $thread->user,
+            taskLimit: $this->snapshotTaskLimit(),
         );
+        $todoTaskCount = $this->countTodoTasksFromSnapshot($snapshot);
+        $doingMeta = $this->collectDoingTasksFromSnapshot($snapshot);
+
+        if ($todoTaskCount === 0 && $doingMeta['count'] > 0) {
+            $result = $this->buildDoingOnlyScheduleGenerationResult(
+                $doingMeta['titles'],
+                $timeWindowHint,
+                $plan->countLimit,
+            );
+        } else {
+            $result = $this->structuredFlowGenerator->generateDailySchedule(
+                thread: $thread,
+                userMessageContent: $content,
+                historyMessages: $historyMessages,
+                options: [
+                    'target_entities' => $scheduleTargets,
+                    'schedule_source' => 'schedule',
+                    'time_window_hint' => $timeWindowHint,
+                    'count_limit' => $plan->countLimit,
+                    'explicit_requested_count' => $explicitRequestedCount,
+                    'schedule_user_id' => $thread->user_id,
+                ]
+            );
+        }
         $result = $this->maybeConvertToScheduleFallbackConfirmation(
             thread: $thread,
             userMessageContent: $content,
@@ -3951,21 +4035,34 @@ PROMPT)
         );
 
         $explicitRequestedCount = $this->extractExplicitRequestedCount($content);
-
-        $result = $this->structuredFlowGenerator->generateDailySchedule(
-            thread: $thread,
-            userMessageContent: $content,
-            historyMessages: $historyMessages,
-            options: [
-                'target_entities' => $topTaskEntities,
-                'scheduling_scope' => 'tasks_only',
-                'schedule_source' => 'prioritize_schedule',
-                'time_window_hint' => $plan->timeWindowHint,
-                'count_limit' => $plan->countLimit,
-                'explicit_requested_count' => $explicitRequestedCount,
-                'schedule_user_id' => $thread->user_id,
-            ]
+        $snapshot = $this->candidateProvider->candidatesForUser(
+            $thread->user,
+            taskLimit: $this->snapshotTaskLimit(),
         );
+        $todoTaskCount = $this->countTodoTasksFromSnapshot($snapshot);
+        $doingMeta = $this->collectDoingTasksFromSnapshot($snapshot);
+        if ($todoTaskCount === 0 && $doingMeta['count'] > 0) {
+            $result = $this->buildDoingOnlyScheduleGenerationResult(
+                $doingMeta['titles'],
+                $plan->timeWindowHint,
+                $plan->countLimit,
+            );
+        } else {
+            $result = $this->structuredFlowGenerator->generateDailySchedule(
+                thread: $thread,
+                userMessageContent: $content,
+                historyMessages: $historyMessages,
+                options: [
+                    'target_entities' => $topTaskEntities,
+                    'scheduling_scope' => 'tasks_only',
+                    'schedule_source' => 'prioritize_schedule',
+                    'time_window_hint' => $plan->timeWindowHint,
+                    'count_limit' => $plan->countLimit,
+                    'explicit_requested_count' => $explicitRequestedCount,
+                    'schedule_user_id' => $thread->user_id,
+                ]
+            );
+        }
 
         $result = $this->maybeConvertToScheduleFallbackConfirmation(
             thread: $thread,

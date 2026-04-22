@@ -154,6 +154,7 @@ final class TaskAssistantResponseProcessor
     private function normalizeDailyScheduleQuality(array $data): array
     {
         $corrections = [];
+        $maxScheduleConfirmationChars = $this->maxScheduleConfirmationChars();
 
         $framing = trim((string) ($data['framing'] ?? ''));
         if ($framing !== '') {
@@ -187,6 +188,15 @@ final class TaskAssistantResponseProcessor
                 'from_count' => count($orderingRationale),
                 'to_count' => 8,
             ];
+        }
+
+        $confirmation = trim((string) ($data['confirmation'] ?? ''));
+        if ($confirmation !== '') {
+            $condensedConfirmation = $this->clipToSentenceCount($confirmation, 3, $maxScheduleConfirmationChars);
+            if ($condensedConfirmation !== $confirmation) {
+                $data['confirmation'] = $condensedConfirmation;
+                $corrections['schedule_confirmation_condensed'] = true;
+            }
         }
 
         return ['data' => $data, 'corrections' => $corrections];
@@ -461,6 +471,13 @@ final class TaskAssistantResponseProcessor
         return count($parts);
     }
 
+    private function maxScheduleConfirmationChars(): int
+    {
+        $max = (int) config('task-assistant.schedule.max_confirmation_chars', 700);
+
+        return max(240, min($max, 1200));
+    }
+
     private function hasMixedDaypartClaims(string $text): bool
     {
         $value = mb_strtolower(trim($text));
@@ -640,7 +657,7 @@ final class TaskAssistantResponseProcessor
 
         $maxFraming = TaskAssistantPrioritizeOutputDefaults::maxFramingChars();
         $maxReasoning = TaskAssistantPrioritizeOutputDefaults::maxReasoningChars();
-        $maxConfirmation = TaskAssistantPrioritizeOutputDefaults::maxNextFieldChars();
+        $maxConfirmation = $this->maxScheduleConfirmationChars();
 
         $rules = [
             'proposals' => ['nullable', 'array', 'max:100'],

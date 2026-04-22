@@ -10,8 +10,6 @@ use Illuminate\Support\Facades\Log;
 
 final class TaskPrioritizationService
 {
-    private const TASK_DOING_BOOST = 75;
-
     private const DEFAULT_TIME_CRITICAL_EVENT_MINUTES = 45;
 
     /**
@@ -817,7 +815,7 @@ final class TaskPrioritizationService
         // Filtering is a "preference cascade":
         // - We always try to respect explicit subject/type keywords.
         // - Priority and time constraints are relaxed if they would otherwise yield an empty candidate set.
-        $filtered = $tasks;
+        $filtered = $this->excludeDoingTasks($tasks);
 
         if (! empty($context['recurring_requested'])) {
             $recurringOnly = $filtered->filter(function (array $task): bool {
@@ -1028,14 +1026,17 @@ final class TaskPrioritizationService
     {
         $task['student_focus_tier_score'] = $this->calculateStudentFocusTierScore($task);
         $task['deadline_score'] = $this->calculateDeadlineScore($task, $now);
-        if (($task['deadline_score'] ?? 0) > 0 && ($task['status'] ?? null) === TaskStatus::Doing->value) {
-            // Momentum boost, but kept small so it cannot override urgency buckets.
-            $task['deadline_score'] += self::TASK_DOING_BOOST;
-        }
         $task['priority_score'] = $this->calculatePriorityScore($task);
         $task['duration_score'] = $this->calculateDurationScore($task);
 
         return $task;
+    }
+
+    private function excludeDoingTasks(Collection $tasks): Collection
+    {
+        return $tasks->filter(static function (array $task): bool {
+            return (string) ($task['status'] ?? '') !== TaskStatus::Doing->value;
+        })->values();
     }
 
     /**

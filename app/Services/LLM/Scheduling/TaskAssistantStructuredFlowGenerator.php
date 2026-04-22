@@ -2,6 +2,7 @@
 
 namespace App\Services\LLM\Scheduling;
 
+use App\Enums\TaskStatus;
 use App\Models\Task;
 use App\Models\TaskAssistantThread;
 use App\Models\User;
@@ -219,6 +220,31 @@ final class TaskAssistantStructuredFlowGenerator
     ): array {
         $limit = max(1, $countLimit);
         if ($explicitTaskTargets !== []) {
+            $filteredExplicitTargets = array_values(array_filter(
+                $explicitTaskTargets,
+                static function (array $entity): bool {
+                    return (string) ($entity['status'] ?? '') !== TaskStatus::Doing->value;
+                }
+            ));
+            $explicitTaskIds = array_values(array_filter(array_map(
+                static fn (array $entity): int => (int) ($entity['entity_id'] ?? 0),
+                $filteredExplicitTargets
+            ), static fn (int $id): bool => $id > 0));
+            if ($explicitTaskIds !== []) {
+                $allowedTaskIds = Task::query()
+                    ->forUser($thread->user_id)
+                    ->whereIn('id', $explicitTaskIds)
+                    ->where('status', '!=', TaskStatus::Doing->value)
+                    ->pluck('id')
+                    ->map(static fn (mixed $id): int => (int) $id)
+                    ->all();
+                $allowedTaskLookup = array_fill_keys($allowedTaskIds, true);
+                $filteredExplicitTargets = array_values(array_filter(
+                    $filteredExplicitTargets,
+                    static fn (array $entity): bool => isset($allowedTaskLookup[(int) ($entity['entity_id'] ?? 0)])
+                ));
+            }
+
             return array_values(array_map(
                 static function (array $entity, int $index): array {
                     $title = trim((string) ($entity['title'] ?? 'Untitled'));
@@ -230,8 +256,8 @@ final class TaskAssistantStructuredFlowGenerator
                         'position' => $index,
                     ];
                 },
-                array_slice($explicitTaskTargets, 0, $limit),
-                array_keys(array_slice($explicitTaskTargets, 0, $limit))
+                array_slice($filteredExplicitTargets, 0, $limit),
+                array_keys(array_slice($filteredExplicitTargets, 0, $limit))
             ));
         }
 
@@ -244,9 +270,14 @@ final class TaskAssistantStructuredFlowGenerator
         $snapshot = is_array($built['snapshot'] ?? null) ? $built['snapshot'] : [];
         $ranked = $this->prioritizationService->prioritizeFocus($snapshot, $context);
         $rankedTasks = array_values(array_filter($ranked, static function (mixed $candidate): bool {
-            return is_array($candidate)
-                && (string) ($candidate['type'] ?? '') === 'task'
-                && (int) ($candidate['id'] ?? 0) > 0;
+            if (! is_array($candidate)) {
+                return false;
+            }
+            $raw = is_array($candidate['raw'] ?? null) ? $candidate['raw'] : [];
+
+            return (string) ($candidate['type'] ?? '') === 'task'
+                && (int) ($candidate['id'] ?? 0) > 0
+                && (string) ($raw['status'] ?? '') !== TaskStatus::Doing->value;
         }));
 
         return array_values(array_map(
@@ -2664,6 +2695,9 @@ final class TaskAssistantStructuredFlowGenerator
 
             if ($type === 'task') {
                 $raw = is_array($rankedCandidate['raw'] ?? null) ? $rankedCandidate['raw'] : [];
+                if ((string) ($raw['status'] ?? '') === TaskStatus::Doing->value) {
+                    continue;
+                }
                 $candidates[] = [
                     'entity_type' => 'task',
                     'entity_id' => $id,

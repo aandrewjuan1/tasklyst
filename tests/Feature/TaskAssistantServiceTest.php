@@ -304,6 +304,46 @@ test('prioritize_schedule schedules the top student-first task selection', funct
     expect((int) ($proposals[0]['entity_id'] ?? 0))->toBe($academic->id);
 });
 
+test('prioritize_schedule with only doing tasks does not schedule and returns doing guidance', function (): void {
+    config([
+        'task-assistant.intent.use_llm' => false,
+    ]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    Task::factory()->for($user)->create([
+        'title' => 'Implement linked list lab exercises',
+        'status' => TaskStatus::Doing,
+        'priority' => TaskPriority::High,
+        'start_datetime' => null,
+        'end_datetime' => now()->addDay(),
+        'duration' => 240,
+    ]);
+
+    $userMessage = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'Schedule my top 1 for later',
+    ]);
+
+    $assistantMessage = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
+
+    $assistantMessage->refresh();
+    $proposals = $assistantMessage->metadata['schedule']['proposals'] ?? [];
+    $items = $assistantMessage->metadata['schedule']['items'] ?? [];
+
+    expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('prioritize_schedule');
+    expect($proposals)->toBeArray()->toHaveCount(0);
+    expect($items)->toBeArray()->toHaveCount(0);
+    expect((string) $assistantMessage->content)->toContain('I will not schedule tasks already marked as in progress');
+    expect((string) $assistantMessage->content)->toContain('Implement linked list lab exercises');
+});
+
 test('edit-like turn after pending schedule draft rewrites prioritize intent to schedule refinement', function (): void {
     config([
         'task-assistant.intent.use_llm' => false,

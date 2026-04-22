@@ -499,6 +499,62 @@ class TaskAssistantResponseProcessorTest extends TestCase
         $this->assertSame([], $result['errors']);
     }
 
+    public function test_daily_schedule_confirmation_is_condensed_instead_of_hard_failing_when_verbose(): void
+    {
+        $processor = app(TaskAssistantResponseProcessor::class);
+        $verboseConfirmation = implode(' ', [
+            'I could not place this later today because your current class and event windows overlap almost every remaining slot.',
+            'The open gaps that are still available are too short for the duration this task needs, so I do not want to push a low-quality placement that sets you up to rush.',
+            'If you want, I can try tomorrow morning first, or we can widen the time window and keep your current priorities intact.',
+            'Tell me which option feels best for you.',
+        ]);
+
+        $result = $processor->processResponse('daily_schedule', [
+            'proposals' => [[
+                'proposal_id' => 'p1',
+                'status' => 'pending',
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'title' => 'Task A',
+                'start_datetime' => '2026-03-29T09:00:00+00:00',
+                'end_datetime' => '2026-03-29T09:30:00+00:00',
+                'duration_minutes' => 30,
+                'apply_payload' => [
+                    'action' => 'update_task',
+                    'arguments' => ['taskId' => 1, 'updates' => []],
+                ],
+            ]],
+            'items' => [[
+                'title' => 'Task A',
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'start_datetime' => '2026-03-29T09:00:00+00:00',
+                'end_datetime' => '2026-03-29T09:30:00+00:00',
+                'duration_minutes' => 30,
+            ]],
+            'blocks' => [[
+                'start_time' => '09:00',
+                'end_time' => '09:30',
+                'label' => 'Task A',
+                'task_id' => 1,
+                'event_id' => null,
+                'note' => null,
+            ]],
+            'schedule_variant' => 'daily',
+            'framing' => 'I checked your remaining window and prepared the safest next step.',
+            'reasoning' => 'This keeps your day realistic while avoiding a rushed placement that could conflict with class time.',
+            'confirmation' => $verboseConfirmation,
+        ], [
+            'tasks' => [['id' => 1]],
+            'events' => [],
+            'projects' => [],
+        ]);
+
+        $this->assertTrue($result['valid']);
+        $this->assertSame([], $result['errors']);
+        $this->assertLessThanOrEqual(700, mb_strlen((string) ($result['structured_data']['confirmation'] ?? '')));
+    }
+
     public function test_daily_schedule_process_response_applies_soft_narrative_corrections_to_structured_data(): void
     {
         $processor = app(TaskAssistantResponseProcessor::class);

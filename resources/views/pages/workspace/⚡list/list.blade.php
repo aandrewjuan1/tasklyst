@@ -30,7 +30,6 @@
         $hasAnyListContent = $allItems->isNotEmpty() || $completedItems->isNotEmpty();
         $scheduledFocusGroups = is_array($scheduledFocusPlanGroups ?? null) ? $scheduledFocusPlanGroups : [];
         $scheduledFocusTotalCount = (int) ($scheduledFocusPlanTotalCount ?? 0);
-        $hasScheduledFocusPanel = $scheduledFocusTotalCount > 0;
     @endphp
 
     <x-workspace.item-creation
@@ -46,12 +45,10 @@
         :visible-items-initial="$visibleItemsInitial"
     />
 
-    @if ($hasScheduledFocusPanel)
-        <x-workspace.scheduled-focus-plan
-            :groups="$scheduledFocusGroups"
-            :total-count="$scheduledFocusTotalCount"
-        />
-    @endif
+    <x-workspace.scheduled-focus-plan
+        :groups="$scheduledFocusGroups"
+        :total-count="$scheduledFocusTotalCount"
+    />
 
     @if ($hasAnyListContent)
         <div

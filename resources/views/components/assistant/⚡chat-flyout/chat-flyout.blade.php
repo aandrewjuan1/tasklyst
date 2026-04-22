@@ -516,6 +516,20 @@
                 this.$refs.input.value = trimmed;
                 this.$refs.input.dispatchEvent(new Event('input', { bubbles: true }));
             },
+            appendQuickPrompt(value) {
+                const trimmed = (value ?? '').toString().trim();
+                if (trimmed === '') {
+                    return;
+                }
+
+                const existing = (this.$refs.input.value ?? '').toString().trim();
+                if (existing === trimmed || existing.includes(trimmed)) {
+                    return;
+                }
+                const nextValue = existing === '' ? trimmed : `${existing} ${trimmed}`;
+                this.$refs.input.value = nextValue;
+                this.$refs.input.dispatchEvent(new Event('input', { bubbles: true }));
+            },
             submit() {
                 const value = ($refs.input ? $refs.input.value : '').trim();
 
@@ -535,6 +549,7 @@
         x-init="init()"
         x-effect="hasText = ($wire.newMessage ?? '').toString().trim().length > 0"
         x-on:quick-prompt.window="applyQuickPrompt($event.detail.value)"
+        x-on:quick-prompt-append.window="appendQuickPrompt($event.detail.value)"
     >
         <button
             type="button"

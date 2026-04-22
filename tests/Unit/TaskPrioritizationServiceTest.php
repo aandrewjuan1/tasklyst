@@ -837,6 +837,66 @@ it('getTopTask uses real current time semantics for overdue checks', function ()
     expect($top['id'])->toBe(1);
 });
 
+it('excludes doing tasks from prioritized focus candidates', function (): void {
+    $service = app(TaskPrioritizationService::class);
+    $now = CarbonImmutable::now('UTC');
+
+    $snapshot = [
+        'today' => $now->toDateString(),
+        'timezone' => 'UTC',
+        'tasks' => [
+            [
+                'id' => 1,
+                'title' => 'Doing task',
+                'priority' => 'urgent',
+                'status' => 'doing',
+                'ends_at' => $now->addHour()->toIso8601String(),
+                'duration_minutes' => 20,
+            ],
+            [
+                'id' => 2,
+                'title' => 'To do task',
+                'priority' => 'medium',
+                'status' => 'to_do',
+                'ends_at' => $now->addHours(2)->toIso8601String(),
+                'duration_minutes' => 30,
+            ],
+        ],
+        'events' => [],
+        'projects' => [],
+    ];
+
+    $ranked = $service->prioritizeFocus($snapshot);
+
+    expect(collect($ranked)->pluck('id')->all())->toBe([2]);
+});
+
+it('returns no task focus when only doing tasks exist', function (): void {
+    $service = app(TaskPrioritizationService::class);
+    $now = CarbonImmutable::now('UTC');
+
+    $snapshot = [
+        'today' => $now->toDateString(),
+        'timezone' => 'UTC',
+        'tasks' => [
+            [
+                'id' => 1,
+                'title' => 'Doing only task',
+                'priority' => 'high',
+                'status' => 'doing',
+                'ends_at' => $now->addHour()->toIso8601String(),
+                'duration_minutes' => 45,
+            ],
+        ],
+        'events' => [],
+        'projects' => [],
+    ];
+
+    $ranked = $service->prioritizeFocus($snapshot);
+
+    expect($ranked)->toBe([]);
+});
+
 it('emits structured explainability contract for ranked focus items', function (): void {
     $service = app(TaskPrioritizationService::class);
     $now = CarbonImmutable::now('UTC');

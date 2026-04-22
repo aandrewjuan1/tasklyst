@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\TaskStatus;
 use App\Models\Task;
 use App\Models\User;
 use App\Services\LLM\Prioritization\TaskPrioritizationService;
@@ -137,6 +138,41 @@ it('merges missing target task ids from the database into the contextual snapsho
 
     $ids = array_map(fn (array $t): int => (int) ($t['id'] ?? 0), $out['tasks'] ?? []);
     expect($ids)->toContain($missing->id);
+});
+
+it('resolvePrioritizeScheduleTaskTargets excludes doing tasks when selecting top tasks', function (): void {
+    $user = User::factory()->create();
+    $thread = \App\Models\TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $timezone = (string) config('app.timezone', 'UTC');
+    $tomorrow = CarbonImmutable::now($timezone)->addDay();
+
+    $doingTask = Task::factory()->for($user)->create([
+        'title' => 'Implement linked list lab exercises',
+        'status' => TaskStatus::Doing,
+        'end_datetime' => $tomorrow->setTime(15, 0),
+        'duration' => 240,
+    ]);
+
+    $todoTask = Task::factory()->for($user)->create([
+        'title' => 'Brightspace: DSA Problem Set 3 Submission',
+        'status' => TaskStatus::ToDo,
+        'end_datetime' => $tomorrow->setTime(15, 59),
+        'duration' => 180,
+    ]);
+
+    $generator = app(TaskAssistantStructuredFlowGenerator::class);
+
+    $targets = $generator->resolvePrioritizeScheduleTaskTargets(
+        thread: $thread,
+        userMessageContent: 'Schedule top 1 for later',
+        explicitTaskTargets: [],
+        countLimit: 1,
+    );
+
+    expect($targets)->toHaveCount(1);
+    expect((int) ($targets[0]['entity_id'] ?? 0))->toBe($todoTask->id);
+    expect((int) ($targets[0]['entity_id'] ?? 0))->not->toBe($doingTask->id);
 });
 
 it('schedules a task atomically when duration fits the window', function (): void {
