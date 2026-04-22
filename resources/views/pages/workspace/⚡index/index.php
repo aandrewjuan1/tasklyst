@@ -969,6 +969,17 @@ class extends Component
         $this->dispatch('toast', type: 'success', message: __('Removed from scheduled focus.'));
     }
 
+    public function dismissScheduledFocusForEntity(string $entityType, int $entityId, string $reason = 'entity_datetime_updated'): void
+    {
+        if (! in_array($entityType, ['task', 'event', 'project'], true) || $entityId < 1) {
+            return;
+        }
+
+        $this->deactivateScheduledFocusForEntity($entityType, $entityId, $reason);
+        $this->refreshWorkspaceListInPlace();
+        $this->dispatch('assistant-schedule-plan-updated');
+    }
+
     public function rescheduleScheduledFocusItem(int $planItemId, ?string $startAt, ?string $endAt = null): void
     {
         $planItem = $this->resolveScheduledFocusPlanItem($planItemId);

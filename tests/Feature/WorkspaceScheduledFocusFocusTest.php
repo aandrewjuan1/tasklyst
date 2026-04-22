@@ -97,3 +97,52 @@ test('workspace kanban view shows compact scheduled focus strip when plan items 
         ->assertSee('AI Scheduled Focus')
         ->assertSee('Kanban Scheduled Focus Row');
 });
+
+test('dismissing scheduled focus for an entity persists and does not return after reload', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-04-20 10:00:00', config('app.timezone')));
+
+    $this->actingAs($this->user);
+
+    $plannedStart = Carbon::parse('2026-04-20 12:00:00', config('app.timezone'));
+    $task = Task::factory()->for($this->user)->create([
+        'status' => TaskStatus::ToDo,
+        'start_datetime' => $plannedStart,
+        'end_datetime' => $plannedStart->copy()->addHour(),
+    ]);
+
+    $plan = AssistantSchedulePlan::query()->create([
+        'user_id' => $this->user->id,
+        'thread_id' => null,
+        'assistant_message_id' => null,
+        'source' => 'assistant_accept_all',
+        'accepted_at' => now(),
+        'metadata' => [],
+    ]);
+
+    $item = AssistantSchedulePlanItem::query()->create([
+        'assistant_schedule_plan_id' => $plan->id,
+        'user_id' => $this->user->id,
+        'proposal_uuid' => 'persist-dismiss-1',
+        'proposal_id' => 'persist-dismiss-1',
+        'entity_type' => 'task',
+        'entity_id' => $task->id,
+        'title' => $task->title,
+        'planned_start_at' => $plannedStart,
+        'planned_end_at' => $plannedStart->copy()->addHour(),
+        'planned_duration_minutes' => 60,
+        'status' => AssistantSchedulePlanItemStatus::Planned,
+        'accepted_at' => now(),
+        'metadata' => [],
+    ]);
+
+    Livewire::test('pages::workspace.index')
+        ->call('dismissScheduledFocusForEntity', 'task', (int) $task->id, 'task_datetime_updated');
+
+    $item->refresh();
+
+    expect($item->status)->toBe(AssistantSchedulePlanItemStatus::Dismissed)
+        ->and($item->dismissed_at)->not->toBeNull();
+
+    Livewire::test('pages::workspace.index')
+        ->assertSet('scheduledFocusPlanTotalCount', 0);
+});

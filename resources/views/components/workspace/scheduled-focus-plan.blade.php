@@ -35,6 +35,7 @@
         storageKey: 'workspace-scheduled-focus-collapsed-v1',
         expanded: document.documentElement.dataset.workspaceScheduledFocusCollapsed !== 'true',
         removedEntityKeys: {},
+        pendingDismissalEntityKeys: {},
         lastInfoToastAtMs: 0,
         infoToastCooldownMs: 1200,
         entityKey(kind, entityId) {
@@ -55,6 +56,23 @@
             const key = this.entityKey(kind, entityId);
             if (Object.prototype.hasOwnProperty.call(this.removedEntityKeys, key)) {
                 delete this.removedEntityKeys[key];
+            }
+        },
+        isDismissalPending(kind, entityId) {
+            const key = this.entityKey(kind, entityId);
+            return this.pendingDismissalEntityKeys[key] === true;
+        },
+        markDismissalPending(kind, entityId) {
+            const key = this.entityKey(kind, entityId);
+            if (key.endsWith(':0')) {
+                return;
+            }
+            this.pendingDismissalEntityKeys[key] = true;
+        },
+        clearDismissalPending(kind, entityId) {
+            const key = this.entityKey(kind, entityId);
+            if (Object.prototype.hasOwnProperty.call(this.pendingDismissalEntityKeys, key)) {
+                delete this.pendingDismissalEntityKeys[key];
             }
         },
         emitInfoToast(message) {
@@ -84,8 +102,19 @@
                 return;
             }
             if (['startDatetime', 'endDatetime', 'startTime', 'endTime'].includes(property)) {
+                if (this.isDismissalPending(kind, itemId)) {
+                    return;
+                }
                 this.removeEntity(kind, itemId);
                 this.emitInfoToast(@js(__('Removed from Scheduled Focus because the scheduled time changed.')));
+                this.markDismissalPending(kind, itemId);
+                $wire.$parent.$call('dismissScheduledFocusForEntity', kind, itemId, 'entity_datetime_updated')
+                    .catch(() => {
+                        this.restoreEntity(kind, itemId);
+                    })
+                    .finally(() => {
+                        this.clearDismissalPending(kind, itemId);
+                    });
             }
         },
         handleWorkspaceTrashRollback(detail) {
@@ -156,7 +185,6 @@
     @workspace-item-trashed-rollback.window="handleWorkspaceTrashRollback($event.detail)"
     @workspace-item-property-updated.window="handleWorkspacePropertyUpdated($event.detail)"
     @workspace-item-property-update-rollback.window="handleWorkspacePropertyRollback($event.detail)"
-    @assistant-schedule-plan-updated.window="removedEntityKeys = {}"
     @class([
         'rounded-xl border border-violet-500/45 bg-linear-to-r from-violet-50/95 via-white/95 to-brand-light-blue/55 shadow-md ring-1 ring-violet-300/30 dark:border-violet-400/55 dark:from-violet-950/35 dark:via-zinc-900/65 dark:to-brand-blue/20 dark:ring-violet-300/20',
         'px-2.5 py-2.5 sm:px-3.5 sm:py-3.5' => ! $isCompact,
