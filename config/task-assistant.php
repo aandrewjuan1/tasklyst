@@ -89,6 +89,8 @@ return [
             'temperature' => (float) env('TASK_ASSISTANT_LISTING_FOLLOWUP_TEMPERATURE', 0.35),
             'max_tokens' => (int) env('TASK_ASSISTANT_LISTING_FOLLOWUP_MAX_TOKENS', 450),
             'top_p' => env('TASK_ASSISTANT_LISTING_FOLLOWUP_TOP_P', 0.88),
+            // Keep follow-up answers deterministic by default to avoid an extra narrative inference call.
+            'use_llm_narrative' => (bool) env('TASK_ASSISTANT_LISTING_FOLLOWUP_USE_LLM_NARRATIVE', false),
         ],
         'listing' => [
             'temperature' => env('TASK_ASSISTANT_BROWSE_TEMPERATURE'),
@@ -170,6 +172,8 @@ return [
             'placement_outside_horizon',
             'top_n_shortfall',
         ],
+        // Deterministic confirmation copy is faster and stable; enable LLM narration only when explicitly needed.
+        'confirmation_use_llm_narrative' => (bool) env('TASK_ASSISTANT_SCHEDULE_CONFIRMATION_USE_LLM_NARRATIVE', false),
         /**
          * When the user gives a vague schedule request (horizon label default_today), search this many
          * consecutive local days starting from today, capped by max_horizon_days.
@@ -514,6 +518,8 @@ TXT,
             'What should I do first',
             'Schedule my most important task',
         ],
+        // Secondary mode-classifier inference can add latency; keep heuristics-only mode selection by default.
+        'enable_mode_classifier' => (bool) env('TASK_ASSISTANT_GENERAL_GUIDANCE_ENABLE_MODE_CLASSIFIER', false),
     ],
 
     /*
@@ -540,5 +546,19 @@ TXT,
     */
     'retry' => [
         'max_retries' => (int) env('TASK_ASSISTANT_RETRY_MAX_RETRIES', 1),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Performance guardrails
+    |--------------------------------------------------------------------------
+    |
+    | Soft latency budget for a single assistant orchestration run (milliseconds).
+    | Optional LLM steps may fall back to deterministic paths once exceeded.
+    | Set 0 to disable.
+    |
+    */
+    'performance' => [
+        'latency_budget_ms' => (int) env('TASK_ASSISTANT_LATENCY_BUDGET_MS', 8000),
     ],
 ];

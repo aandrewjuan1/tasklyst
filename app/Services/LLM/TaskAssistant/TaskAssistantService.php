@@ -96,6 +96,7 @@ final class TaskAssistantService
 
         $runId = (string) Str::uuid();
         app()->instance('task_assistant.run_id', $runId);
+        app()->instance('task_assistant.run_started_at_ms', (int) round(microtime(true) * 1000));
 
         if ($this->isCancellationRequested($thread, $assistantMessageId)) {
             Log::info('task-assistant.orchestration', [
@@ -338,6 +339,7 @@ final class TaskAssistantService
             app()->forgetInstance('task_assistant.thread_id');
             app()->forgetInstance('task_assistant.message_id');
             app()->forgetInstance('task_assistant.run_id');
+            app()->forgetInstance('task_assistant.run_started_at_ms');
         }
     }
 
@@ -3238,6 +3240,21 @@ final class TaskAssistantService
             prompt: $prompt,
         );
 
+        if (! (bool) config('task-assistant.schedule.confirmation_use_llm_narrative', false)) {
+            return $fallback;
+        }
+        if ($this->isLatencyBudgetExceeded()) {
+            Log::info('task-assistant.schedule.confirmation_narrative_skipped_budget', [
+                'layer' => 'schedule_confirmation',
+                'run_id' => app()->bound('task_assistant.run_id') ? app('task_assistant.run_id') : null,
+                'thread_id' => $thread->id,
+                'assistant_message_id' => app()->bound('task_assistant.message_id') ? app('task_assistant.message_id') : null,
+                'reason_code' => $reasonCode,
+            ]);
+
+            return $fallback;
+        }
+
         try {
             $digest = is_array($scheduleData['placement_digest'] ?? null) ? $scheduleData['placement_digest'] : [];
             $confirmationSignals = $digest['confirmation_signals'] ?? null;
@@ -3489,6 +3506,19 @@ PROMPT)
             'max_tokens' => is_numeric($maxTokens) ? (int) $maxTokens : 420,
             'top_p' => is_numeric($topP) ? (float) $topP : 0.9,
         ];
+    }
+
+    private function isLatencyBudgetExceeded(): bool
+    {
+        $budgetMs = max(0, (int) config('task-assistant.performance.latency_budget_ms', 0));
+        if ($budgetMs <= 0 || ! app()->bound('task_assistant.run_started_at_ms')) {
+            return false;
+        }
+
+        $startedAtMs = (int) app('task_assistant.run_started_at_ms');
+        $elapsedMs = (int) round(microtime(true) * 1000) - $startedAtMs;
+
+        return $elapsedMs >= $budgetMs;
     }
 
     private function resolveProvider(): Provider

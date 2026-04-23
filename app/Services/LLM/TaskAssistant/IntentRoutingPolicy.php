@@ -364,7 +364,8 @@ final class IntentRoutingPolicy
         $inference = null;
         $useLlm = (bool) config('task-assistant.intent.use_llm', true);
         $skipIntentInference = $this->shouldSkipIntentInference($signals);
-        $shouldRunIntentInference = $useLlm && ! $skipIntentInference;
+        $skipByLatencyBudget = $this->isLatencyBudgetExceeded();
+        $shouldRunIntentInference = $useLlm && ! $skipIntentInference && ! $skipByLatencyBudget;
         if ($shouldRunIntentInference) {
             $inference = $this->intentInference->infer($content);
         }
@@ -381,6 +382,7 @@ final class IntentRoutingPolicy
             'outcome' => 'resolved',
             'use_llm' => $useLlm,
             'intent_inference_skipped' => $useLlm && $skipIntentInference,
+            'intent_inference_skipped_by_latency_budget' => $useLlm && $skipByLatencyBudget,
             'signals' => $signals,
             'resolved_flow' => $decision->flow,
             'confidence' => $decision->confidence,
@@ -435,6 +437,19 @@ final class IntentRoutingPolicy
         $minMargin = (float) config('task-assistant.intent.inference.signal_confident_min_margin', 0.20);
 
         return $top >= $minScore && $margin >= $minMargin;
+    }
+
+    private function isLatencyBudgetExceeded(): bool
+    {
+        $budgetMs = max(0, (int) config('task-assistant.performance.latency_budget_ms', 0));
+        if ($budgetMs <= 0 || ! app()->bound('task_assistant.run_started_at_ms')) {
+            return false;
+        }
+
+        $startedAtMs = (int) app('task_assistant.run_started_at_ms');
+        $elapsedMs = (int) round(microtime(true) * 1000) - $startedAtMs;
+
+        return $elapsedMs >= $budgetMs;
     }
 
     public function extractConstraintsForFlow(TaskAssistantThread $thread, string $content, string $resolvedFlow): array

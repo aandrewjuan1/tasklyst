@@ -209,6 +209,19 @@ final class TaskAssistantListingFollowupService
     private function inferNarrativeWithOptionalLlm(string $userMessage, string $factsJson, array $analysis): array
     {
         $fallback = $this->deterministicNarrative($userMessage, $analysis);
+        if (! (bool) config('task-assistant.generation.listing_followup.use_llm_narrative', false)) {
+            return $fallback;
+        }
+        if ($this->isLatencyBudgetExceeded()) {
+            Log::info('task-assistant.listing_followup.narrative_skipped_budget', [
+                'layer' => 'listing_followup',
+                'thread_id' => app()->bound('task_assistant.thread_id') ? app('task_assistant.thread_id') : null,
+                'assistant_message_id' => app()->bound('task_assistant.message_id') ? app('task_assistant.message_id') : null,
+            ]);
+
+            return $fallback;
+        }
+
         $startedAt = microtime(true);
 
         try {
@@ -376,6 +389,19 @@ PROMPT;
     private function resolveModel(): string
     {
         return (string) config('task-assistant.model', 'hermes3:3b');
+    }
+
+    private function isLatencyBudgetExceeded(): bool
+    {
+        $budgetMs = max(0, (int) config('task-assistant.performance.latency_budget_ms', 0));
+        if ($budgetMs <= 0 || ! app()->bound('task_assistant.run_started_at_ms')) {
+            return false;
+        }
+
+        $startedAtMs = (int) app('task_assistant.run_started_at_ms');
+        $elapsedMs = (int) round(microtime(true) * 1000) - $startedAtMs;
+
+        return $elapsedMs >= $budgetMs;
     }
 
     /**

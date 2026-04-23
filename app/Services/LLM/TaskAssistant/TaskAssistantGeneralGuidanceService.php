@@ -265,6 +265,19 @@ final class TaskAssistantGeneralGuidanceService
             return self::MODE_FRIENDLY_GENERAL;
         }
 
+        if (! (bool) config('task-assistant.general_guidance.enable_mode_classifier', false)) {
+            return self::MODE_FRIENDLY_GENERAL;
+        }
+        if ($this->isLatencyBudgetExceeded()) {
+            Log::info('task-assistant.general_guidance.mode_classifier_skipped_budget', [
+                'layer' => 'llm_guidance',
+                'thread_id' => app()->bound('task_assistant.thread_id') ? app('task_assistant.thread_id') : null,
+                'assistant_message_id' => app()->bound('task_assistant.message_id') ? app('task_assistant.message_id') : null,
+            ]);
+
+            return self::MODE_FRIENDLY_GENERAL;
+        }
+
         try {
             $modeResponse = Prism::structured()
                 ->using($this->resolveProvider(), $this->resolveModel())
@@ -1187,5 +1200,18 @@ final class TaskAssistantGeneralGuidanceService
             'max_tokens' => is_numeric($maxTokens) ? (int) $maxTokens : (int) config('task-assistant.generation.max_tokens', 1200),
             'top_p' => is_numeric($topP) ? (float) $topP : (float) config('task-assistant.generation.top_p', 0.9),
         ];
+    }
+
+    private function isLatencyBudgetExceeded(): bool
+    {
+        $budgetMs = max(0, (int) config('task-assistant.performance.latency_budget_ms', 0));
+        if ($budgetMs <= 0 || ! app()->bound('task_assistant.run_started_at_ms')) {
+            return false;
+        }
+
+        $startedAtMs = (int) app('task_assistant.run_started_at_ms');
+        $elapsedMs = (int) round(microtime(true) * 1000) - $startedAtMs;
+
+        return $elapsedMs >= $budgetMs;
     }
 }
