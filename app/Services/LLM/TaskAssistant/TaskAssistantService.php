@@ -1001,9 +1001,9 @@ final class TaskAssistantService
                     'If you want, I can schedule the ranked task for later today, tomorrow, or later this week.'
                 ),
                 'next_options_chip_texts' => [
-                    TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('Schedule the ranked task for later today'),
-                    TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('Schedule the ranked task for tomorrow'),
-                    TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('Schedule the ranked task later this week'),
+                    TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('Schedule that task for later today'),
+                    TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('Schedule that task for tomorrow'),
+                    TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('Schedule that task later this week'),
                 ],
             ];
         }
@@ -1014,9 +1014,9 @@ final class TaskAssistantService
             return [
                 'next_options' => TaskAssistantPrioritizeOutputDefaults::clampNextField($nextOptions),
                 'next_options_chip_texts' => [
-                    TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('Schedule all ranked tasks for later today'),
-                    TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('Schedule all ranked tasks for tomorrow'),
-                    TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('Schedule all ranked tasks later this week'),
+                    TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('Schedule those tasks for later today'),
+                    TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('Schedule those tasks for tomorrow'),
+                    TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('Schedule those tasks later this week'),
                 ],
             ];
         }
@@ -1026,9 +1026,9 @@ final class TaskAssistantService
         return [
             'next_options' => TaskAssistantPrioritizeOutputDefaults::clampNextField($nextOptions),
             'next_options_chip_texts' => [
-                TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('Schedule all ranked tasks for later today'),
-                TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('Schedule all ranked tasks for tomorrow'),
-                TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('Schedule all ranked tasks later this week'),
+                TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('Schedule those tasks for later today'),
+                TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('Schedule those tasks for tomorrow'),
+                TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('Schedule those tasks later this week'),
             ],
         ];
     }

@@ -3084,7 +3084,7 @@ test('processQueuedMessage routes ranked-set schedule chip actions deterministic
 
     $userMessage = $thread->messages()->create([
         'role' => MessageRole::User,
-        'content' => 'Schedule all ranked tasks for later today',
+        'content' => 'Schedule those tasks for later today',
         'metadata' => [
             'client_action' => [
                 'id' => 'chip_schedule_ranked_set',
@@ -3158,7 +3158,7 @@ test('ranked-set schedule chip reuses last listing targets as strict set contrac
 
     $userMessage = $thread->messages()->create([
         'role' => MessageRole::User,
-        'content' => 'Schedule all ranked tasks for later today',
+        'content' => 'Schedule those tasks for later today',
         'metadata' => [
             'client_action' => [
                 'id' => 'chip_schedule_ranked_set',
@@ -3195,7 +3195,7 @@ test('processQueuedMessage routes ranked-top-one schedule chip actions determini
 
     $userMessage = $thread->messages()->create([
         'role' => MessageRole::User,
-        'content' => 'Schedule the ranked task for later today',
+        'content' => 'Schedule that task for later today',
         'metadata' => [
             'client_action' => [
                 'id' => 'chip_schedule_ranked_top_one',

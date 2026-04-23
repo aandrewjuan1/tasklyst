@@ -24,6 +24,8 @@
         pendingScrollBehavior: 'smooth',
         wasStreaming: false,
         scrollStateRaf: null,
+        visibleScrollRetryTimer: null,
+        flyoutVisibilityObserver: null,
         allowAutoScrollOnStreamEnd: true,
         noRealtimeBroadcast: false,
         currentLoadingPhrase() {
@@ -180,6 +182,64 @@
                 this.scrollQueued = false;
             });
         },
+        queueScrollToBottomWhenVisible(behavior = 'auto', retries = 16) {
+            if (this.visibleScrollRetryTimer) {
+                clearTimeout(this.visibleScrollRetryTimer);
+                this.visibleScrollRetryTimer = null;
+            }
+
+            this.$nextTick(() => {
+                const container = this.$refs.messagesContainer ?? null;
+                const end = this.$refs.messagesEnd ?? null;
+                if (!container || !end) {
+                    return;
+                }
+
+                const isVisible = container.clientHeight > 0 && container.getClientRects().length > 0;
+                if (isVisible) {
+                    this.queueScrollToBottom(behavior);
+
+                    return;
+                }
+
+                if (retries <= 0) {
+                    this.queueScrollToBottom('auto');
+
+                    return;
+                }
+
+                this.visibleScrollRetryTimer = setTimeout(() => {
+                    this.visibleScrollRetryTimer = null;
+                    this.queueScrollToBottomWhenVisible(behavior, retries - 1);
+                }, 50);
+            });
+        },
+        registerFlyoutVisibilityObserver() {
+            if (this.flyoutVisibilityObserver || typeof IntersectionObserver === 'undefined') {
+                return;
+            }
+
+            const container = this.$refs.messagesContainer ?? null;
+            if (!container) {
+                return;
+            }
+
+            this.flyoutVisibilityObserver = new IntersectionObserver((entries) => {
+                if (entries.some((entry) => entry.isIntersecting)) {
+                    this.queueScrollToBottomWhenVisible('auto');
+                }
+            }, { threshold: 0.05 });
+
+            this.flyoutVisibilityObserver.observe(container);
+        },
+        unregisterFlyoutVisibilityObserver() {
+            if (!this.flyoutVisibilityObserver) {
+                return;
+            }
+
+            this.flyoutVisibilityObserver.disconnect();
+            this.flyoutVisibilityObserver = null;
+        },
         handleMessagesScroll() {
             if (this.scrollStateRaf) {
                 return;
@@ -196,7 +256,10 @@
         init() {
             this.detectRealtimeBroadcastAvailability();
             this.registerVisibilityPollingListener();
-            this.$nextTick(() => this.queueScrollToBottom('auto'));
+            this.$nextTick(() => {
+                this.registerFlyoutVisibilityObserver();
+                this.queueScrollToBottomWhenVisible('auto');
+            });
             this.wasStreaming = !! this.$wire.isStreaming;
             this.allowAutoScrollOnStreamEnd = this.isNearBottom(180);
             this.$watch('$wire.streamingContent', () => {
@@ -242,6 +305,11 @@
             this.stopStreamingTimeoutPolling();
             this.stopStreamingFallbackPolling();
             this.unregisterVisibilityPollingListener();
+            this.unregisterFlyoutVisibilityObserver();
+            if (this.visibleScrollRetryTimer) {
+                clearTimeout(this.visibleScrollRetryTimer);
+                this.visibleScrollRetryTimer = null;
+            }
             if (this.scrollStateRaf) {
                 cancelAnimationFrame(this.scrollStateRaf);
                 this.scrollStateRaf = null;
@@ -321,7 +389,7 @@
         wire:key="messages-container"
         x-ref="messagesContainer"
         x-on:scroll.passive="handleMessagesScroll()"
-        x-on:assistant-chat-open-requested.window="$nextTick(() => queueScrollToBottom('auto'))"
+        x-on:assistant-chat-open-requested.window="queueScrollToBottomWhenVisible('auto')"
     >
         @if ($chatMessages->isEmpty() && ! $isStreaming)
             <div class="flex flex-1 flex-col items-center justify-center gap-4 text-center">
