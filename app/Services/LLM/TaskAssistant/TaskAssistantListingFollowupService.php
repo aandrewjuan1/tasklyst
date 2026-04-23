@@ -209,6 +209,7 @@ final class TaskAssistantListingFollowupService
     private function inferNarrativeWithOptionalLlm(string $userMessage, string $factsJson, array $analysis): array
     {
         $fallback = $this->deterministicNarrative($userMessage, $analysis);
+        $startedAt = microtime(true);
 
         try {
             $response = Prism::structured()
@@ -251,6 +252,7 @@ final class TaskAssistantListingFollowupService
                 'layer' => 'listing_followup',
                 'thread_id' => app()->bound('task_assistant.thread_id') ? app('task_assistant.thread_id') : null,
                 'error' => $e->getMessage(),
+                'latency_ms' => (int) round((microtime(true) - $startedAt) * 1000),
             ]);
 
             return $fallback;

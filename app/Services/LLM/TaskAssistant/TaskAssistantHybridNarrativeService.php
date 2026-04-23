@@ -3045,6 +3045,8 @@ TXT;
         int $maxRetries,
         string $generationRoute,
     ): mixed {
+        $startedAt = microtime(true);
+
         for ($attempt = 0; $attempt <= $maxRetries; $attempt++) {
             try {
                 $pending = Prism::structured()
@@ -3056,9 +3058,29 @@ TXT;
 
                 $pending = $this->applyStructuredGenerationOptions($pending, $generationRoute);
 
-                return $pending->asStructured();
+                $response = $pending->asStructured();
+
+                Log::info('task-assistant.llm.structured_call', [
+                    'layer' => 'llm_narrative',
+                    'route' => $generationRoute,
+                    'thread_id' => app()->bound('task_assistant.thread_id') ? app('task_assistant.thread_id') : null,
+                    'assistant_message_id' => app()->bound('task_assistant.message_id') ? app('task_assistant.message_id') : null,
+                    'attempts' => $attempt + 1,
+                    'latency_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+                ]);
+
+                return $response;
             } catch (\Throwable $exception) {
                 if ($attempt === $maxRetries) {
+                    Log::warning('task-assistant.llm.structured_call_failed', [
+                        'layer' => 'llm_narrative',
+                        'route' => $generationRoute,
+                        'thread_id' => app()->bound('task_assistant.thread_id') ? app('task_assistant.thread_id') : null,
+                        'assistant_message_id' => app()->bound('task_assistant.message_id') ? app('task_assistant.message_id') : null,
+                        'attempts' => $attempt + 1,
+                        'latency_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+                        'error' => $exception->getMessage(),
+                    ]);
                     throw $exception;
                 }
             }

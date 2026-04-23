@@ -378,6 +378,12 @@ TXT,
 
     'intent' => [
         'use_llm' => env('TASK_ASSISTANT_INTENT_USE_LLM', true),
+        'inference' => [
+            // Skip intent LLM classification when regex/signal scores are already decisive.
+            'skip_when_signal_confident' => (bool) env('TASK_ASSISTANT_INTENT_SKIP_CONFIDENT_SIGNAL_INFERENCE', true),
+            'signal_confident_min_score' => (float) env('TASK_ASSISTANT_INTENT_CONFIDENT_SIGNAL_MIN_SCORE', 0.78),
+            'signal_confident_min_margin' => (float) env('TASK_ASSISTANT_INTENT_CONFIDENT_SIGNAL_MIN_MARGIN', 0.20),
+        ],
         /**
          * Default prioritize slice size when the message asks for several ranked items (e.g. “top tasks … first”)
          * but does not name a number. Must be 2–10; used by IntentRoutingPolicy::extractCountLimit.
@@ -533,6 +539,6 @@ TXT,
     |
     */
     'retry' => [
-        'max_retries' => (int) env('TASK_ASSISTANT_RETRY_MAX_RETRIES', 2),
+        'max_retries' => (int) env('TASK_ASSISTANT_RETRY_MAX_RETRIES', 1),
     ],
 ];

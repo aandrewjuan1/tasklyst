@@ -70,6 +70,7 @@ final class ScheduleRefinementStructuredOpExtractor
                 .'Use proposal_index 0..'.(count($proposals) - 1).'. HH:MM must be 24-hour two-digit hours and minutes.'
             ),
         ];
+        $startedAt = microtime(true);
 
         try {
             $pending = Prism::structured()
@@ -86,6 +87,7 @@ final class ScheduleRefinementStructuredOpExtractor
                 'layer' => 'schedule_refinement',
                 'user_id' => $user->id,
                 'error' => $e->getMessage(),
+                'latency_ms' => (int) round((microtime(true) - $startedAt) * 1000),
             ]);
 
             return ['ok' => false, 'error' => 'llm_request_failed'];

@@ -91,6 +91,7 @@ final class TaskAssistantGeneralGuidanceService
 
         $resolvedMode = $this->resolveGuidanceMode($userMessage, $forcedMode);
         $resolvedIntent = $this->intentFromMode($resolvedMode);
+        $startedAt = microtime(true);
 
         for ($attempt = 0; $attempt <= $maxRetries; $attempt++) {
             try {
@@ -202,6 +203,8 @@ final class TaskAssistantGeneralGuidanceService
                         'layer' => 'llm_guidance',
                         'user_id' => $user->id,
                         'error' => $e->getMessage(),
+                        'attempts' => $attempt + 1,
+                        'latency_ms' => (int) round((microtime(true) - $startedAt) * 1000),
                     ]);
 
                     return [
@@ -991,6 +994,7 @@ final class TaskAssistantGeneralGuidanceService
                         'layer' => 'llm_guidance',
                         'user_id' => $user->id,
                         'error' => $e->getMessage(),
+                        'attempts' => $attempt + 1,
                     ]);
 
                     return [

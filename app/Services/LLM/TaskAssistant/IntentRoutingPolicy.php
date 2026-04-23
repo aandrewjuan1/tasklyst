@@ -363,7 +363,9 @@ final class IntentRoutingPolicy
         $signals = $this->signalExtractor->extract($normalized);
         $inference = null;
         $useLlm = (bool) config('task-assistant.intent.use_llm', true);
-        if ($useLlm) {
+        $skipIntentInference = $this->shouldSkipIntentInference($signals);
+        $shouldRunIntentInference = $useLlm && ! $skipIntentInference;
+        if ($shouldRunIntentInference) {
             $inference = $this->intentInference->infer($content);
         }
 
@@ -378,6 +380,7 @@ final class IntentRoutingPolicy
             'assistant_message_id' => app()->bound('task_assistant.message_id') ? app('task_assistant.message_id') : null,
             'outcome' => 'resolved',
             'use_llm' => $useLlm,
+            'intent_inference_skipped' => $useLlm && $skipIntentInference,
             'signals' => $signals,
             'resolved_flow' => $decision->flow,
             'confidence' => $decision->confidence,
@@ -404,6 +407,34 @@ final class IntentRoutingPolicy
             clarificationNeeded: false,
             clarificationQuestion: null,
         );
+    }
+
+    /**
+     * Skip structured intent inference when heuristics are already decisive.
+     *
+     * @param  array{prioritization?: float, scheduling?: float, hybrid?: float}  $signals
+     */
+    private function shouldSkipIntentInference(array $signals): bool
+    {
+        if (! (bool) config('task-assistant.intent.inference.skip_when_signal_confident', true)) {
+            return false;
+        }
+
+        $scores = [
+            (float) ($signals['prioritization'] ?? 0.0),
+            (float) ($signals['scheduling'] ?? 0.0),
+            (float) ($signals['hybrid'] ?? 0.0),
+        ];
+        rsort($scores);
+
+        $top = (float) ($scores[0] ?? 0.0);
+        $second = (float) ($scores[1] ?? 0.0);
+        $margin = $top - $second;
+
+        $minScore = (float) config('task-assistant.intent.inference.signal_confident_min_score', 0.78);
+        $minMargin = (float) config('task-assistant.intent.inference.signal_confident_min_margin', 0.20);
+
+        return $top >= $minScore && $margin >= $minMargin;
     }
 
     public function extractConstraintsForFlow(TaskAssistantThread $thread, string $content, string $resolvedFlow): array

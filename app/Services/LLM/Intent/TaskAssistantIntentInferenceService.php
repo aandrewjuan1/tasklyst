@@ -35,8 +35,10 @@ final class TaskAssistantIntentInferenceService
 
         $maxRetries = max(0, (int) config('task-assistant.retry.max_retries', 2));
 
+        $startedAt = microtime(true);
+
         try {
-            $response = $this->attemptInference($trimmed, $maxRetries);
+            ['response' => $response, 'attempts' => $attempts] = $this->attemptInference($trimmed, $maxRetries);
             $structured = $response->structured ?? [];
             $structured = is_array($structured) ? $structured : [];
 
@@ -79,6 +81,8 @@ final class TaskAssistantIntentInferenceService
                 'rationale' => $rationale,
                 'provider' => (string) config('task-assistant.provider', 'ollama'),
                 'model' => $this->resolveModel(),
+                'attempts' => $attempts,
+                'latency_ms' => (int) round((microtime(true) - $startedAt) * 1000),
             ]);
 
             return new TaskAssistantIntentInferenceResult(
@@ -94,6 +98,7 @@ final class TaskAssistantIntentInferenceService
                 'error' => $e->getMessage(),
                 'provider' => (string) config('task-assistant.provider', 'ollama'),
                 'model' => $this->resolveModel(),
+                'latency_ms' => (int) round((microtime(true) - $startedAt) * 1000),
             ]);
 
             return new TaskAssistantIntentInferenceResult(
@@ -211,16 +216,27 @@ PROMPT;
         return (string) config('task-assistant.model', 'hermes3:3b');
     }
 
-    private function attemptInference(string $userMessage, int $maxRetries): mixed
+    /**
+     * @return array{response: mixed, attempts: int}
+     */
+    private function attemptInference(string $userMessage, int $maxRetries): array
     {
+        $attempts = 0;
+
         for ($attempt = 0; $attempt <= $maxRetries; $attempt++) {
+            $attempts++;
             try {
-                return Prism::structured()
+                $response = Prism::structured()
                     ->using($this->resolveProvider(), $this->resolveModel())
                     ->withPrompt($this->buildPrompt($userMessage))
                     ->withSchema($this->intentSchema())
                     ->withClientOptions($this->resolveClientOptions())
                     ->asStructured();
+
+                return [
+                    'response' => $response,
+                    'attempts' => $attempts,
+                ];
             } catch (\Throwable $exception) {
                 if ($attempt === $maxRetries) {
                     throw $exception;

@@ -35,6 +35,8 @@ test('pure greeting fallback carries deterministic greeting reason code', functi
 });
 
 test('LLM intent prioritization maps to prioritize flow', function (): void {
+    config()->set('task-assistant.intent.inference.skip_when_signal_confident', false);
+
     Prism::fake([
         StructuredResponseFake::make()
             ->withStructured([
