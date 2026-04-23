@@ -803,6 +803,19 @@ test('schedule two tasks for later extracts word count when no listing exists', 
     expect($decision->constraints['count_limit'])->toBe(2);
 });
 
+test('schedule my tasks for later short-circuits to prioritize_schedule flow', function (): void {
+    config()->set('task-assistant.intent.use_llm', true);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'schedule my tasks for later');
+
+    expect($decision->flow)->toBe('prioritize_schedule');
+    expect($decision->reasonCodes)->toContain('fresh_batch_schedule_shortcircuit');
+    expect($decision->constraints['time_window_hint'])->toBe('later');
+});
+
 test('schedule only the first one for later extracts count_limit 1 when no listing exists', function (): void {
     config()->set('task-assistant.intent.use_llm', false);
 

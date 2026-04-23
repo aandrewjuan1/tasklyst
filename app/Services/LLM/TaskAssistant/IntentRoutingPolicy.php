@@ -208,6 +208,42 @@ final class IntentRoutingPolicy
             );
         }
 
+        if ($this->isLikelyFreshBatchScheduleRequest($normalized)) {
+            $constraints = $this->extractConstraintsForFlow($thread, $normalized, 'schedule');
+            $constraints = $this->applyFreshTopNConstraintOverride($normalized, 'schedule', $constraints);
+            $isBroadLaterBatch = $this->shouldEscalateToPrioritizeScheduleForBroadLaterBatch($normalized, $constraints);
+            $flow = $isBroadLaterBatch ? 'prioritize_schedule' : 'schedule';
+            if ($isBroadLaterBatch) {
+                $constraints = $this->extractConstraintsForFlow($thread, $normalized, 'prioritize_schedule');
+                $constraints = $this->applyFreshTopNConstraintOverride($normalized, 'prioritize_schedule', $constraints);
+            }
+
+            Log::info('task-assistant.intent.policy', [
+                'layer' => 'intent_policy',
+                'run_id' => app()->bound('task_assistant.run_id') ? app('task_assistant.run_id') : null,
+                'thread_id' => $thread->id,
+                'assistant_message_id' => app()->bound('task_assistant.message_id') ? app('task_assistant.message_id') : null,
+                'outcome' => 'fresh_batch_schedule_shortcircuit',
+                'flow' => $flow,
+                'constraints' => [
+                    'count_limit' => $constraints['count_limit'] ?? 1,
+                    'time_window_hint' => $constraints['time_window_hint'] ?? null,
+                    'target_entities_count' => is_array($constraints['target_entities'] ?? null)
+                        ? count($constraints['target_entities'])
+                        : 0,
+                ],
+            ]);
+
+            return new IntentRoutingDecision(
+                flow: $flow,
+                confidence: 1.0,
+                reasonCodes: ['fresh_batch_schedule_shortcircuit'],
+                constraints: $constraints,
+                clarificationNeeded: false,
+                clarificationQuestion: null,
+            );
+        }
+
         if ($this->isLikelyDirectPrioritizeFirstPrompt($normalized)) {
             $constraints = $this->extractConstraintsForFlow($thread, $normalized, 'prioritize');
 
@@ -699,8 +735,38 @@ final class IntentRoutingPolicy
         $hasScheduleVerb = preg_match('/\b(schedule|plan|organi[sz]e|map\s*out|line\s*up)\b/u', $normalized) === 1;
         $hasBatchCue = preg_match('/\b(top|first|next|\d+|two|three|four|five|six|seven|eight|nine|ten)\b/u', $normalized) === 1;
         $hasPluralScope = preg_match('/\b(tasks?|items?|priorities)\b/u', $normalized) === 1;
+        $hasTimeWindowCue = preg_match('/\b(today|tomorrow|this week|next week|later|morning|afternoon|evening|tonight)\b/u', $normalized) === 1;
 
-        return $hasScheduleVerb && $hasBatchCue && $hasPluralScope;
+        return $hasScheduleVerb && $hasPluralScope && ($hasBatchCue || $hasTimeWindowCue);
+    }
+
+    /**
+     * @param  array<string, mixed>  $constraints
+     */
+    private function shouldEscalateToPrioritizeScheduleForBroadLaterBatch(string $normalized, array $constraints): bool
+    {
+        $targets = is_array($constraints['target_entities'] ?? null) ? $constraints['target_entities'] : [];
+        if ($targets !== []) {
+            return false;
+        }
+
+        if (preg_match('/\b(my|our)\s+(tasks?|items?|priorities)\b/u', $normalized) !== 1) {
+            return false;
+        }
+
+        if (preg_match('/\blater\b/u', $normalized) !== 1) {
+            return false;
+        }
+
+        if (preg_match('/\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten|couple)\b/u', $normalized) === 1) {
+            return false;
+        }
+
+        if (preg_match('/\b(today|tomorrow|this week|next week|morning|afternoon|evening|tonight)\b/u', $normalized) === 1) {
+            return false;
+        }
+
+        return true;
     }
 
     private function extractDirectTopNCount(string $normalized): ?int
