@@ -214,7 +214,7 @@
                             </div>
                         @endforeach
                         <div
-                            class="flex flex-1 flex-col items-center justify-center gap-3 rounded-xl px-4 py-8 text-center sm:py-10 {{ $kanbanEmptyVisual['panel'] }}"
+                            class="flex flex-1 flex-col items-center justify-start gap-3 rounded-xl px-4 py-4 text-center sm:py-5 {{ $kanbanEmptyVisual['panel'] }}"
                             x-show="(columns['{{ $status->value }}']?.count ?? {{ $columnTasks->count() }}) === 0"
                             @if($columnTasks->isNotEmpty())
                             style="display: none"
