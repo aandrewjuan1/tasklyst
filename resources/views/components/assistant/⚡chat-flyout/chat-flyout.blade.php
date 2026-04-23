@@ -408,7 +408,9 @@
                                     array_map(static fn (mixed $chip): string => trim((string) $chip), $nextOptionChips),
                                     static fn (string $chip): bool => $chip !== ''
                                 ));
-                                $nextOptionChips = $this->filterContinueStyleQuickChips($nextOptionChips);
+                                if (count($fallbackOptionChips) === 0) {
+                                    $nextOptionChips = $this->filterContinueStyleQuickChips($nextOptionChips);
+                                }
                                 $isLatestAssistant = $latestAssistantMessageId !== null && $message->id === $latestAssistantMessageId;
                                 $chipsDismissed = (bool) ($dismissedNextOptionChipsByMessage[$message->id] ?? false);
                             @endphp

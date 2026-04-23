@@ -633,6 +633,8 @@ test('schedule them all prefers broader prioritize listing over last single sche
     expect($decision->flow)->toBe('schedule');
     expect($decision->constraints['target_entities'])->toHaveCount(3);
     expect($decision->constraints['count_limit'])->toBe(3);
+    expect((bool) ($decision->constraints['count_limit_explicitly_requested'] ?? false))->toBeFalse();
+    expect((bool) ($decision->constraints['is_strict_set_contract'] ?? false))->toBeTrue();
 });
 
 test('fresh explicit top n schedule request does not inherit stale single schedule target', function (): void {

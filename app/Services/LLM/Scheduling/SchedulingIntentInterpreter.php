@@ -18,7 +18,7 @@ final class SchedulingIntentInterpreter
     /**
      * @return array{
      *   time_window: array{start: string, end: string},
-     *   intent_flags: array{has_later: bool, has_morning: bool, has_afternoon: bool, has_evening: bool, has_onwards: bool, has_only: bool},
+     *   intent_flags: array{has_later: bool, has_morning: bool, has_afternoon: bool, has_evening: bool, has_onwards: bool, has_only: bool, is_plain_later_default: bool},
      *   has_explicit_clock_time: bool,
      *   strict_window: bool,
      *   reason_codes: list<string>
@@ -36,6 +36,15 @@ final class SchedulingIntentInterpreter
         $hasEvening = preg_match('/\b(evening|night|tonight)\b/u', $lower) === 1;
         $hasOnwards = preg_match('/\bonward(s)?\b/u', $lower) === 1;
         $hasOnly = preg_match('/\bonly\b/u', $lower) === 1;
+        $baseIntentFlags = [
+            'has_later' => $hasLater,
+            'has_morning' => $hasMorning,
+            'has_afternoon' => $hasAfternoon,
+            'has_evening' => $hasEvening,
+            'has_onwards' => $hasOnwards,
+            'has_only' => $hasOnly,
+            'is_plain_later_default' => false,
+        ];
 
         $reasonCodes = [];
 
@@ -50,14 +59,7 @@ final class SchedulingIntentInterpreter
                     'start' => $explicitWindow['start'],
                     'end' => $explicitWindow['end'],
                 ],
-                'intent_flags' => [
-                    'has_later' => $hasLater,
-                    'has_morning' => $hasMorning,
-                    'has_afternoon' => $hasAfternoon,
-                    'has_evening' => $hasEvening,
-                    'has_onwards' => $hasOnwards,
-                    'has_only' => $hasOnly,
-                ],
+                'intent_flags' => $baseIntentFlags,
                 'has_explicit_clock_time' => true,
                 'strict_window' => $hasOnly,
                 'reason_codes' => $explicitWindow['reason_codes'],
@@ -71,14 +73,7 @@ final class SchedulingIntentInterpreter
                     'start' => $combinedNamedWindow['start'],
                     'end' => $combinedNamedWindow['end'],
                 ],
-                'intent_flags' => [
-                    'has_later' => $hasLater,
-                    'has_morning' => $hasMorning,
-                    'has_afternoon' => $hasAfternoon,
-                    'has_evening' => $hasEvening,
-                    'has_onwards' => $hasOnwards,
-                    'has_only' => $hasOnly,
-                ],
+                'intent_flags' => $baseIntentFlags,
                 'has_explicit_clock_time' => false,
                 'strict_window' => $hasOnly,
                 'reason_codes' => $combinedNamedWindow['reason_codes'],
@@ -98,14 +93,7 @@ final class SchedulingIntentInterpreter
 
             return [
                 'time_window' => ['start' => $start, 'end' => $end],
-                'intent_flags' => [
-                    'has_later' => $hasLater,
-                    'has_morning' => $hasMorning,
-                    'has_afternoon' => $hasAfternoon,
-                    'has_evening' => $hasEvening,
-                    'has_onwards' => $hasOnwards,
-                    'has_only' => $hasOnly,
-                ],
+                'intent_flags' => $baseIntentFlags,
                 'has_explicit_clock_time' => false,
                 'strict_window' => $hasOnly,
                 'reason_codes' => $reasonCodes,
@@ -130,14 +118,7 @@ final class SchedulingIntentInterpreter
 
             return [
                 'time_window' => ['start' => $start, 'end' => $end],
-                'intent_flags' => [
-                    'has_later' => $hasLater,
-                    'has_morning' => $hasMorning,
-                    'has_afternoon' => $hasAfternoon,
-                    'has_evening' => $hasEvening,
-                    'has_onwards' => $hasOnwards,
-                    'has_only' => $hasOnly,
-                ],
+                'intent_flags' => $baseIntentFlags,
                 'has_explicit_clock_time' => false,
                 'strict_window' => $hasOnly,
                 'reason_codes' => $reasonCodes,
@@ -158,14 +139,7 @@ final class SchedulingIntentInterpreter
 
             return [
                 'time_window' => ['start' => $start, 'end' => $end],
-                'intent_flags' => [
-                    'has_later' => $hasLater,
-                    'has_morning' => $hasMorning,
-                    'has_afternoon' => $hasAfternoon,
-                    'has_evening' => $hasEvening,
-                    'has_onwards' => $hasOnwards,
-                    'has_only' => $hasOnly,
-                ],
+                'intent_flags' => $baseIntentFlags,
                 'has_explicit_clock_time' => false,
                 'strict_window' => $hasOnly,
                 'reason_codes' => $reasonCodes,
@@ -181,14 +155,9 @@ final class SchedulingIntentInterpreter
 
             return [
                 'time_window' => ['start' => $start, 'end' => $defaultEnd],
-                'intent_flags' => [
-                    'has_later' => $hasLater,
-                    'has_morning' => $hasMorning,
-                    'has_afternoon' => $hasAfternoon,
-                    'has_evening' => $hasEvening,
-                    'has_onwards' => $hasOnwards,
-                    'has_only' => $hasOnly,
-                ],
+                'intent_flags' => array_merge($baseIntentFlags, [
+                    'is_plain_later_default' => true,
+                ]),
                 'has_explicit_clock_time' => false,
                 'strict_window' => $hasOnly,
                 'reason_codes' => $reasonCodes,
@@ -200,30 +169,33 @@ final class SchedulingIntentInterpreter
 
         return [
             'time_window' => ['start' => $defaultStart, 'end' => $defaultEnd],
-            'intent_flags' => [
-                'has_later' => $hasLater,
-                'has_morning' => $hasMorning,
-                'has_afternoon' => $hasAfternoon,
-                'has_evening' => $hasEvening,
-                'has_onwards' => $hasOnwards,
-                'has_only' => $hasOnly,
-            ],
+            'intent_flags' => $baseIntentFlags,
             'has_explicit_clock_time' => false,
             'strict_window' => $hasOnly,
             'reason_codes' => $reasonCodes,
         ];
     }
 
-    private function resolveLaterStartTime(CarbonImmutable $localNow, string $defaultStart, string $defaultEnd): string
-    {
-        $hour = (int) $localNow->format('H');
-        $minute = (int) $localNow->format('i');
+    private function resolveLaterStartTime(
+        CarbonImmutable $localNow,
+        string $defaultStart,
+        string $defaultEnd,
+        bool $applyPrepLead = true
+    ): string {
+        $prepLeadMinutes = max(0, (int) config('task-assistant.schedule.implicit_later_prep_minutes', 30));
+        $roundingMinutes = max(1, (int) config('task-assistant.schedule.implicit_later_rounding_minutes', 15));
+
+        $candidate = $applyPrepLead
+            ? $localNow->addMinutes($prepLeadMinutes)
+            : $localNow;
+        $hour = (int) $candidate->format('H');
+        $minute = (int) $candidate->format('i');
 
         // Round up to next 15-minute boundary for a cleaner UX.
-        $rounded = $localNow->setTime($hour, $minute, 0);
-        $mod = $minute % 15;
+        $rounded = $candidate->setTime($hour, $minute, 0);
+        $mod = $minute % $roundingMinutes;
         if ($mod !== 0) {
-            $rounded = $rounded->addMinutes(15 - $mod);
+            $rounded = $rounded->addMinutes($roundingMinutes - $mod);
         }
 
         $start = $rounded->format('H:i');
@@ -246,7 +218,9 @@ final class SchedulingIntentInterpreter
 
     private function resolveLaterStartWithinDaypart(CarbonImmutable $localNow, string $daypartStart, string $daypartEnd): string
     {
-        $roundedStart = $this->resolveLaterStartTime($localNow, $daypartStart, $daypartEnd);
+        // Do not apply plain "later" prep lead for daypart-constrained requests
+        // such as "later evening". We only round to keep slots clean.
+        $roundedStart = $this->resolveLaterStartTime($localNow, $daypartStart, $daypartEnd, false);
 
         if ($roundedStart >= $daypartEnd) {
             return $daypartEnd;

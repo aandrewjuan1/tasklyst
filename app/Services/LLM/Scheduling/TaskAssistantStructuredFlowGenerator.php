@@ -1317,6 +1317,19 @@ final class TaskAssistantStructuredFlowGenerator
             }
         }
 
+        if ($this->shouldAutoRollImplicitLaterToTomorrow(
+            $context,
+            $placementDates,
+            $todayStr,
+            $windowEnd,
+            $nowInstant
+        )) {
+            $rolloverDate = CarbonImmutable::parse($todayStr, $timezone)->addDay()->toDateString();
+            $placementDates = [$rolloverDate];
+            $windowStart = '08:00';
+            $windowEnd = '22:00';
+        }
+
         /** @var array<string, array<int, array{start: \DateTimeImmutable, end: \DateTimeImmutable}>> $windowsByDay */
         $windowsByDay = [];
         foreach ($placementDates as $day) {
@@ -1367,6 +1380,7 @@ final class TaskAssistantStructuredFlowGenerator
         $digest = [
             'requested_count' => $requestedCount,
             'requested_count_source' => $requestedCountSource,
+            'is_strict_set_contract' => $this->isStrictSetContract($scheduleOptions),
             'candidate_units_count' => $candidateUnitCount,
             'time_window_hint' => is_string($scheduleOptions['time_window_hint'] ?? null) ? $scheduleOptions['time_window_hint'] : null,
             'placement_dates' => $placementDates,
@@ -1483,7 +1497,7 @@ final class TaskAssistantStructuredFlowGenerator
                 $hasMoreUnitsAfterThis = $unitIndex < ($totalUnits - 1);
                 $gapMinutes = $hasMoreUnitsAfterThis
                     && $proposalsCountAfterPlacement < $countLimit
-                    ? $this->computeBetweenBlockGapMinutes($blockMinutes)
+                    ? $this->computeBetweenBlockGapMinutes($blockMinutes, $context)
                     : 0;
                 $requiredMinutes = $blockMinutes + $gapMinutes;
 
@@ -1764,7 +1778,15 @@ final class TaskAssistantStructuredFlowGenerator
     {
         $explicitRequestedCount = (int) ($scheduleOptions['explicit_requested_count'] ?? 0);
 
-        return $explicitRequestedCount > 0 ? 'explicit_user' : 'system_default';
+        return $explicitRequestedCount > 0 || $this->isStrictSetContract($scheduleOptions) ? 'explicit_user' : 'system_default';
+    }
+
+    /**
+     * @param  array<string, mixed>  $scheduleOptions
+     */
+    private function isStrictSetContract(array $scheduleOptions): bool
+    {
+        return (bool) ($scheduleOptions['is_strict_set_contract'] ?? false);
     }
 
     /**
@@ -2977,8 +2999,12 @@ final class TaskAssistantStructuredFlowGenerator
         ];
     }
 
-    private function computeBetweenBlockGapMinutes(int $blockMinutes): int
+    private function computeBetweenBlockGapMinutes(int $blockMinutes, array $context): int
     {
+        if ($this->shouldUseOneHourGapForImplicitLater($context)) {
+            return 60;
+        }
+
         // Mapping chosen to keep things consistent for the student:
         // - <=60 min => 15 min
         // - >=120 min => 30 min
@@ -2995,6 +3021,57 @@ final class TaskAssistantStructuredFlowGenerator
         $gap = 15 + ($t * 15); // 15..30
 
         return max(15, min(30, (int) round($gap)));
+    }
+
+    /**
+     * @param  array<string, mixed>  $context
+     */
+    private function shouldUseOneHourGapForImplicitLater(array $context): bool
+    {
+        $intentFlags = is_array($context['schedule_intent_flags'] ?? null)
+            ? $context['schedule_intent_flags']
+            : [];
+        $hasExplicitClockTime = (bool) ($context['has_explicit_clock_time'] ?? false);
+
+        return ! $hasExplicitClockTime
+            && (bool) ($intentFlags['is_plain_later_default'] ?? false);
+    }
+
+    /**
+     * @param  array<string, mixed>  $context
+     * @param  list<string>  $placementDates
+     */
+    private function shouldAutoRollImplicitLaterToTomorrow(
+        array $context,
+        array $placementDates,
+        string $todayStr,
+        string $windowEnd,
+        ?\DateTimeImmutable $nowInstant
+    ): bool {
+        if (! $this->shouldUseOneHourGapForImplicitLater($context)) {
+            return false;
+        }
+
+        if ($todayStr === '' || $placementDates === [] || $placementDates[0] !== $todayStr) {
+            return false;
+        }
+
+        if (! $nowInstant instanceof \DateTimeImmutable) {
+            return false;
+        }
+
+        $endOfWindow = new \DateTimeImmutable($todayStr.' '.$windowEnd, $nowInstant->getTimezone());
+        if ($nowInstant >= $endOfWindow) {
+            return true;
+        }
+
+        $remainingMinutes = (int) floor(($endOfWindow->getTimestamp() - $nowInstant->getTimestamp()) / 60);
+        $minimumRemainingMinutes = max(
+            30,
+            (int) config('task-assistant.schedule.implicit_later_min_remaining_minutes', 90)
+        );
+
+        return $remainingMinutes < $minimumRemainingMinutes;
     }
 
     private function findFirstFittingWindow(array $windows, int $requiredMinutes): ?array

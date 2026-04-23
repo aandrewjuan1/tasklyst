@@ -120,7 +120,7 @@ final class TaskAssistantScheduleContextBuilder
             && (string) $horizon['start_date'] !== (string) $horizon['end_date'];
         $intentFlags = is_array($intent['intent_flags'] ?? null) ? $intent['intent_flags'] : [];
         if ($isMultiDayHorizon && (($intentFlags['has_later'] ?? false) === true)) {
-            $intent['time_window'] = ['start' => '13:00', 'end' => '22:00'];
+            $intent['time_window'] = ['start' => '08:00', 'end' => '22:00'];
             $reasonCodes = is_array($intent['reason_codes'] ?? null) ? $intent['reason_codes'] : [];
             if (! in_array('intent_time_window_later_multiday_default', $reasonCodes, true)) {
                 $reasonCodes[] = 'intent_time_window_later_multiday_default';

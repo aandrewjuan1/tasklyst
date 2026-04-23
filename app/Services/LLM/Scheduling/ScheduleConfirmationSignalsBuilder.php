@@ -288,7 +288,13 @@ final class ScheduleConfirmationSignalsBuilder
         }
 
         $unplaced = is_array($digest['unplaced_units'] ?? null) ? $digest['unplaced_units'] : [];
-        if ($unplaced !== [] && ! $empty && $this->unplacedHasExplicitTargetFailure($unplaced, $scheduleOptions)) {
+        $hasExplicitCountContract = $this->hasExplicitCountContract($digest, $scheduleOptions);
+        if (
+            $unplaced !== []
+            && ! $empty
+            && $hasExplicitCountContract
+            && $this->unplacedHasExplicitTargetFailure($unplaced, $scheduleOptions)
+        ) {
             $triggers[] = 'unplaced_units';
         }
 
@@ -327,6 +333,24 @@ final class ScheduleConfirmationSignalsBuilder
         }
 
         return $triggers;
+    }
+
+    /**
+     * @param  array<string, mixed>  $digest
+     * @param  array<string, mixed>  $scheduleOptions
+     */
+    private function hasExplicitCountContract(array $digest, array $scheduleOptions): bool
+    {
+        if ((bool) ($digest['is_strict_set_contract'] ?? false) || (bool) ($scheduleOptions['is_strict_set_contract'] ?? false)) {
+            return true;
+        }
+
+        $requestedCountSource = (string) ($digest['requested_count_source'] ?? '');
+        if ($requestedCountSource === 'explicit_user') {
+            return true;
+        }
+
+        return (int) ($scheduleOptions['explicit_requested_count'] ?? 0) > 0;
     }
 
     /**

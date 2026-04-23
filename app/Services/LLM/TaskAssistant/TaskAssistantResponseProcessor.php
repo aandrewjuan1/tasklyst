@@ -1095,17 +1095,14 @@ final class TaskAssistantResponseProcessor
                 $reasonCode = trim((string) ($confirmationContext['reason_code'] ?? ''));
                 $expectedOptions = match ($reasonCode) {
                     'top_n_shortfall' => [
-                        'Keep this current draft',
-                        'Pick another time window',
-                        'Cancel scheduling for now',
+                        'Continue with that plan',
+                        'Try another time window',
                     ],
                     'explicit_day_not_feasible' => [
-                        'Schedule them later this week instead',
+                        'Try another time window',
                     ],
                     'later_window_not_feasible' => [
-                        'Yes, continue with tomorrow',
-                        'Pick another time window',
-                        'Cancel scheduling for now',
+                        'Try another time window',
                     ],
                     default => [],
                 };
@@ -1134,6 +1131,12 @@ final class TaskAssistantResponseProcessor
                             'Yes, continue with tomorrow',
                             'Continue with that plan',
                         ],
+                        'try_nearest_available_window' => [
+                            'Try tomorrow morning',
+                            'Yes, continue with tomorrow',
+                            'Schedule for tomorrow morning instead',
+                            'Schedule for ',
+                        ],
                         'try_tomorrow_morning' => [
                             'Try tomorrow morning',
                             'Yes, continue with tomorrow',
@@ -1144,6 +1147,7 @@ final class TaskAssistantResponseProcessor
                             'Pick another time window',
                             'Widen to nearby days',
                             'Schedule them later this week instead',
+                            'Try another time window',
                         ],
                         'cancel_scheduling' => [
                             'Cancel scheduling for now',

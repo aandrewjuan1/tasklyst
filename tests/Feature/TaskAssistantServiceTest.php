@@ -1630,7 +1630,7 @@ test('robotic fallback narrative is rejected in favor of deterministic student-f
     expect($assistantMessage->metadata['schedule']['confirmation_required'] ?? null)->toBeTrue();
     expect($assistantMessage->metadata['schedule']['confirmation_context']['reason_details'] ?? [])->not->toBe([]);
     $options = $assistantMessage->metadata['schedule']['confirmation_context']['options'] ?? [];
-    expect($options)->toContain('Schedule them later this week instead');
+    expect($options)->toContain('Try another time window');
     expect($options)->not->toBe([]);
     expect($options)->not->toContain('Split it into shorter blocks today');
     expect((string) $assistantMessage->content)->not->toContain('Confidence:');
@@ -1729,9 +1729,193 @@ test('top N scheduling shortfall requires confirmation instead of silent underfi
     expect($assistantMessage->metadata['schedule']['confirmation_required'] ?? null)->toBeTrue();
     expect($assistantMessage->metadata['schedule']['awaiting_user_decision'] ?? null)->toBeTrue();
     expect($assistantMessage->metadata['schedule']['confirmation_context']['reason_code'] ?? null)->toBe('top_n_shortfall');
+    expect($assistantMessage->metadata['schedule']['confirmation_context']['options'] ?? [])
+        ->toContain('Continue with that plan')
+        ->toContain('Try another time window')
+        ->not->toContain('Cancel scheduling for now');
     expect($assistantMessage->metadata['schedule']['placement_digest']['top_n_shortfall'] ?? null)->toBeTrue();
     expect((string) ($assistantMessage->metadata['schedule']['framing'] ?? ''))->not->toContain('top 3 request');
     expect($thread->metadata['conversation_state']['pending_schedule_fallback'] ?? null)->toBeArray();
+
+    CarbonImmutable::setTestNow();
+});
+
+test('multi-turn all-of-them scheduling follow-up is treated as strict contract', function (): void {
+    config([
+        'task-assistant.intent.use_llm' => false,
+        'task-assistant.schedule.top_n_shortfall_policy' => 'confirm_if_shortfall',
+        'task-assistant.schedule.overflow_strategy' => 'require_confirm',
+        'task-assistant.schedule.partial_policy' => 'top1_only',
+    ]);
+
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => 'Here are your top priorities.',
+                'acknowledgment' => null,
+                'reasoning' => 'Ranked by urgency and due date.',
+                'next_options' => 'I can schedule these for later if you want.',
+                'next_options_chip_texts' => ['Schedule these for later'],
+            ])
+            ->withUsage(new Usage(5, 10)),
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => 'I preserved your requested set and paused for confirmation.',
+                'reasoning' => 'Only part of the strict set fits this window.',
+                'confirmation' => 'Choose whether to keep this draft or try another window.',
+            ])
+            ->withUsage(new Usage(5, 10)),
+    ]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+    $timezone = (string) config('app.timezone', 'UTC');
+    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-04-23 17:55:00', $timezone));
+
+    Task::factory()->for($user)->create([
+        'title' => 'Task One',
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::Urgent,
+        'duration' => 60,
+        'start_datetime' => null,
+        'end_datetime' => CarbonImmutable::parse('2026-04-24 09:00:00', $timezone),
+    ]);
+    Task::factory()->for($user)->create([
+        'title' => 'Task Two',
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::High,
+        'duration' => 60,
+        'start_datetime' => null,
+        'end_datetime' => CarbonImmutable::parse('2026-04-24 10:00:00', $timezone),
+    ]);
+    Task::factory()->for($user)->create([
+        'title' => 'Task Three',
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::Medium,
+        'duration' => 60,
+        'start_datetime' => null,
+        'end_datetime' => CarbonImmutable::parse('2026-04-24 11:00:00', $timezone),
+    ]);
+    Event::factory()->for($user)->create([
+        'title' => 'Busy block',
+        'start_datetime' => CarbonImmutable::parse('2026-04-23 19:30:00', $timezone),
+        'end_datetime' => CarbonImmutable::parse('2026-04-23 20:30:00', $timezone),
+    ]);
+
+    $firstUser = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'what are my top 3 tasks',
+    ]);
+    $firstAssistant = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $firstUser->id, $firstAssistant->id);
+
+    $secondUser = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'schedule all of them for later',
+    ]);
+    $secondAssistant = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $secondUser->id, $secondAssistant->id);
+
+    $secondAssistant->refresh();
+    $digest = is_array($secondAssistant->metadata['schedule']['placement_digest'] ?? null)
+        ? $secondAssistant->metadata['schedule']['placement_digest']
+        : [];
+    $options = $secondAssistant->metadata['schedule']['confirmation_context']['options'] ?? [];
+
+    expect($secondAssistant->metadata['structured']['flow'] ?? null)->toBe('schedule');
+    expect($secondAssistant->metadata['schedule']['confirmation_required'] ?? null)->toBeTrue();
+    expect($secondAssistant->metadata['schedule']['confirmation_context']['reason_code'] ?? null)->toBe('top_n_shortfall');
+    expect($digest['requested_count_source'] ?? null)->toBe('explicit_user');
+    expect($digest['is_strict_set_contract'] ?? null)->toBeTrue();
+    expect($options)->toContain('Continue with that plan')->toContain('Try another time window');
+
+    CarbonImmutable::setTestNow();
+});
+
+test('implicit top tasks later shortfall auto-proposes what fits without confirmation', function (): void {
+    config([
+        'task-assistant.intent.use_llm' => false,
+        'task-assistant.schedule.top_n_shortfall_policy' => 'confirm_if_shortfall',
+        'task-assistant.schedule.overflow_strategy' => 'require_confirm',
+        'task-assistant.schedule.partial_policy' => 'top1_only',
+    ]);
+
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => 'I queued what fit for later today.',
+                'reasoning' => 'I prioritized realistic windows in your later-day range.',
+                'confirmation' => 'If you want, I can add more time tomorrow.',
+            ])
+            ->withUsage(new Usage(5, 10)),
+    ]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+    $timezone = (string) config('app.timezone', 'UTC');
+    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-04-23 17:55:00', $timezone));
+
+    Task::factory()->for($user)->create([
+        'title' => 'Task One',
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::Urgent,
+        'duration' => 60,
+        'start_datetime' => null,
+        'end_datetime' => CarbonImmutable::parse('2026-04-24 09:00:00', $timezone),
+    ]);
+    Task::factory()->for($user)->create([
+        'title' => 'Task Two',
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::High,
+        'duration' => 60,
+        'start_datetime' => null,
+        'end_datetime' => CarbonImmutable::parse('2026-04-24 10:00:00', $timezone),
+    ]);
+    Task::factory()->for($user)->create([
+        'title' => 'Task Three',
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::Medium,
+        'duration' => 60,
+        'start_datetime' => null,
+        'end_datetime' => CarbonImmutable::parse('2026-04-24 11:00:00', $timezone),
+    ]);
+    Event::factory()->for($user)->create([
+        'title' => 'Busy block',
+        'start_datetime' => CarbonImmutable::parse('2026-04-23 19:30:00', $timezone),
+        'end_datetime' => CarbonImmutable::parse('2026-04-23 20:30:00', $timezone),
+    ]);
+
+    $userMessage = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'Schedule my top tasks later',
+    ]);
+    $assistantMessage = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
+
+    $assistantMessage->refresh();
+    $thread->refresh();
+
+    $digest = is_array($assistantMessage->metadata['schedule']['placement_digest'] ?? null)
+        ? $assistantMessage->metadata['schedule']['placement_digest']
+        : [];
+
+    expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('prioritize_schedule');
+    expect($assistantMessage->metadata['schedule']['confirmation_required'] ?? null)->toBeFalse();
+    expect($assistantMessage->metadata['schedule']['awaiting_user_decision'] ?? null)->toBeFalse();
+    expect(count($assistantMessage->metadata['schedule']['proposals'] ?? []))->toBeGreaterThan(0);
+    expect($digest['requested_count_source'] ?? null)->toBe('system_default');
+    expect($digest['unplaced_units'] ?? [])->not->toBe([]);
+    expect($thread->metadata['conversation_state']['pending_schedule_fallback'] ?? null)->toBeNull();
 
     CarbonImmutable::setTestNow();
 });
@@ -1911,7 +2095,7 @@ test('explicit requested date no-fit requires confirmation instead of silent day
     expect($converted['confirmation_context']['reason_code'] ?? null)->toBe('explicit_day_not_feasible');
     expect((array) ($converted['confirmation_context']['options'] ?? []))
         ->toContain('Schedule for the closest available daypart')
-        ->toContain('Schedule them later this week instead');
+        ->toContain('Try another time window');
 });
 
 test('fallback confirmation narrative does not claim explicit top-N for generic plan request', function (): void {
@@ -2622,7 +2806,7 @@ test('pending schedule fallback releases when user pivots to fresh prioritize re
     expect($thread->metadata['conversation_state']['pending_schedule_fallback'] ?? null)->toBeNull();
 });
 
-test('pending fallback chip action try_tomorrow_morning executes deterministic schedule path', function (): void {
+test('pending fallback chip action try_nearest_available_window executes deterministic schedule path', function (): void {
     config(['task-assistant.intent.use_llm' => false]);
     $timezone = (string) config('app.timezone', 'UTC');
     CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-04-17 21:30:00', $timezone));
@@ -2663,7 +2847,7 @@ test('pending fallback chip action try_tomorrow_morning executes deterministic s
                         'confirmation_context' => [
                             'requested_count' => 1,
                             'option_actions' => [
-                                ['id' => 'try_tomorrow_morning', 'label' => 'Try tomorrow morning'],
+                                ['id' => 'try_nearest_available_window', 'label' => 'Try tomorrow morning'],
                                 ['id' => 'pick_another_time_window', 'label' => 'Pick another time window'],
                                 ['id' => 'cancel_scheduling', 'label' => 'Cancel scheduling for now'],
                             ],
@@ -2679,7 +2863,7 @@ test('pending fallback chip action try_tomorrow_morning executes deterministic s
         'content' => 'Try tomorrow morning',
         'metadata' => [
             'client_action' => [
-                'id' => 'try_tomorrow_morning',
+                'id' => 'try_nearest_available_window',
                 'source' => 'fallback_option_chip',
             ],
         ],
@@ -2920,6 +3104,87 @@ test('processQueuedMessage routes ranked-set schedule chip actions deterministic
     expect($assistantMessage->metadata['routing_trace']['initial_flow'] ?? null)->toBe('schedule');
     expect($assistantMessage->metadata['routing_trace']['initial_reason_codes'] ?? [])
         ->toContain('client_action_chip_schedule_ranked_set');
+});
+
+test('ranked-set schedule chip reuses last listing targets as strict set contract', function (): void {
+    config([
+        'task-assistant.intent.use_llm' => false,
+        'task-assistant.schedule.top_n_shortfall_policy' => 'confirm_if_shortfall',
+        'task-assistant.schedule.overflow_strategy' => 'require_confirm',
+        'task-assistant.schedule.partial_policy' => 'top1_only',
+    ]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+    $timezone = (string) config('app.timezone', 'UTC');
+    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-04-23 19:40:00', $timezone));
+
+    $first = Task::factory()->for($user)->create([
+        'title' => 'Task One',
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::Urgent,
+        'duration' => 60,
+        'start_datetime' => null,
+        'end_datetime' => CarbonImmutable::parse('2026-04-24 09:00:00', $timezone),
+    ]);
+    $second = Task::factory()->for($user)->create([
+        'title' => 'Task Two',
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::High,
+        'duration' => 60,
+        'start_datetime' => null,
+        'end_datetime' => CarbonImmutable::parse('2026-04-24 10:00:00', $timezone),
+    ]);
+    $third = Task::factory()->for($user)->create([
+        'title' => 'Task Three',
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::Medium,
+        'duration' => 60,
+        'start_datetime' => null,
+        'end_datetime' => CarbonImmutable::parse('2026-04-24 11:00:00', $timezone),
+    ]);
+
+    app(\App\Services\LLM\TaskAssistant\TaskAssistantConversationStateService::class)->rememberLastListing(
+        $thread,
+        'prioritize',
+        [
+            ['entity_type' => 'task', 'entity_id' => $first->id, 'title' => $first->title],
+            ['entity_type' => 'task', 'entity_id' => $second->id, 'title' => $second->title],
+            ['entity_type' => 'task', 'entity_id' => $third->id, 'title' => $third->title],
+        ],
+        null,
+        3,
+    );
+
+    $userMessage = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'Schedule all ranked tasks for later today',
+        'metadata' => [
+            'client_action' => [
+                'id' => 'chip_schedule_ranked_set',
+                'source' => 'next_option_chip',
+            ],
+        ],
+    ]);
+    $assistantMessage = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
+
+    $assistantMessage->refresh();
+    $digest = is_array($assistantMessage->metadata['schedule']['placement_digest'] ?? null)
+        ? $assistantMessage->metadata['schedule']['placement_digest']
+        : [];
+
+    expect($assistantMessage->metadata['routing_trace']['initial_reason_codes'] ?? [])
+        ->toContain('client_action_chip_schedule_ranked_set');
+    expect($digest['requested_count'] ?? null)->toBe(3);
+    expect($digest['requested_count_source'] ?? null)->toBe('explicit_user');
+    expect($digest['is_strict_set_contract'] ?? null)->toBeTrue();
+
+    CarbonImmutable::setTestNow();
 });
 
 test('processQueuedMessage routes ranked-top-one schedule chip actions deterministically', function (): void {

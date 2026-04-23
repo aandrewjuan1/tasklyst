@@ -1943,6 +1943,7 @@ final class TaskAssistantService
                     'time_window_hint' => $timeWindowHint,
                     'count_limit' => $plan->countLimit,
                     'explicit_requested_count' => $explicitRequestedCount,
+                    'is_strict_set_contract' => (bool) ($plan->constraints['is_strict_set_contract'] ?? false),
                     'schedule_user_id' => $thread->user_id,
                     'pending_busy_intervals' => $pendingBusyIntervals,
                     'refinement_anchor_date' => is_string($plan->constraints['refinement_anchor_date'] ?? null)
@@ -2938,8 +2939,8 @@ final class TaskAssistantService
 
         $hasDraftToKeep = $proposalsCount > 0;
         $defaultOptions = $hasDraftToKeep
-            ? ['Continue with that plan', 'Schedule them later this week instead']
-            : [$nearestActionLabel, 'Schedule them later this week instead'];
+            ? ['Continue with that plan', 'Try another time window']
+            : [$nearestActionLabel, 'Try another time window'];
 
         if ($strictDate !== null) {
             $datePhrase = CarbonImmutable::parse($strictDate)->format('M j, Y');
@@ -2948,11 +2949,11 @@ final class TaskAssistantService
             $reasonCode = 'explicit_day_not_feasible';
             $options = [
                 $nearestActionLabel,
-                'Schedule them later this week instead',
+                'Try another time window',
             ];
             $optionActions = [
-                ['id' => 'try_tomorrow_morning', 'label' => $nearestActionLabel],
-                ['id' => 'pick_another_time_window', 'label' => 'Schedule them later this week instead'],
+                ['id' => 'try_nearest_available_window', 'label' => $nearestActionLabel],
+                ['id' => 'pick_another_time_window', 'label' => 'Try another time window'],
             ];
         } elseif ($topNShortfall) {
             $taskNoun = $proposalsCount === 1 ? 'task' : 'tasks';
@@ -2961,15 +2962,15 @@ final class TaskAssistantService
             } else {
                 $reasonMessage = "Only {$proposalsCount} fit in {$requestedWindowLabel} for this draft.";
             }
-            $prompt = "I can keep this draft with {$proposalsCount} {$taskNoun}, or we can adjust your time window to try fitting all {$requestedCount}. Which would you like?";
+            $prompt = "I can keep this draft with {$proposalsCount} {$taskNoun}, or we can try another time window to fit all {$requestedCount}. Which do you prefer?";
             $reasonCode = 'top_n_shortfall';
             $options = [
                 'Continue with that plan',
-                'Schedule them later this week instead',
+                'Try another time window',
             ];
             $optionActions = [
                 ['id' => 'use_current_draft', 'label' => 'Continue with that plan'],
-                ['id' => 'pick_another_time_window', 'label' => 'Schedule them later this week instead'],
+                ['id' => 'pick_another_time_window', 'label' => 'Try another time window'],
             ];
         } elseif (in_array('empty_placement', $triggers, true)) {
             $reasonCode = 'empty_placement_no_fit';
@@ -2979,8 +2980,8 @@ final class TaskAssistantService
                 : 'I can try the closest available window, or widen your time window. What would you prefer?';
             $options = $defaultOptions;
             $optionActions = [
-                ['id' => 'try_tomorrow_morning', 'label' => $nearestActionLabel],
-                ['id' => 'pick_another_time_window', 'label' => 'Schedule them later this week instead'],
+                ['id' => 'try_nearest_available_window', 'label' => $nearestActionLabel],
+                ['id' => 'pick_another_time_window', 'label' => 'Try another time window'],
             ];
         } elseif (in_array('adaptive_relaxed_placement', $triggers, true)) {
             $reasonCode = 'adaptive_relaxed_placement';
@@ -2988,11 +2989,11 @@ final class TaskAssistantService
             $prompt = "I can keep this draft starting around {$datePhrase}, or we can try different times. What works for you?";
             $options = [
                 'Continue with that plan',
-                'Schedule them later this week instead',
+                'Try another time window',
             ];
             $optionActions = [
                 ['id' => 'use_current_draft', 'label' => 'Continue with that plan'],
-                ['id' => 'pick_another_time_window', 'label' => 'Schedule them later this week instead'],
+                ['id' => 'pick_another_time_window', 'label' => 'Try another time window'],
             ];
         } elseif (in_array('requested_window_unsatisfied', $triggers, true) || in_array('hinted_window_unsatisfied', $triggers, true)) {
             $reasonCode = 'alternative_outside_requested_window';
@@ -3000,8 +3001,8 @@ final class TaskAssistantService
             $prompt = 'Do you want to continue with that plan, or pick another time this week?';
             $options = $defaultOptions;
             $optionActions = [
-                ['id' => $hasDraftToKeep ? 'use_current_draft' : 'try_tomorrow_morning', 'label' => $hasDraftToKeep ? 'Continue with that plan' : $nearestActionLabel],
-                ['id' => 'pick_another_time_window', 'label' => 'Schedule them later this week instead'],
+                ['id' => $hasDraftToKeep ? 'use_current_draft' : 'try_nearest_available_window', 'label' => $hasDraftToKeep ? 'Continue with that plan' : $nearestActionLabel],
+                ['id' => 'pick_another_time_window', 'label' => 'Try another time window'],
             ];
         } elseif (in_array('placement_outside_horizon', $triggers, true)) {
             $reasonCode = 'placement_outside_horizon';
@@ -3009,8 +3010,8 @@ final class TaskAssistantService
             $prompt = 'Should I continue with that plan, or pick another time this week?';
             $options = $defaultOptions;
             $optionActions = [
-                ['id' => $hasDraftToKeep ? 'use_current_draft' : 'try_tomorrow_morning', 'label' => $hasDraftToKeep ? 'Continue with that plan' : $nearestActionLabel],
-                ['id' => 'pick_another_time_window', 'label' => 'Schedule them later this week instead'],
+                ['id' => $hasDraftToKeep ? 'use_current_draft' : 'try_nearest_available_window', 'label' => $hasDraftToKeep ? 'Continue with that plan' : $nearestActionLabel],
+                ['id' => 'pick_another_time_window', 'label' => 'Try another time window'],
             ];
         } elseif (in_array('unplaced_units', $triggers, true)) {
             $reasonCode = 'unplaced_explicit_targets';
@@ -3020,8 +3021,8 @@ final class TaskAssistantService
                 : 'Should I schedule for tomorrow morning instead, or pick another time this week?';
             $options = $defaultOptions;
             $optionActions = [
-                ['id' => $hasDraftToKeep ? 'use_current_draft' : 'try_tomorrow_morning', 'label' => $hasDraftToKeep ? 'Continue with that plan' : $nearestActionLabel],
-                ['id' => 'pick_another_time_window', 'label' => 'Schedule them later this week instead'],
+                ['id' => $hasDraftToKeep ? 'use_current_draft' : 'try_nearest_available_window', 'label' => $hasDraftToKeep ? 'Continue with that plan' : $nearestActionLabel],
+                ['id' => 'pick_another_time_window', 'label' => 'Try another time window'],
             ];
         } elseif (in_array('strict_window_no_fit', $triggers, true)) {
             $reasonCode = 'strict_window_no_fit';
@@ -3031,8 +3032,8 @@ final class TaskAssistantService
                 : 'I can try the closest available window, or adjust your window. Which one should I do?';
             $options = $defaultOptions;
             $optionActions = [
-                ['id' => 'try_tomorrow_morning', 'label' => $nearestActionLabel],
-                ['id' => 'pick_another_time_window', 'label' => 'Schedule them later this week instead'],
+                ['id' => 'try_nearest_available_window', 'label' => $nearestActionLabel],
+                ['id' => 'pick_another_time_window', 'label' => 'Try another time window'],
             ];
         } elseif ($plan->timeWindowHint === 'later') {
             $prompt = $hasDraftToKeep
@@ -3043,11 +3044,11 @@ final class TaskAssistantService
             $reasonMessage = 'There is not enough free time left in your requested "later today" window.';
             $reasonCode = 'later_window_not_feasible';
             $options = $hasDraftToKeep
-                ? ['Continue with that plan', 'Schedule them later this week instead']
-                : [$nearestActionLabel, 'Schedule them later this week instead'];
+                ? ['Continue with that plan', 'Try another time window']
+                : [$nearestActionLabel, 'Try another time window'];
             $optionActions = [
-                ['id' => 'try_tomorrow_morning', 'label' => $nearestActionLabel],
-                ['id' => 'pick_another_time_window', 'label' => 'Schedule them later this week instead'],
+                ['id' => 'try_nearest_available_window', 'label' => $nearestActionLabel],
+                ['id' => 'pick_another_time_window', 'label' => 'Try another time window'],
             ];
         } else {
             $reasonCode = 'schedule_confirmation_needed';
@@ -3055,8 +3056,8 @@ final class TaskAssistantService
             $prompt = 'Do you want to continue with that plan, or pick another time this week?';
             $options = $defaultOptions;
             $optionActions = [
-                ['id' => $hasDraftToKeep ? 'use_current_draft' : 'try_tomorrow_morning', 'label' => $hasDraftToKeep ? 'Continue with that plan' : $nearestActionLabel],
-                ['id' => 'pick_another_time_window', 'label' => 'Schedule them later this week instead'],
+                ['id' => $hasDraftToKeep ? 'use_current_draft' : 'try_nearest_available_window', 'label' => $hasDraftToKeep ? 'Continue with that plan' : $nearestActionLabel],
+                ['id' => 'pick_another_time_window', 'label' => 'Try another time window'],
             ];
         }
 
@@ -3854,7 +3855,7 @@ PROMPT)
             return true;
         }
 
-        if ($actionId !== 'try_tomorrow_morning') {
+        if ($actionId !== 'try_nearest_available_window') {
             return false;
         }
 
@@ -3908,7 +3909,8 @@ PROMPT)
         $normalized = trim((string) $actionId);
 
         return match ($normalized) {
-            'try_tomorrow_morning',
+            'try_tomorrow_morning' => 'try_nearest_available_window',
+            'try_nearest_available_window',
             'use_current_draft',
             'pick_another_time_window',
             'cancel_scheduling' => $normalized,
@@ -3929,7 +3931,7 @@ PROMPT)
         }
 
         // Fallback option actions are only valid while awaiting schedule confirmation.
-        if (in_array($actionId, ['try_tomorrow_morning', 'use_current_draft', 'pick_another_time_window', 'cancel_scheduling'], true)) {
+        if (in_array($actionId, ['try_nearest_available_window', 'use_current_draft', 'pick_another_time_window', 'cancel_scheduling'], true)) {
             return false;
         }
 
@@ -3949,6 +3951,18 @@ PROMPT)
         }
 
         $constraints = $this->routingPolicy->extractConstraintsForFlow($thread, $content, $flow);
+        if (in_array($actionId, ['chip_schedule_ranked_set', 'chip_schedule_ranked_top_one'], true)) {
+            $rankedTargets = $this->resolveRankedTargetsForScheduleChip(
+                thread: $thread,
+                topOneOnly: $actionId === 'chip_schedule_ranked_top_one',
+            );
+            if ($rankedTargets !== []) {
+                $constraints['target_entities'] = $rankedTargets;
+                $constraints['count_limit'] = $actionId === 'chip_schedule_ranked_top_one' ? 1 : count($rankedTargets);
+                $constraints['count_limit_explicitly_requested'] = true;
+                $constraints['is_strict_set_contract'] = true;
+            }
+        }
         $forcedCountLimit = match ($actionId) {
             'chip_prioritize_top_one',
             'chip_prioritize_schedule_top_one',
@@ -4006,6 +4020,40 @@ PROMPT)
         return true;
     }
 
+    /**
+     * @return array<int, array{entity_type: string, entity_id: int, title: string}>
+     */
+    private function resolveRankedTargetsForScheduleChip(TaskAssistantThread $thread, bool $topOneOnly): array
+    {
+        $listing = $this->conversationState->lastListing($thread);
+        if (! is_array($listing)) {
+            return [];
+        }
+
+        $items = is_array($listing['items'] ?? null) ? $listing['items'] : [];
+        $targets = [];
+        foreach ($items as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+            $entityType = trim((string) ($item['entity_type'] ?? ''));
+            $entityId = (int) ($item['entity_id'] ?? 0);
+            if ($entityType === '' || $entityId <= 0) {
+                continue;
+            }
+            $targets[] = [
+                'entity_type' => $entityType,
+                'entity_id' => $entityId,
+                'title' => trim((string) ($item['title'] ?? '')),
+            ];
+            if ($topOneOnly) {
+                break;
+            }
+        }
+
+        return $targets;
+    }
+
     private function normalizeClientActionId(?string $actionId): ?string
     {
         $normalized = trim((string) $actionId);
@@ -4014,7 +4062,8 @@ PROMPT)
         }
 
         return match ($normalized) {
-            'try_tomorrow_morning',
+            'try_tomorrow_morning' => 'try_nearest_available_window',
+            'try_nearest_available_window',
             'use_current_draft',
             'pick_another_time_window',
             'cancel_scheduling',
@@ -4469,6 +4518,7 @@ PROMPT)
                     'time_window_hint' => $plan->timeWindowHint,
                     'count_limit' => $plan->countLimit,
                     'explicit_requested_count' => $explicitRequestedCount,
+                    'is_strict_set_contract' => (bool) ($plan->constraints['is_strict_set_contract'] ?? false),
                     'schedule_user_id' => $thread->user_id,
                     'pending_busy_intervals' => $pendingBusyIntervals,
                 ]

@@ -155,3 +155,178 @@ it('falls back to same-day afternoon when requested morning window is full', fun
     expect((string) ($out['confirmation_signals']['nearest_available_window']['date'] ?? ''))->toBe('2026-04-02');
     expect((string) ($out['confirmation_signals']['nearest_available_window']['daypart'] ?? ''))->toBe('afternoon');
 });
+
+it('does not emit unplaced_units trigger for implicit prioritize_schedule shortfall', function (): void {
+    $builder = new ScheduleConfirmationSignalsBuilder;
+    $snapshot = [
+        'timezone' => 'UTC',
+        'time_window' => ['start' => '18:30', 'end' => '22:00'],
+        'schedule_horizon' => [
+            'mode' => 'single_day',
+            'start_date' => '2026-04-23',
+            'end_date' => '2026-04-23',
+            'label' => 'default_today',
+        ],
+    ];
+    $context = ['time_window_strict' => false];
+    $digest = [
+        'requested_count_source' => 'system_default',
+        'unplaced_units' => [[
+            'entity_type' => 'task',
+            'entity_id' => 42,
+            'title' => 'Third task',
+            'reason' => 'horizon_exhausted',
+        ]],
+        'top_n_shortfall' => false,
+        'partial_placed_count' => 0,
+    ];
+    $proposals = [[
+        'title' => 'First task',
+        'start_datetime' => '2026-04-23T18:30:00+00:00',
+        'end_datetime' => '2026-04-23T19:30:00+00:00',
+    ]];
+    $options = [
+        'schedule_source' => 'prioritize_schedule',
+        'target_entities' => [[
+            'entity_type' => 'task',
+            'entity_id' => 42,
+        ]],
+        'explicit_requested_count' => 0,
+    ];
+
+    $out = $builder->enrich($snapshot, $context, $digest, $proposals, $options);
+
+    expect($out['confirmation_signals']['triggers'] ?? [])->not->toContain('unplaced_units');
+});
+
+it('emits unplaced_units trigger for explicit prioritize_schedule shortfall', function (): void {
+    $builder = new ScheduleConfirmationSignalsBuilder;
+    $snapshot = [
+        'timezone' => 'UTC',
+        'time_window' => ['start' => '18:30', 'end' => '22:00'],
+        'schedule_horizon' => [
+            'mode' => 'single_day',
+            'start_date' => '2026-04-23',
+            'end_date' => '2026-04-23',
+            'label' => 'default_today',
+        ],
+    ];
+    $context = ['time_window_strict' => false];
+    $digest = [
+        'requested_count_source' => 'explicit_user',
+        'unplaced_units' => [[
+            'entity_type' => 'task',
+            'entity_id' => 42,
+            'title' => 'Third task',
+            'reason' => 'horizon_exhausted',
+        ]],
+        'top_n_shortfall' => true,
+        'partial_placed_count' => 0,
+    ];
+    $proposals = [[
+        'title' => 'First task',
+        'start_datetime' => '2026-04-23T18:30:00+00:00',
+        'end_datetime' => '2026-04-23T19:30:00+00:00',
+    ]];
+    $options = [
+        'schedule_source' => 'prioritize_schedule',
+        'target_entities' => [[
+            'entity_type' => 'task',
+            'entity_id' => 42,
+        ]],
+        'explicit_requested_count' => 3,
+    ];
+
+    $out = $builder->enrich($snapshot, $context, $digest, $proposals, $options);
+
+    expect($out['confirmation_signals']['triggers'] ?? [])->toContain('unplaced_units');
+});
+
+it('does not emit unplaced_units trigger for implicit schedule shortfall', function (): void {
+    $builder = new ScheduleConfirmationSignalsBuilder;
+    $snapshot = [
+        'timezone' => 'UTC',
+        'time_window' => ['start' => '18:30', 'end' => '22:00'],
+        'schedule_horizon' => [
+            'mode' => 'single_day',
+            'start_date' => '2026-04-23',
+            'end_date' => '2026-04-23',
+            'label' => 'default_today',
+        ],
+    ];
+    $context = ['time_window_strict' => false];
+    $digest = [
+        'requested_count_source' => 'system_default',
+        'unplaced_units' => [[
+            'entity_type' => 'task',
+            'entity_id' => 42,
+            'title' => 'Third task',
+            'reason' => 'horizon_exhausted',
+        ]],
+        'top_n_shortfall' => false,
+        'partial_placed_count' => 0,
+    ];
+    $proposals = [[
+        'title' => 'First task',
+        'start_datetime' => '2026-04-23T18:30:00+00:00',
+        'end_datetime' => '2026-04-23T19:30:00+00:00',
+    ]];
+    $options = [
+        'schedule_source' => 'schedule',
+        'target_entities' => [[
+            'entity_type' => 'task',
+            'entity_id' => 42,
+        ]],
+        'explicit_requested_count' => 0,
+        'is_strict_set_contract' => false,
+    ];
+
+    $out = $builder->enrich($snapshot, $context, $digest, $proposals, $options);
+
+    expect($out['confirmation_signals']['triggers'] ?? [])->not->toContain('unplaced_units');
+});
+
+it('emits unplaced_units trigger for strict set contract without explicit numeric count', function (): void {
+    $builder = new ScheduleConfirmationSignalsBuilder;
+    $snapshot = [
+        'timezone' => 'UTC',
+        'time_window' => ['start' => '18:30', 'end' => '22:00'],
+        'schedule_horizon' => [
+            'mode' => 'single_day',
+            'start_date' => '2026-04-23',
+            'end_date' => '2026-04-23',
+            'label' => 'default_today',
+        ],
+    ];
+    $context = ['time_window_strict' => false];
+    $digest = [
+        'requested_count_source' => 'system_default',
+        'is_strict_set_contract' => true,
+        'unplaced_units' => [[
+            'entity_type' => 'task',
+            'entity_id' => 42,
+            'title' => 'Third task',
+            'reason' => 'horizon_exhausted',
+        ]],
+        'top_n_shortfall' => false,
+        'partial_placed_count' => 0,
+    ];
+    $proposals = [[
+        'title' => 'First task',
+        'start_datetime' => '2026-04-23T18:30:00+00:00',
+        'end_datetime' => '2026-04-23T19:30:00+00:00',
+    ]];
+    $options = [
+        'schedule_source' => 'schedule',
+        'target_entities' => [[
+            'entity_type' => 'task',
+            'entity_id' => 42,
+        ]],
+        'explicit_requested_count' => 0,
+        'is_strict_set_contract' => true,
+    ];
+
+    $out = $builder->enrich($snapshot, $context, $digest, $proposals, $options);
+
+    expect($out['confirmation_signals']['triggers'] ?? [])->toContain('unplaced_units');
+});

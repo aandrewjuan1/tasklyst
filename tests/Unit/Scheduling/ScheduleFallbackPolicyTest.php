@@ -56,6 +56,34 @@ it('requires confirmation when confirmation_signals contains an allowed trigger'
     expect($policy->shouldRequireConfirmation($plan, $data))->toBeTrue();
 });
 
+it('requires confirmation for unplaced_units trigger from strict contract', function (): void {
+    $policy = app(ScheduleFallbackPolicy::class);
+
+    $plan = new ExecutionPlan(
+        flow: 'schedule',
+        confidence: 1.0,
+        clarificationNeeded: false,
+        clarificationQuestion: null,
+        reasonCodes: [],
+        constraints: [],
+        targetEntities: [],
+        timeWindowHint: 'later',
+        countLimit: 3,
+        generationProfile: 'schedule',
+    );
+
+    $data = [
+        'placement_digest' => [
+            'confirmation_signals' => [
+                'triggers' => ['unplaced_units'],
+            ],
+            'top_n_shortfall' => false,
+        ],
+    ];
+
+    expect($policy->shouldRequireConfirmation($plan, $data))->toBeTrue();
+});
+
 it('does not require confirmation when trigger is not in config allow list', function (): void {
     config(['task-assistant.schedule.confirmation_triggers' => ['empty_placement']]);
 

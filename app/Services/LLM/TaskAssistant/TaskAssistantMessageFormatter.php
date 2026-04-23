@@ -911,27 +911,6 @@ final class TaskAssistantMessageFormatter
         if ($reason !== '') {
             $paragraphs[] = $reason;
         }
-        $reasonDetails = is_array($ctx['reason_details'] ?? null) ? $ctx['reason_details'] : [];
-        $reasonDetailsBlock = $this->formatFallbackReasonDetails($reasonDetails);
-        if ($reasonDetailsBlock !== '') {
-            $paragraphs[] = $reasonDetailsBlock;
-        }
-        $blockingReasons = is_array($data['blocking_reasons'] ?? null) ? $data['blocking_reasons'] : [];
-        if ($blockingReasons !== []) {
-            $blockingReasons = array_values(array_filter($blockingReasons, static function (mixed $row): bool {
-                if (! is_array($row)) {
-                    return false;
-                }
-
-                $reason = mb_strtolower(trim((string) ($row['reason'] ?? '')));
-
-                return str_contains($reason, 'overlap');
-            }));
-            $blockerLines = $this->formatBlockingItemOnlyLines($blockingReasons);
-            if ($blockerLines !== []) {
-                $paragraphs[] = $this->resolveBlockingSectionTitle($data)."\n".implode("\n", $blockerLines);
-            }
-        }
 
         $proposalsCount = (int) ($preview['proposals_count'] ?? 0);
         if ($proposalsCount > 0) {
@@ -967,7 +946,30 @@ final class TaskAssistantMessageFormatter
                 $lines[] = $line;
             }
             if ($lines !== []) {
+                $paragraphs[] = $this->buildFallbackDraftHeading($ctx);
                 $paragraphs[] = implode("\n", $lines);
+            }
+        }
+
+        $reasonDetails = is_array($ctx['reason_details'] ?? null) ? $ctx['reason_details'] : [];
+        $reasonDetailsBlock = $this->formatFallbackReasonDetails($reasonDetails);
+        if ($reasonDetailsBlock !== '') {
+            $paragraphs[] = $reasonDetailsBlock;
+        }
+        $blockingReasons = is_array($data['blocking_reasons'] ?? null) ? $data['blocking_reasons'] : [];
+        if ($blockingReasons !== []) {
+            $blockingReasons = array_values(array_filter($blockingReasons, static function (mixed $row): bool {
+                if (! is_array($row)) {
+                    return false;
+                }
+
+                $reason = mb_strtolower(trim((string) ($row['reason'] ?? '')));
+
+                return str_contains($reason, 'overlap');
+            }));
+            $blockerLines = $this->formatBlockingItemOnlyLines($blockingReasons);
+            if ($blockerLines !== []) {
+                $paragraphs[] = $this->resolveBlockingSectionTitle($data)."\n".implode("\n", $blockerLines);
             }
         }
 
@@ -976,6 +978,20 @@ final class TaskAssistantMessageFormatter
         }
 
         return trim(implode("\n\n", $paragraphs));
+    }
+
+    /**
+     * @param  array<string, mixed>  $confirmationContext
+     */
+    private function buildFallbackDraftHeading(array $confirmationContext): string
+    {
+        $requested = (int) ($confirmationContext['requested_count'] ?? 0);
+        $placed = (int) ($confirmationContext['placed_count'] ?? 0);
+        if ($requested > 0 && $placed > 0 && $placed <= $requested) {
+            return "Here is what I can schedule now ({$placed} of {$requested}):";
+        }
+
+        return 'Here is what I can schedule now:';
     }
 
     /**
@@ -1117,6 +1133,7 @@ final class TaskAssistantMessageFormatter
         $skipped = is_array($digest['skipped_targets'] ?? null) ? $digest['skipped_targets'] : [];
         $partial = is_array($digest['partial_units'] ?? null) ? $digest['partial_units'] : [];
         $suppressBulkUnplaced = (bool) ($digest['suppress_bulk_unplaced_narrative'] ?? false);
+        $requestedCountSource = (string) ($digest['requested_count_source'] ?? 'system_default');
 
         $parts = [];
 
@@ -1140,7 +1157,9 @@ final class TaskAssistantMessageFormatter
             $hasCountLimit = in_array('count_limit', $reasons, true);
             $hasHorizonExhausted = in_array('horizon_exhausted', $reasons, true);
 
-            if ($hasCountLimit && ! $hasHorizonExhausted) {
+            if ($requestedCountSource !== 'explicit_user' && $hasHorizonExhausted) {
+                $parts[] = 'I scheduled what fit in your requested window. If you want, I can find extra slots tomorrow or later this week.';
+            } elseif ($hasCountLimit && ! $hasHorizonExhausted) {
                 $parts[] = 'I scheduled only up to the maximum number of items for this step; ask me to schedule the remaining ones too.';
             } else {
                 if ($hasCountLimit) {

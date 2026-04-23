@@ -1092,7 +1092,7 @@ it('orders scheduling candidates by prioritizeFocus ranking', function (): void 
     expect((int) ($proposals[0]['entity_id'] ?? 0))->toBe($expectedTopId);
 });
 
-it('reserves proportional gaps between placed blocks (no trailing gap after count_limit)', function (): void {
+it('uses one-hour gap for implicit plain later defaults (no trailing gap after count_limit)', function (): void {
     config([
         'task-assistant.schedule.max_horizon_days' => 3,
     ]);
@@ -1142,7 +1142,13 @@ it('reserves proportional gaps between placed blocks (no trailing gap after coun
         'projects' => [],
     ];
 
-    $context = ['schedule_horizon' => $snapshot['schedule_horizon']];
+    $context = [
+        'schedule_horizon' => $snapshot['schedule_horizon'],
+        'has_explicit_clock_time' => false,
+        'schedule_intent_flags' => [
+            'is_plain_later_default' => true,
+        ],
+    ];
 
     /** @var array{0: array<int, array<string, mixed>>, 1: array<string, mixed>} $out */
     $out = $method->invoke($generator, $snapshot, $context, 3);
@@ -1154,7 +1160,7 @@ it('reserves proportional gaps between placed blocks (no trailing gap after coun
         return strcmp((string) ($a['start_datetime'] ?? ''), (string) ($b['start_datetime'] ?? ''));
     });
 
-    $gapMinutes = 15; // <=60 minutes => 15 minutes (per generator mapping)
+    $gapMinutes = 60; // fixed one-hour gap between scheduled blocks
 
     $end0 = new DateTimeImmutable((string) ($proposals[0]['end_datetime'] ?? ''));
     $start1 = new DateTimeImmutable((string) ($proposals[1]['start_datetime'] ?? ''));
@@ -1164,6 +1170,103 @@ it('reserves proportional gaps between placed blocks (no trailing gap after coun
     $end1 = new DateTimeImmutable((string) ($proposals[1]['end_datetime'] ?? ''));
     $start2 = new DateTimeImmutable((string) ($proposals[2]['start_datetime'] ?? ''));
     expect($start2 >= $end1)->toBeTrue();
+});
+
+it('keeps tighter non-hour gaps for explicit-time scheduling requests', function (): void {
+    config([
+        'task-assistant.schedule.max_horizon_days' => 3,
+    ]);
+
+    $generator = app(TaskAssistantStructuredFlowGenerator::class);
+    $method = new ReflectionMethod(TaskAssistantStructuredFlowGenerator::class, 'generateProposalsChunkedSpill');
+    $method->setAccessible(true);
+
+    $snapshot = [
+        'timezone' => 'UTC',
+        'today' => '2026-03-30',
+        'time_window' => ['start' => '17:00', 'end' => '23:59:59'],
+        'schedule_horizon' => [
+            'mode' => 'single_day',
+            'start_date' => '2026-03-30',
+            'end_date' => '2026-03-30',
+            'label' => 'default_today',
+        ],
+        'tasks' => [
+            ['id' => 1, 'title' => 'Task A', 'priority' => 'medium', 'duration_minutes' => 60, 'ends_at' => null, 'is_recurring' => false],
+            ['id' => 2, 'title' => 'Task B', 'priority' => 'medium', 'duration_minutes' => 60, 'ends_at' => null, 'is_recurring' => false],
+        ],
+        'events' => [],
+        'events_for_busy' => [],
+        'projects' => [],
+    ];
+
+    $context = [
+        'schedule_horizon' => $snapshot['schedule_horizon'],
+        'has_explicit_clock_time' => true,
+        'schedule_intent_flags' => [
+            'is_plain_later_default' => false,
+        ],
+    ];
+
+    /** @var array{0: array<int, array<string, mixed>>, 1: array<string, mixed>} $out */
+    $out = $method->invoke($generator, $snapshot, $context, 2);
+    $proposals = $out[0];
+    expect(count($proposals))->toBe(2);
+
+    usort($proposals, static function (array $a, array $b): int {
+        return strcmp((string) ($a['start_datetime'] ?? ''), (string) ($b['start_datetime'] ?? ''));
+    });
+
+    $end0 = new DateTimeImmutable((string) ($proposals[0]['end_datetime'] ?? ''));
+    $start1 = new DateTimeImmutable((string) ($proposals[1]['start_datetime'] ?? ''));
+    $gapSeconds = $start1->getTimestamp() - $end0->getTimestamp();
+
+    expect($gapSeconds)->toBeIn([0, 15 * 60]);
+});
+
+it('rolls implicit later scheduling to tomorrow when remaining window is too short', function (): void {
+    config([
+        'task-assistant.schedule.max_horizon_days' => 3,
+        'task-assistant.schedule.implicit_later_min_remaining_minutes' => 90,
+    ]);
+
+    $generator = app(TaskAssistantStructuredFlowGenerator::class);
+    $method = new ReflectionMethod(TaskAssistantStructuredFlowGenerator::class, 'generateProposalsChunkedSpill');
+    $method->setAccessible(true);
+
+    $snapshot = [
+        'timezone' => 'UTC',
+        'today' => '2026-03-30',
+        'now' => '2026-03-30T21:40:00+00:00',
+        'time_window' => ['start' => '13:00', 'end' => '22:00'],
+        'schedule_horizon' => [
+            'mode' => 'single_day',
+            'start_date' => '2026-03-30',
+            'end_date' => '2026-03-30',
+            'label' => 'default_today',
+        ],
+        'tasks' => [
+            ['id' => 1, 'title' => 'Task A', 'priority' => 'medium', 'duration_minutes' => 60, 'ends_at' => null, 'is_recurring' => false],
+        ],
+        'events' => [],
+        'events_for_busy' => [],
+        'projects' => [],
+    ];
+
+    $context = [
+        'schedule_horizon' => $snapshot['schedule_horizon'],
+        'has_explicit_clock_time' => false,
+        'schedule_intent_flags' => [
+            'is_plain_later_default' => true,
+        ],
+    ];
+
+    /** @var array{0: array<int, array<string, mixed>>, 1: array<string, mixed>} $out */
+    $out = $method->invoke($generator, $snapshot, $context, 1);
+    $proposals = $out[0];
+
+    expect($proposals)->not->toBe([]);
+    expect((string) ($proposals[0]['start_datetime'] ?? ''))->toContain('2026-03-31');
 });
 
 it('spills placements across multiple days when horizon is a multi-day range and one day cannot hold all atomic blocks', function (): void {

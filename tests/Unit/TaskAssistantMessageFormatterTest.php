@@ -900,11 +900,13 @@ class TaskAssistantMessageFormatterTest extends TestCase
             'confirmation' => 'Should I keep this draft or try a wider window?',
             'confirmation_context' => [
                 'reason_code' => 'top_n_shortfall',
+                'requested_count' => 3,
+                'placed_count' => 1,
                 'reason_message' => 'Only one task fit in your current window.',
                 'prompt' => 'Should I keep this draft or try a wider window?',
                 'options' => [
-                    'Keep this current draft',
-                    'Pick another time window',
+                    'Continue with that plan',
+                    'Try another time window',
                 ],
             ],
             'fallback_preview' => [
@@ -924,10 +926,18 @@ class TaskAssistantMessageFormatterTest extends TestCase
         ]);
 
         $this->assertStringContainsString('I drafted a plan for today and paused so you can choose next.', $out);
+        $this->assertStringContainsString('Here is what I can schedule now (1 of 3):', $out);
         $this->assertStringNotContainsString('Options:', $out);
-        $this->assertStringNotContainsString('1) Keep this current draft', $out);
-        $this->assertStringNotContainsString('2) Pick another time window', $out);
+        $this->assertStringNotContainsString('1) Continue with that plan', $out);
+        $this->assertStringNotContainsString('2) Try another time window', $out);
         $this->assertStringNotContainsString('Decision needed before finalizing:', $out);
+        $this->assertIsInt(strpos($out, 'Here is what I can schedule now (1 of 3):'));
+        $this->assertIsInt(strpos($out, 'Wash dishes after dinner'));
+        $this->assertIsInt(strpos($out, 'Only one task fit in your current window.'));
+        $this->assertGreaterThan(
+            strpos($out, 'Only one task fit in your current window.'),
+            strpos($out, 'Here is what I can schedule now (1 of 3):')
+        );
     }
 
     public function test_daily_schedule_confirmation_message_renders_reason_details_and_sanitizes_robotic_phrases(): void
@@ -1212,5 +1222,96 @@ class TaskAssistantMessageFormatterTest extends TestCase
         $this->assertStringContainsString('Apr 22 to Apr 24', $out);
         $this->assertStringNotContainsString('#1 Task A', $out);
         $this->assertStringNotContainsString('These items are already scheduled', $out);
+    }
+
+    public function test_daily_schedule_implicit_shortfall_uses_light_digest_note(): void
+    {
+        $out = $this->formatter->format('daily_schedule', [
+            'schedule_source' => 'prioritize_schedule',
+            'proposals' => [[
+                'proposal_id' => 'p1',
+                'status' => 'pending',
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'title' => 'Task A',
+                'start_datetime' => '2026-04-23T18:30:00+00:00',
+                'end_datetime' => '2026-04-23T19:30:00+00:00',
+            ]],
+            'items' => [[
+                'title' => 'Task A',
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'start_datetime' => '2026-04-23T18:30:00+00:00',
+                'end_datetime' => '2026-04-23T19:30:00+00:00',
+                'duration_minutes' => 60,
+            ]],
+            'blocks' => [[
+                'start_time' => '18:30',
+                'end_time' => '19:30',
+                'label' => 'Task A',
+            ]],
+            'framing' => 'I queued what fit for later today.',
+            'reasoning' => 'I prioritized realistic windows.',
+            'confirmation' => 'Does this work?',
+            'placement_digest' => [
+                'requested_count_source' => 'system_default',
+                'unplaced_units' => [[
+                    'entity_type' => 'task',
+                    'entity_id' => 2,
+                    'title' => 'Task B',
+                    'reason' => 'horizon_exhausted',
+                ]],
+                'partial_units' => [],
+                'days_used' => ['2026-04-23'],
+            ],
+        ]);
+
+        $this->assertStringContainsString('I scheduled what fit in your requested window.', $out);
+        $this->assertStringNotContainsString('One or more segments did not fit in the selected schedule window', $out);
+    }
+
+    public function test_daily_schedule_explicit_shortfall_keeps_standard_shortfall_note(): void
+    {
+        $out = $this->formatter->format('daily_schedule', [
+            'schedule_source' => 'prioritize_schedule',
+            'proposals' => [[
+                'proposal_id' => 'p1',
+                'status' => 'pending',
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'title' => 'Task A',
+                'start_datetime' => '2026-04-23T18:30:00+00:00',
+                'end_datetime' => '2026-04-23T19:30:00+00:00',
+            ]],
+            'items' => [[
+                'title' => 'Task A',
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'start_datetime' => '2026-04-23T18:30:00+00:00',
+                'end_datetime' => '2026-04-23T19:30:00+00:00',
+                'duration_minutes' => 60,
+            ]],
+            'blocks' => [[
+                'start_time' => '18:30',
+                'end_time' => '19:30',
+                'label' => 'Task A',
+            ]],
+            'framing' => 'I queued what fit for later today.',
+            'reasoning' => 'I prioritized realistic windows.',
+            'confirmation' => 'Does this work?',
+            'placement_digest' => [
+                'requested_count_source' => 'explicit_user',
+                'unplaced_units' => [[
+                    'entity_type' => 'task',
+                    'entity_id' => 2,
+                    'title' => 'Task B',
+                    'reason' => 'horizon_exhausted',
+                ]],
+                'partial_units' => [],
+                'days_used' => ['2026-04-23'],
+            ],
+        ]);
+
+        $this->assertStringContainsString('One or more segments did not fit in the selected schedule window', $out);
     }
 }

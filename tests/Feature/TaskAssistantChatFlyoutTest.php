@@ -1057,6 +1057,55 @@ test('chat flyout chip click auto-submits next option and dispatches job', funct
     });
 });
 
+test('chat flyout fallback chips preserve option_actions order and action mapping', function (): void {
+    Bus::fake();
+
+    $user = User::factory()->create();
+    assert($user instanceof User);
+    $this->actingAs($user);
+
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+    session(['task_assistant.current_thread_id' => $thread->id]);
+
+    $thread->messages()->create([
+        'role' => \App\Enums\MessageRole::User,
+        'content' => 'schedule top 3 tasks for later',
+    ]);
+
+    $assistant = $thread->messages()->create([
+        'role' => \App\Enums\MessageRole::Assistant,
+        'content' => 'Draft ready, choose one option.',
+        'metadata' => [
+            'schedule' => [
+                'confirmation_required' => true,
+                'awaiting_user_decision' => true,
+                'confirmation_context' => [
+                    'option_actions' => [
+                        ['id' => 'use_current_draft', 'label' => 'Continue with that plan'],
+                        ['id' => 'pick_another_time_window', 'label' => 'Try another time window'],
+                    ],
+                ],
+            ],
+        ],
+    ]);
+
+    Livewire::test('assistant.chat-flyout')
+        ->assertSet('isStreaming', false)
+        ->assertSee('Continue with that plan')
+        ->assertSee('Try another time window')
+        ->call('submitNextOptionChip', $assistant->id, 1)
+        ->assertSet('newMessage', '')
+        ->assertSet('isStreaming', true);
+
+    $latestUserMessage = $thread->messages()
+        ->where('role', \App\Enums\MessageRole::User)
+        ->latest('id')
+        ->first();
+
+    expect($latestUserMessage)->not->toBeNull();
+    expect((string) ($latestUserMessage?->content ?? ''))->toBe('Try another time window');
+});
+
 test('chat flyout new chat stops active processing run before switching thread', function () {
     Bus::fake();
     $user = User::factory()->create();

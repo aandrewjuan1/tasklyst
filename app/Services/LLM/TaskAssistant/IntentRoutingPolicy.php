@@ -487,6 +487,7 @@ final class IntentRoutingPolicy
             $targetEntities = $this->targetsFromListingHead($listing, $countLimit);
         }
 
+        $isDeicticFollowup = false;
         if (($resolvedFlow === 'schedule' || $resolvedFlow === 'prioritize_schedule' || $resolvedFlow === 'listing_followup') && $targetEntities !== []) {
             $isDeicticFollowup = $this->isLikelyDeicticScheduleFollowup($normalized);
             $shouldAlignWithResolvedTargets = $resolvedFlow === 'schedule'
@@ -497,6 +498,8 @@ final class IntentRoutingPolicy
                 $countLimit = max(1, count($targetEntities));
             }
         }
+        $isStrictSetContract = $countLimitExplicitlyRequested
+            || ($this->isAllReferenceRequest($normalized) && $isDeicticFollowup && $targetEntities !== []);
 
         $routingSignal = $this->buildRoutingSignalStrength($normalized, $resolvedFlow);
 
@@ -514,6 +517,8 @@ final class IntentRoutingPolicy
 
         return [
             'count_limit' => $countLimit,
+            'count_limit_explicitly_requested' => $countLimitExplicitlyRequested,
+            'is_strict_set_contract' => $isStrictSetContract,
             'time_window_hint' => $this->extractTimeWindowHint($normalized),
             'strict_window' => $this->extractStrictWindowFlag($normalized),
             'target_entities' => $targetEntities,
