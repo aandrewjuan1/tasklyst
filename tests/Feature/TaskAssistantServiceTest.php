@@ -3076,6 +3076,28 @@ test('processQueuedMessage routes prioritize-schedule top-one chip actions deter
         ->toContain('client_action_chip_prioritize_schedule_top_one');
 });
 
+test('deterministic prioritize multi-item chips include top-task-later option', function (): void {
+    $service = app(TaskAssistantService::class);
+    $method = new ReflectionMethod(TaskAssistantService::class, 'buildDeterministicPrioritizeNextOptions');
+    $method->setAccessible(true);
+
+    $multiItemResult = $method->invoke($service, [
+        ['title' => 'Task A'],
+        ['title' => 'Task B'],
+    ], true);
+    $singleItemResult = $method->invoke($service, [
+        ['title' => 'Task A'],
+    ], true);
+
+    expect($multiItemResult['next_options_chip_texts'] ?? [])
+        ->toContain('Schedule those tasks for later today')
+        ->toContain('Schedule those tasks for tomorrow')
+        ->toContain('Schedule only the top task for later');
+
+    expect($singleItemResult['next_options_chip_texts'] ?? [])
+        ->not->toContain('Schedule only the top task for later');
+});
+
 test('processQueuedMessage routes ranked-set schedule chip actions deterministically', function (): void {
     config(['task-assistant.intent.use_llm' => true]);
 

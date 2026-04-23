@@ -1003,7 +1003,6 @@ final class TaskAssistantService
                 'next_options_chip_texts' => [
                     TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('Schedule that task for later today'),
                     TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('Schedule that task for tomorrow'),
-                    TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('Schedule that task later this week'),
                 ],
             ];
         }
@@ -1016,7 +1015,7 @@ final class TaskAssistantService
                 'next_options_chip_texts' => [
                     TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('Schedule those tasks for later today'),
                     TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('Schedule those tasks for tomorrow'),
-                    TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('Schedule those tasks later this week'),
+                    TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('Schedule only the top task for later'),
                 ],
             ];
         }
@@ -1028,7 +1027,7 @@ final class TaskAssistantService
             'next_options_chip_texts' => [
                 TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('Schedule those tasks for later today'),
                 TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('Schedule those tasks for tomorrow'),
-                TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('Schedule those tasks later this week'),
+                TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('Schedule only the top task for later'),
             ],
         ];
     }

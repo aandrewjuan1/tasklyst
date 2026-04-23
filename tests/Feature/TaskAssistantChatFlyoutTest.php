@@ -164,6 +164,7 @@ test('chat flyout empty-state quick chip deterministic action mapping follows co
     ['Schedule my most important task', 'chip_prioritize_schedule_top_one'],
     ['What should I focus on today', 'chip_prioritize_top_one'],
     ['Schedule my top 1 task for later', 'chip_prioritize_schedule_top_one'],
+    ['Schedule only the top task for later', 'chip_prioritize_schedule_top_one'],
     ['Schedule that task for later today', 'chip_schedule_ranked_top_one'],
     ['Schedule those tasks for later today', 'chip_schedule_ranked_set'],
     ['Create a plan for tomorrow', 'chip_prioritize_schedule'],
