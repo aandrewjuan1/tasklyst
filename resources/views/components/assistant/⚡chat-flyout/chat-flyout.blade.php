@@ -19,6 +19,7 @@
         fallbackPollMidAfterMs: @js(max(1000, (int) config('task-assistant.streaming.fallback_poll_mid_after_ms', 10000))),
         fallbackPollSlowAfterMs: @js(max(2000, (int) config('task-assistant.streaming.fallback_poll_slow_after_ms', 25000))),
         timeoutPollMs: @js(max(1000, (int) config('task-assistant.streaming.timeout_poll_ms', 10000))),
+        expectsRealtimeBroadcast: @js($expectsRealtimeBroadcast),
         scrollQueued: false,
         pendingScrollBehavior: 'smooth',
         wasStreaming: false,
@@ -74,6 +75,12 @@
             }
         },
         detectRealtimeBroadcastAvailability() {
+            if (!this.expectsRealtimeBroadcast) {
+                this.noRealtimeBroadcast = true;
+
+                return;
+            }
+
             this.noRealtimeBroadcast = typeof window.Echo === 'undefined' || !window.Echo;
         },
         startStreamingFallbackPolling() {

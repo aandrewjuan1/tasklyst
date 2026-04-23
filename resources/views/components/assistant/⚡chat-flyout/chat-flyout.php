@@ -56,6 +56,8 @@ new class extends Component
 
     public bool $showWorking = false;
 
+    public bool $expectsRealtimeBroadcast = false;
+
     public ?string $pendingClientActionId = null;
 
     public ?string $pendingClientActionSource = null;
@@ -72,6 +74,7 @@ new class extends Component
     public function mount(): void
     {
         $this->userId = Auth::id();
+        $this->expectsRealtimeBroadcast = in_array((string) config('broadcasting.default', 'null'), ['reverb', 'pusher', 'ably', 'redis'], true);
         $this->chatMessages = new Collection;
         $this->ensureThread();
         $this->loadMessages();
