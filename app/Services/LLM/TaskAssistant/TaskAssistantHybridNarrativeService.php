@@ -350,7 +350,7 @@ final class TaskAssistantHybridNarrativeService
         if ($skippedTargets !== []) {
             $schedulabilityNote = $this->buildSchedulabilityNoteFromSkippedTargets($skippedTargets);
         } elseif ($unplacedUnits !== [] || $partialUnits !== []) {
-            $schedulabilityNote = 'I scheduled what I could fit in your time window; some selected items could not be placed, so they were left for a future tweak.';
+            $schedulabilityNote = 'I scheduled what could fit in this window, and left the remaining selected items for a follow-up plan.';
         }
 
         $unplacedCountForPrompt = count($unplacedUnits);
@@ -1404,9 +1404,9 @@ final class TaskAssistantHybridNarrativeService
             $seed
         );
 
-        $confirm = 'Do these times and how long each block runs feel okay? If not, say what you would like to change in chat and we can fix it before you save.';
+        $confirm = 'Do these times and block lengths feel workable? If not, tell me what to adjust in chat and we can update it before you save.';
         if ($schedulableProposalCount > 1) {
-            $confirm = 'Do these times and durations line up with what you want? Tell me in chat if anything should move or resize—we can adjust the plan before you save.';
+            $confirm = 'Do these times and block lengths match what you want? Tell me in chat if anything should move or resize, and we can adjust before you save.';
         }
 
         return [
@@ -1464,15 +1464,15 @@ final class TaskAssistantHybridNarrativeService
 
         if ($eventAlreadyTimed === $total && $eventAlreadyTimed > 0) {
             return $eventAlreadyTimed === 1
-                ? 'Your calendar event already has its own start and end time, so I did not propose a new block for it—the rows below are task time proposals only.'
-                : 'Some calendar events you selected already have set start and end times, so I did not add new blocks for those—I only proposed times for your tasks.';
+                ? 'That calendar event already has its own start and end time, so I left it as is and only proposed task blocks below.'
+                : 'Some selected calendar events already have fixed start and end times, so I left those as is and only proposed task blocks.';
         }
 
         if ($total === 1) {
-            return 'One selected item could not get a new proposed time in this pass (for example it may already be fixed on your calendar).';
+            return 'One selected item could not get a new time in this pass (for example, it may already be fixed on your calendar).';
         }
 
-        return 'Some selected items could not get new proposed times in this pass (for example calendar events that already have a set time).';
+        return 'Some selected items could not get new times in this pass (for example, calendar events that already have a fixed time).';
     }
 
     /**
@@ -1629,12 +1629,12 @@ final class TaskAssistantHybridNarrativeService
             && $sumMinutes > 0
             && $firstBlockMinutes >= (int) ceil($sumMinutes * 0.65)
         ) {
-            $longFirstBlockNote = ' Starting with the first block can make the day feel more manageable, then the later blocks stay shorter and easier to begin.';
+            $longFirstBlockNote = ' Starting with the first block can make the day feel steadier, then the later blocks stay shorter and easier to begin.';
         }
 
         $summary = $deterministicSummary;
         if ($timeRange !== '') {
-            $summary = "For best results, set aside{$durationPart} in the {$windowPhrase} ({$timeRange}) for {$taskLabel}.";
+            $summary = "I set aside{$durationPart} in the {$windowPhrase} ({$timeRange}) for {$taskLabel}.";
         }
 
         $reasoning = $timeRange !== ''
@@ -1644,7 +1644,7 @@ final class TaskAssistantHybridNarrativeService
         $reasoning .= $longFirstBlockNote;
 
         $assistantNote = $timeRange !== ''
-            ? "When you're ready, start with the first planned block and keep distractions low."
+            ? 'When you are ready, start with the first planned block and keep distractions low.'
             : null;
 
         return [

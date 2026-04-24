@@ -323,6 +323,7 @@ final class ScheduleConfirmationSignalsBuilder
         if (
             ($placementTimeCheck['any_placement_outside_horizon_dates'] ?? false)
             && ! $empty
+            && ! $this->shouldSuppressPlacementOutsideHorizonTriggerForImplicitLaterRollover($context, $digest, $scheduleOptions)
         ) {
             $triggers[] = 'placement_outside_horizon';
         }
@@ -333,6 +334,50 @@ final class ScheduleConfirmationSignalsBuilder
         }
 
         return $triggers;
+    }
+
+    /**
+     * Suppress horizon-mismatch confirmation for implicit plain "later" requests that
+     * auto-roll to tomorrow near day-end and still place the full requested set.
+     *
+     * @param  array<string, mixed>  $context
+     * @param  array<string, mixed>  $digest
+     * @param  array<string, mixed>  $scheduleOptions
+     */
+    private function shouldSuppressPlacementOutsideHorizonTriggerForImplicitLaterRollover(
+        array $context,
+        array $digest,
+        array $scheduleOptions
+    ): bool {
+        $intentFlags = is_array($context['schedule_intent_flags'] ?? null)
+            ? $context['schedule_intent_flags']
+            : [];
+        $isImplicitPlainLater = (bool) ($intentFlags['is_plain_later_default'] ?? false);
+        if (! $isImplicitPlainLater) {
+            return false;
+        }
+
+        $timeWindowHint = trim((string) ($scheduleOptions['time_window_hint'] ?? $digest['time_window_hint'] ?? ''));
+        if ($timeWindowHint !== 'later') {
+            return false;
+        }
+
+        $attemptedHorizon = is_array($digest['attempted_horizon'] ?? null) ? $digest['attempted_horizon'] : [];
+        $attemptedLabel = trim((string) ($attemptedHorizon['label'] ?? ''));
+        if ($attemptedLabel !== 'default_today' && $attemptedLabel !== 'today') {
+            return false;
+        }
+
+        $requestedCount = max(0, (int) ($digest['requested_count'] ?? 0));
+        $placedCount = max(0, (int) ($digest['full_placed_count'] ?? 0));
+        $hasTopNShortfall = (bool) ($digest['top_n_shortfall'] ?? false);
+        $unplacedUnits = is_array($digest['unplaced_units'] ?? null) ? $digest['unplaced_units'] : [];
+
+        if ($requestedCount <= 0 || $placedCount < $requestedCount || $hasTopNShortfall || $unplacedUnits !== []) {
+            return false;
+        }
+
+        return true;
     }
 
     /**

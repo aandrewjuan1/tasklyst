@@ -449,7 +449,7 @@ class TaskAssistantMessageFormatterTest extends TestCase
         $this->assertStringContainsString('Medium priority', $out);
         $this->assertStringContainsString(TaskAssistantPrioritizeOutputDefaults::noDueDateLabel(), $out);
         $this->assertStringContainsString('Complexity: '.TaskAssistantPrioritizeOutputDefaults::complexityNotSetLabel(), $out);
-        $this->assertStringContainsString('If you want, I can schedule this for later.', $out);
+        $this->assertStringContainsString('If you want, I can help schedule this next step.', $out);
     }
 
     public function test_prioritize_uses_default_framing_when_payload_omits_it(): void
@@ -1022,7 +1022,7 @@ class TaskAssistantMessageFormatterTest extends TestCase
         ]);
 
         $this->assertStringNotContainsString('Confidence:', $out);
-        $this->assertStringContainsString('What blocked scheduling:', $out);
+        $this->assertStringContainsString('What got in the way:', $out);
         $this->assertStringContainsString('• It is already late, and the remaining free blocks are too short for this task duration.', $out);
     }
 

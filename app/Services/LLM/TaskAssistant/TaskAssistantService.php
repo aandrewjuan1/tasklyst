@@ -996,7 +996,7 @@ final class TaskAssistantService
         if ($count <= 1) {
             return [
                 'next_options' => TaskAssistantPrioritizeOutputDefaults::clampNextField(
-                    'If you want, I can schedule the ranked task for later today, tomorrow, or later this week.'
+                    'If you want, I can place this top task later today, tomorrow, or later this week.'
                 ),
                 'next_options_chip_texts' => [
                     TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('Schedule that task for later today'),
@@ -1006,7 +1006,7 @@ final class TaskAssistantService
         }
 
         if (! $hasMoreUnseen) {
-            $nextOptions = 'That covers the top items for this request. If you want, I can schedule all ranked tasks for later today, tomorrow, or later this week.';
+            $nextOptions = 'This covers the key items for your request. If you want, I can place them later today, tomorrow, or later this week.';
 
             return [
                 'next_options' => TaskAssistantPrioritizeOutputDefaults::clampNextField($nextOptions),
@@ -1018,7 +1018,7 @@ final class TaskAssistantService
             ];
         }
 
-        $nextOptions = 'If you want, I can schedule all ranked tasks for later today, tomorrow, or later this week.';
+        $nextOptions = 'If you want, I can place these ranked tasks later today, tomorrow, or later this week.';
 
         return [
             'next_options' => TaskAssistantPrioritizeOutputDefaults::clampNextField($nextOptions),
@@ -3065,7 +3065,7 @@ final class TaskAssistantService
             ];
         } elseif (in_array('unplaced_units', $triggers, true)) {
             $reasonCode = 'unplaced_explicit_targets';
-            $reasonMessage = 'Something you asked to schedule could not be placed in the available time.';
+            $reasonMessage = 'At least one requested item could not be placed in the available time window.';
             $prompt = $hasDraftToKeep
                 ? 'Should I continue with that plan, or pick another time this week?'
                 : 'Should I schedule for tomorrow morning instead, or pick another time this week?';
@@ -3102,7 +3102,7 @@ final class TaskAssistantService
             ];
         } else {
             $reasonCode = 'schedule_confirmation_needed';
-            $reasonMessage = 'This draft needs your confirmation before anything is finalized.';
+            $reasonMessage = 'I prepared a draft and need your confirmation before finalizing.';
             $prompt = 'Do you want to continue with that plan, or pick another time this week?';
             $options = $defaultOptions;
             $optionActions = [
@@ -3316,14 +3316,14 @@ final class TaskAssistantService
     ): array {
         if ($reasonCode === 'top_n_shortfall') {
             $taskNoun = $proposalsCount === 1 ? 'task' : 'tasks';
-            $framing = 'I drafted a plan and paused so you can confirm what feels right.';
+            $framing = 'I drafted a plan and paused so you can choose how to continue.';
             if ($requestedCountSource === 'explicit_user') {
-                $framing = "I kept your top {$requestedCount} request and drafted the best fit I could find so far.";
+                $framing = "I kept your top {$requestedCount} request and built the best-fitting draft I could.";
             }
 
             return [
                 'framing' => $framing,
-                'reasoning' => "Only {$proposalsCount} {$taskNoun} fit in {$requestedWindowLabel}. Nothing is final yet, and we can adjust this together.",
+                'reasoning' => "Only {$proposalsCount} {$taskNoun} fit in {$requestedWindowLabel}. Nothing is final yet, and we can adjust it together.",
                 'confirmation' => $prompt,
                 'reason_message' => $reasonMessage,
             ];
@@ -3336,7 +3336,7 @@ final class TaskAssistantService
 
             return [
                 'framing' => "I kept your {$datePhrase} request and paused before widening beyond that day.",
-                'reasoning' => 'Nothing is final yet. Tell me if you want to keep this day or expand the window.',
+                'reasoning' => 'Nothing is final yet. Tell me if you want to keep this day or open a wider window.',
                 'confirmation' => $prompt,
                 'reason_message' => $reasonMessage,
             ];
@@ -3353,7 +3353,7 @@ final class TaskAssistantService
             'later_window_not_feasible',
         ], true)) {
             $framing = $proposalsCount > 0
-                ? 'I set up a draft, and I want your go-ahead before finalizing it.'
+                ? 'I prepared a draft and paused so you can review it before I finalize anything.'
                 : 'I could not fit this in your current time window.';
 
             return [
@@ -3365,8 +3365,8 @@ final class TaskAssistantService
         }
 
         return [
-            'framing' => 'I checked your request and prepared a backup plan so you can still make progress.',
-            'reasoning' => 'Nothing is final yet. I will only continue if you confirm.',
+            'framing' => 'I checked your request and prepared a backup draft so you still have a workable path forward.',
+            'reasoning' => 'Nothing is final yet. I will only continue once you confirm.',
             'confirmation' => $prompt,
             'reason_message' => $reasonMessage,
         ];

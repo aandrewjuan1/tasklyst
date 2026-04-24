@@ -1511,17 +1511,17 @@ final class TaskAssistantPrioritizeOutputDefaults
 
     public static function defaultSuggestedGuidance(): string
     {
-        return __('I suggest picking one task from the list to start with so you don\'t get overwhelmed. If you tell me your focus, I can help you narrow this list or plan what to tackle first.');
+        return __('Pick one task from this list to start so your first step stays light. If you share what you want to focus on, I can narrow it further or help map what to tackle first.');
     }
 
     public static function reasoningWhenEmpty(): string
     {
-        return __('I couldn’t add a tailored explanation this time, but the order below still follows the same student-first ranking policy as the rest of the assistant.');
+        return __('I could not add a custom explanation this time, but this order still follows your usual student-first ranking so you have a clear next step.');
     }
 
     public static function defaultRankingMethodSummary(): string
     {
-        return 'I ranked this by urgency first, then priority, then practical effort so your next step stays manageable.';
+        return 'I put urgent work first, then priority and effort, so your next move is both important and realistic.';
     }
 
     /**
@@ -1999,8 +1999,8 @@ final class TaskAssistantPrioritizeOutputDefaults
         foreach ($blocks as $block) {
             if (self::narrativeTokenJaccardSimilarity($next, $block) >= $wholeJaccardDrop) {
                 return $itemsCount === 1
-                    ? 'If you want, I can schedule this for later.'
-                    : 'If you want, I can schedule these steps for later.';
+                    ? 'If you want, I can help schedule this next step.'
+                    : 'If you want, I can help schedule these next steps.';
             }
         }
 
@@ -2013,8 +2013,8 @@ final class TaskAssistantPrioritizeOutputDefaults
             foreach ($blocks as $block) {
                 if (self::narrativeTokenJaccardSimilarity($sentTrim, $block) >= $sentenceJaccardDrop) {
                     return $itemsCount === 1
-                        ? 'If you want, I can schedule this for later.'
-                        : 'If you want, I can schedule these steps for later.';
+                        ? 'If you want, I can help schedule this next step.'
+                        : 'If you want, I can help schedule these next steps.';
                 }
             }
         }

@@ -39,7 +39,7 @@ final class TaskAssistantMessageFormatter
         }
 
         if (stripos($raw, 'no strong filters') !== false) {
-            return 'A short list of your highest-ranked tasks (no extra filters right now).';
+            return 'A focused slice of your highest-ranked tasks (no extra filters right now).';
         }
 
         $parts = array_map(trim(...), explode(';', $raw));
@@ -292,7 +292,7 @@ final class TaskAssistantMessageFormatter
                 ) >= 0.72
             ) {
                 $topTitle = trim((string) data_get($items, '0.title', 'this top task'));
-                $reasoning = "Start with {$topTitle} first, keep this block focused, then reassess your next step based on your energy and available time.";
+                $reasoning = "Start with {$topTitle} first, keep this block focused, then check in on your energy before choosing what comes next.";
             }
         }
 
@@ -304,8 +304,8 @@ final class TaskAssistantMessageFormatter
 
         if ($nextOptions === '') {
             $nextOptions = $singularCoerceCount === 1
-                ? __('If you want, I can schedule this for later.')
-                : __('If you want, I can schedule these steps for later.');
+                ? __('If you want, I can help schedule this next step.')
+                : __('If you want, I can help schedule these next steps.');
         }
 
         if ($singularCoerceCount === 1) {
@@ -1040,7 +1040,7 @@ final class TaskAssistantMessageFormatter
             return '';
         }
 
-        return "What blocked scheduling:\n".implode("\n", array_slice($lines, 0, 3));
+        return "What got in the way:\n".implode("\n", array_slice($lines, 0, 3));
     }
 
     /**

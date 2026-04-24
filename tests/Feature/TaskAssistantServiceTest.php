@@ -1759,8 +1759,8 @@ test('robotic fallback narrative is rejected in favor of deterministic student-f
     expect($options)->not->toContain('Split it into shorter blocks today');
     expect((string) $assistantMessage->content)->not->toContain('Confidence:');
     expect((string) $assistantMessage->content)->not->toContain('explicitly by the user');
-    expect((string) $assistantMessage->content)->toContain('What blocked scheduling:');
-    expect((string) $assistantMessage->content)->toContain('I set up a draft, and I want your go-ahead before finalizing it.');
+    expect((string) $assistantMessage->content)->toContain('What got in the way:');
+    expect((string) $assistantMessage->content)->toContain('I prepared a draft and paused so you can review it before I finalize anything.');
 
     CarbonImmutable::setTestNow();
 });

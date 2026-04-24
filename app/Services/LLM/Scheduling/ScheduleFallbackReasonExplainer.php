@@ -25,24 +25,24 @@ final class ScheduleFallbackReasonExplainer
         if ($timeWindowHint === 'later' || in_array('strict_window_no_fit', $triggers, true)) {
             $laterShortage = true;
             if ($start !== '' && $end !== '' && $start >= $end) {
-                $reasonFamilies['time_shortage'] = 'It is already late in the day, so there is little or no time left in that window.';
+                $reasonFamilies['time_shortage'] = 'It is already late in the day, so there is almost no time left in that window.';
             } else {
-                $reasonFamilies['time_shortage'] = 'The remaining time later today is too limited for this request.';
+                $reasonFamilies['time_shortage'] = 'There is not enough time left later today for this request.';
             }
         }
 
         $hasCalendarConflicts = in_array('empty_placement', $triggers, true) || in_array('unplaced_units', $triggers, true);
         if ($hasCalendarConflicts) {
-            $reasonFamilies['calendar_conflict'] = 'Your current class and event schedule leaves no open block that fits right now.';
+            $reasonFamilies['calendar_conflict'] = 'Your current classes and events leave no open block that fits this request right now.';
         }
 
         $hasDurationMismatch = $this->hasDurationMismatch($unplacedUnits);
         if ($hasDurationMismatch) {
-            $reasonFamilies['duration_mismatch'] = 'At least one task needs a longer focused block than what is available in the current window.';
+            $reasonFamilies['duration_mismatch'] = 'At least one task needs a longer focus block than what is available in this window.';
         }
 
         if ($laterShortage && $hasDurationMismatch) {
-            $reasonFamilies['time_shortage'] = 'It is already late, and the remaining free blocks are too short for this task duration.';
+            $reasonFamilies['time_shortage'] = 'It is already late, and the remaining open blocks are too short for this task duration.';
             unset($reasonFamilies['duration_mismatch']);
         }
 

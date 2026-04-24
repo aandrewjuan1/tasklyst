@@ -36,14 +36,14 @@ final class ScheduleFramingNarrativeSupport
 
         if ($blockCount <= 1) {
             $templates = [
-                "For what you asked, I blocked {$windowPhrase} time for {$primaryLabel}—the row just below has the exact start and end.",
-                "I lined up a focused block for {$primaryLabel} {$windowPhrase}; you will see the times in the next line.",
-                "{$windowLead}, I placed {$primaryLabel} on your plan—check the block below for the clock times.",
-                "Here is a slot {$windowPhrase} that I set for {$primaryLabel}. The next line shows the precise window.",
-                "You wanted this scheduled—I tucked {$primaryLabel} {$windowPhrase}. The row underneath has start and end.",
-                "{$windowLead} I carved out time for {$primaryLabel}; details are right below so nothing feels vague.",
-                "I matched your request with a single block for {$primaryLabel} {$windowPhrase}; scroll one line down for times.",
-                "This is the {$windowPhrase} hold I created for {$primaryLabel}—the app row below locks in the timing.",
+                "I set aside {$windowPhrase} for {$primaryLabel}; the row below shows the exact start and end.",
+                "I lined up one focused block for {$primaryLabel} {$windowPhrase}; the next line has the exact time.",
+                "{$windowLead}, I placed {$primaryLabel} on your plan—check the row below for the clock times.",
+                "Here is the {$windowPhrase} slot I prepared for {$primaryLabel}. You can see the exact window right below.",
+                "I matched your request with time for {$primaryLabel} {$windowPhrase}; the row underneath has start and end.",
+                "{$windowLead} I carved out time for {$primaryLabel}; details are right below so you can tweak easily.",
+                "I set one clear block for {$primaryLabel} {$windowPhrase}; look one line down for the timing.",
+                "This is the {$windowPhrase} slot I created for {$primaryLabel}—the row below locks in the timing.",
             ];
 
             return $templates[$n % count($templates)];
@@ -52,14 +52,14 @@ final class ScheduleFramingNarrativeSupport
         $count = max(2, $blockCount);
         $second = isset($labels[1]) ? self::truncateLabel($labels[1]) : 'the next item';
         $multiTemplates = [
-            "I shaped {$count} blocks across {$windowPhrase}—each row below is one stretch you can nudge if you want.",
-            "Here is how {$count} pieces land {$windowPhrase}: one line per block under this note.",
-            "{$windowLead} you have {$count} stacked blocks; the list below walks through each time window.",
-            "I fit {$count} tasks into {$windowPhrase}; every row underneath is a block we can refine in chat.",
-            "Across {$windowPhrase} I sequenced {$count} blocks starting with {$primaryLabel} and {$second}—times sit in the rows below.",
-            "Your {$windowPhrase} plan spans {$count} blocks; scan the lines below for start and end for each.",
-            "{$windowLead} here is a {$count}-block run—each entry below is ready to tweak before you save.",
-            "I queued {$count} blocks for {$windowPhrase}; the section below lists them in time order.",
+            "I mapped {$count} blocks across {$windowPhrase}—each row below is one block you can tweak if needed.",
+            "Here is how {$count} blocks land {$windowPhrase}: one row per block under this note.",
+            "{$windowLead} you have {$count} stacked blocks; the rows below walk through each time window.",
+            "I fit {$count} tasks into {$windowPhrase}; every row below is a block we can refine in chat.",
+            "Across {$windowPhrase} I sequenced {$count} blocks starting with {$primaryLabel} and {$second}—times are listed below.",
+            "Your {$windowPhrase} plan spans {$count} blocks; scan the rows below for each start and end time.",
+            "{$windowLead} here is a {$count}-block run—each row below is ready to adjust before you save.",
+            "I queued {$count} blocks for {$windowPhrase}; the rows below list them in time order.",
         ];
 
         return $multiTemplates[$n % count($multiTemplates)];

@@ -173,7 +173,7 @@ final class TaskAssistantResponseProcessor
             if ($firstTitle === '') {
                 $firstTitle = 'this top task';
             }
-            $rewritten = "Start with {$firstTitle} first, then check your momentum before moving to the next item. Keep this step short so you can build progress without overloading yourself.";
+            $rewritten = "Start with {$firstTitle} first, then check your momentum before moving to the next item. Keep this step short so progress feels steady.";
             $data['reasoning'] = TaskAssistantPrioritizeOutputDefaults::clampPrioritizeReasoning($rewritten);
             $corrections['prioritize_reasoning_deduped'] = [
                 'similarity' => round($similarity, 3),
@@ -197,7 +197,7 @@ final class TaskAssistantResponseProcessor
             if ($firstTitle === '') {
                 $firstTitle = 'this top task';
             }
-            $rewritten = "Start with {$firstTitle} first, then take a focused pass before moving to the next item. Keeping this step short helps you build momentum without overload.";
+            $rewritten = "Start with {$firstTitle} first, then take a focused pass before moving to the next item. Keeping this step short helps you build momentum.";
             $data['reasoning'] = TaskAssistantPrioritizeOutputDefaults::clampPrioritizeReasoning($rewritten);
             $corrections['prioritize_reasoning_top_title_enforced'] = true;
         }

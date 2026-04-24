@@ -498,7 +498,7 @@ class TaskAssistantPrioritizeOutputDefaultsTest extends TestCase
 
         $out = TaskAssistantPrioritizeOutputDefaults::dedupePrioritizeNextVersusPriorFields($next, $framing, $reasoning, 2);
 
-        $this->assertStringContainsString('schedule these steps', mb_strtolower($out));
+        $this->assertStringContainsString('schedule these next steps', mb_strtolower($out));
         $this->assertStringNotContainsString('Start with Alpha first', $out);
     }
 

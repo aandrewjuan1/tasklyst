@@ -490,7 +490,7 @@ test('daily_schedule reasoning explains skipped targets are left unchanged', fun
         placementDigestJson: (string) $placementDigestJson,
     );
 
-    expect($result['reasoning'])->toContain('calendar event already has its own start and end time');
+    expect($result['reasoning'])->toContain('already has its own start and end time');
 });
 
 test('daily_schedule deterministic reasoning does not imply one continuous block across split blocks', function (): void {
@@ -2146,7 +2146,7 @@ test('refinePrioritizeListing does not use connection fallbacks when the model r
     );
 
     expect($result['framing'])->toContain('Found 1 task');
-    expect($result['reasoning'])->toContain('same student-first ranking policy');
+    expect($result['reasoning'])->toContain('student-first ranking');
     expect($result['reasoning'])->not->toContain('Impossible 5h study block');
 });
 

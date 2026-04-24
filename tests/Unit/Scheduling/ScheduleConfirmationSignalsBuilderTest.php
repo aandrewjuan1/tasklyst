@@ -286,6 +286,49 @@ it('does not emit unplaced_units trigger for implicit schedule shortfall', funct
     expect($out['confirmation_signals']['triggers'] ?? [])->not->toContain('unplaced_units');
 });
 
+it('suppresses placement_outside_horizon trigger for implicit later rollover with full placement', function (): void {
+    $builder = new ScheduleConfirmationSignalsBuilder;
+    $snapshot = [
+        'timezone' => 'UTC',
+        'time_window' => ['start' => '22:00', 'end' => '22:00'],
+        'schedule_horizon' => [
+            'mode' => 'single_day',
+            'start_date' => '2026-04-24',
+            'end_date' => '2026-04-24',
+            'label' => 'default_today',
+        ],
+    ];
+    $context = [
+        'time_window_strict' => false,
+        'schedule_intent_flags' => [
+            'is_plain_later_default' => true,
+        ],
+    ];
+    $digest = [
+        'attempted_horizon' => [
+            'mode' => 'single_day',
+            'start_date' => '2026-04-24',
+            'end_date' => '2026-04-24',
+            'label' => 'default_today',
+        ],
+        'requested_count' => 5,
+        'full_placed_count' => 5,
+        'top_n_shortfall' => false,
+        'unplaced_units' => [],
+        'partial_placed_count' => 0,
+    ];
+    $proposals = [[
+        'title' => 'Task A',
+        'start_datetime' => '2026-04-25T08:00:00+00:00',
+        'end_datetime' => '2026-04-25T09:00:00+00:00',
+    ]];
+    $options = ['time_window_hint' => 'later'];
+
+    $out = $builder->enrich($snapshot, $context, $digest, $proposals, $options);
+
+    expect($out['confirmation_signals']['triggers'] ?? [])->not->toContain('placement_outside_horizon');
+});
+
 it('emits unplaced_units trigger for strict set contract without explicit numeric count', function (): void {
     $builder = new ScheduleConfirmationSignalsBuilder;
     $snapshot = [
