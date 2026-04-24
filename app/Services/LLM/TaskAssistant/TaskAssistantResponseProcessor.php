@@ -13,6 +13,7 @@ final class TaskAssistantResponseProcessor
 
     public function __construct(
         private readonly TaskAssistantMessageFormatter $messageFormatter,
+        private readonly TaskAssistantDeterministicReplyQualityService $deterministicReplyQuality,
     ) {}
 
     /**
@@ -30,12 +31,14 @@ final class TaskAssistantResponseProcessor
         if ($flow === 'daily_schedule') {
             $items = is_array($data['items'] ?? null) ? $data['items'] : [];
             $blocks = is_array($data['blocks'] ?? null) ? $data['blocks'] : [];
+            $narrativeFacts = is_array($data['narrative_facts'] ?? null) ? $data['narrative_facts'] : [];
             $normalizedNarrative = $this->messageFormatter->normalizeDailyScheduleNarrativeFields(
                 $items,
                 $blocks,
                 (string) ($data['framing'] ?? ''),
                 (string) ($data['reasoning'] ?? ''),
                 (string) ($data['confirmation'] ?? ''),
+                $narrativeFacts,
             );
             $data['framing'] = $normalizedNarrative['framing'];
             $data['reasoning'] = $normalizedNarrative['reasoning'];
@@ -43,6 +46,8 @@ final class TaskAssistantResponseProcessor
             $narrativeCorrections = is_array($normalizedNarrative['corrections'] ?? null)
                 ? $normalizedNarrative['corrections']
                 : [];
+            ['data' => $data, 'corrections' => $contractCorrections] = $this->enforceDailyScheduleNarrativeContract($data);
+            $narrativeCorrections = array_merge($narrativeCorrections, $contractCorrections);
         }
 
         ['data' => $data, 'corrections' => $qualityCorrections] = $this->normalizeQualityForFlow($flow, $data);
@@ -95,13 +100,59 @@ final class TaskAssistantResponseProcessor
      * @param  array<string, mixed>  $data
      * @return array{data: array<string, mixed>, corrections: array<string, mixed>}
      */
+    private function enforceDailyScheduleNarrativeContract(array $data): array
+    {
+        $corrections = [];
+        $facts = is_array($data['narrative_facts'] ?? null) ? $data['narrative_facts'] : [];
+        $relativeDay = mb_strtolower(trim((string) ($facts['requested_horizon_label'] ?? '')));
+
+        foreach (['framing', 'reasoning', 'confirmation'] as $field) {
+            $value = trim((string) ($data[$field] ?? ''));
+            if ($value === '') {
+                continue;
+            }
+
+            $updated = preg_replace('/\bthe in your\b/iu', 'your', $value) ?? $value;
+            $updated = preg_replace('/\binto in\b/iu', 'into', $updated) ?? $updated;
+
+            if (($relativeDay === 'tomorrow' || $relativeDay === 'tonight') && preg_match('/\b(today|tonight)\b/iu', $updated)) {
+                $updated = preg_replace('/\b(today|tonight)\b/iu', 'tomorrow', $updated) ?? $updated;
+            }
+            if ($relativeDay === 'today' && preg_match('/\btomorrow\b/iu', $updated)) {
+                $updated = preg_replace('/\btomorrow\b/iu', 'today', $updated) ?? $updated;
+            }
+
+            if ($updated !== $value) {
+                $data[$field] = trim($updated);
+                $corrections['schedule_'.$field.'_contract_aligned'] = true;
+            }
+        }
+
+        return ['data' => $data, 'corrections' => $corrections];
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array{data: array<string, mixed>, corrections: array<string, mixed>}
+     */
     private function normalizeQualityForFlow(string $flow, array $data): array
     {
-        return match ($flow) {
-            'prioritize' => $this->normalizePrioritizeQuality($data),
-            'daily_schedule' => $this->normalizeDailyScheduleQuality($data),
-            default => ['data' => $data, 'corrections' => []],
+        $base = $this->deterministicReplyQuality->normalize($flow, $data);
+        $normalizedData = is_array($base['data'] ?? null) ? $base['data'] : $data;
+        $normalizedCorrections = is_array($base['corrections'] ?? null) ? $base['corrections'] : [];
+
+        $legacy = match ($flow) {
+            'prioritize' => $this->normalizePrioritizeQuality($normalizedData),
+            'daily_schedule' => $this->normalizeDailyScheduleQuality($normalizedData),
+            default => ['data' => $normalizedData, 'corrections' => []],
         };
+
+        $legacyCorrections = is_array($legacy['corrections'] ?? null) ? $legacy['corrections'] : [];
+
+        return [
+            'data' => is_array($legacy['data'] ?? null) ? $legacy['data'] : $normalizedData,
+            'corrections' => array_merge($normalizedCorrections, $legacyCorrections),
+        ];
     }
 
     /**
@@ -195,7 +246,8 @@ final class TaskAssistantResponseProcessor
         )).' '.$structBlob);
         $similarity = $this->textSimilarityScore($reasoning, $comparisonBlob);
         if ($reasoning !== '' && $comparisonBlob !== '' && $similarity >= 0.65) {
-            $replacement = 'This sequence keeps your workload realistic and avoids clashes with existing commitments while preserving momentum across the week.';
+            $windowLabel = trim((string) ($data['requested_window_display_label'] ?? 'your requested window'));
+            $replacement = "This sequence keeps your workload realistic and avoids clashes with existing commitments in {$windowLabel}.";
             $data['reasoning'] = $replacement;
             $corrections['schedule_reasoning_deduped'] = [
                 'similarity' => round($similarity, 3),

@@ -9,7 +9,6 @@ use App\Services\LLM\Prioritization\TaskAssistantTaskChoiceConstraintsExtractor;
 use App\Services\LLM\Prioritization\TaskPrioritizationService;
 use Illuminate\Support\Facades\Log;
 use Prism\Prism\Enums\Provider;
-use Prism\Prism\Facades\Prism;
 use Prism\Prism\Schema\ArraySchema;
 use Prism\Prism\Schema\ObjectSchema;
 use Prism\Prism\Schema\StringSchema;
@@ -208,68 +207,12 @@ final class TaskAssistantListingFollowupService
      */
     private function inferNarrativeWithOptionalLlm(string $userMessage, string $factsJson, array $analysis): array
     {
-        $fallback = $this->deterministicNarrative($userMessage, $analysis);
-        if (! (bool) config('task-assistant.generation.listing_followup.use_llm_narrative', false)) {
-            return $fallback;
-        }
-        if ($this->isLatencyBudgetExceeded()) {
-            Log::info('task-assistant.listing_followup.narrative_skipped_budget', [
-                'layer' => 'listing_followup',
-                'thread_id' => app()->bound('task_assistant.thread_id') ? app('task_assistant.thread_id') : null,
-                'assistant_message_id' => app()->bound('task_assistant.message_id') ? app('task_assistant.message_id') : null,
-            ]);
+        Log::debug('task-assistant.listing_followup.narrative_deterministic', [
+            'layer' => 'listing_followup',
+            'thread_id' => app()->bound('task_assistant.thread_id') ? app('task_assistant.thread_id') : null,
+        ]);
 
-            return $fallback;
-        }
-
-        $startedAt = microtime(true);
-
-        try {
-            $response = Prism::structured()
-                ->using($this->resolveProvider(), $this->resolveModel())
-                ->withPrompt($this->buildNarrativePrompt($userMessage, $factsJson))
-                ->withSchema($this->narrativeSchema())
-                ->withClientOptions($this->resolveClientOptions())
-                ->asStructured();
-
-            $structured = $response->structured ?? [];
-            $structured = is_array($structured) ? $structured : [];
-
-            $framing = trim((string) ($structured['framing'] ?? ''));
-            $rationale = trim((string) ($structured['rationale'] ?? ''));
-            $caveatsRaw = $structured['caveats'] ?? null;
-            $caveats = is_string($caveatsRaw) ? trim($caveatsRaw) : null;
-            if ($caveats === '') {
-                $caveats = null;
-            }
-            $next = trim((string) ($structured['next_options'] ?? ''));
-            $chips = $structured['next_options_chip_texts'] ?? [];
-            $chips = is_array($chips) ? array_values(array_filter(array_map(
-                static fn (mixed $c): string => trim((string) $c),
-                $chips
-            ), static fn (string $s): bool => $s !== '')) : [];
-
-            if ($framing === '' || $rationale === '' || $next === '' || count($chips) < 2) {
-                return $fallback;
-            }
-
-            return [
-                'framing' => $framing,
-                'rationale' => $rationale,
-                'caveats' => $caveats,
-                'next_options' => $next,
-                'next_options_chip_texts' => array_slice($chips, 0, 2),
-            ];
-        } catch (\Throwable $e) {
-            Log::warning('task-assistant.listing_followup.narrative_failed', [
-                'layer' => 'listing_followup',
-                'thread_id' => app()->bound('task_assistant.thread_id') ? app('task_assistant.thread_id') : null,
-                'error' => $e->getMessage(),
-                'latency_ms' => (int) round((microtime(true) - $startedAt) * 1000),
-            ]);
-
-            return $fallback;
-        }
+        return $this->deterministicNarrative($userMessage, $analysis);
     }
 
     /**

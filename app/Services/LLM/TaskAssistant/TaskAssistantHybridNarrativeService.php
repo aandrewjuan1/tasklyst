@@ -285,7 +285,8 @@ final class TaskAssistantHybridNarrativeService
         string $generationRoute = 'schedule_narrative',
         ?string $placementDigestJson = null,
     ): array {
-        $maxRetries = max(0, (int) config('task-assistant.retry.max_retries', 2));
+        // Fast-fail for UX: one attempt only, then deterministic fallback.
+        $maxRetries = 0;
         $refinementSchema = TaskAssistantSchemas::scheduleNarrativeRefinementSchema();
 
         $parsedBlocks = $this->decodeBlocksJson($blocksJson);
@@ -1637,7 +1638,7 @@ final class TaskAssistantHybridNarrativeService
         }
 
         $reasoning = $timeRange !== ''
-            ? "During your {$windowPhrase}, the plan places {$taskLabel} across your planned blocks between {$timeRange} so your biggest work starts first and the follow-up blocks stay lighter."
+            ? "During your {$windowPhrase}, this plan places {$taskLabel} between {$timeRange} in blocks that fit your availability."
             : 'This schedule sets aside focused time for your selected task so it fits the time you have available.';
 
         $reasoning .= $longFirstBlockNote;
@@ -1750,7 +1751,8 @@ final class TaskAssistantHybridNarrativeService
         int $userId,
         array $countMismatchContext = ['requested_count' => 1, 'actual_count' => 1, 'has_count_mismatch' => false],
     ): array {
-        $maxRetries = max(0, (int) config('task-assistant.retry.max_retries', 2));
+        // Fast-fail for UX: one attempt only, then deterministic fallback.
+        $maxRetries = 0;
         $refinementSchema = TaskAssistantSchemas::prioritizeNarrativeSchema();
         $itemsJson = json_encode($items, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         $listedTaskCount = count($items);
@@ -3117,8 +3119,8 @@ TXT;
 
     private function applyStructuredGenerationOptions(StructuredPendingRequest $pending, string $generationRoute): StructuredPendingRequest
     {
-        $timeout = (int) config('prism.request_timeout', 120);
-        $pending = $pending->withClientOptions(['timeout' => $timeout]);
+        $timeout = min(8, (int) config('prism.request_timeout', 120));
+        $pending = $pending->withClientOptions(['timeout' => max(3, $timeout)]);
 
         $base = 'task-assistant.generation';
         $routeKey = $base.'.'.$generationRoute;

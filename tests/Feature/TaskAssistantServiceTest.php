@@ -189,6 +189,7 @@ test('fresh-thread schedule intent reroutes to prioritize when there is no listi
 
     expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('prioritize_schedule');
     expect($assistantMessage->metadata['schedule']['proposals'] ?? null)->toBeArray();
+    expect((string) ($assistantMessage->content ?? ''))->not->toContain('pending_schedule:');
 });
 
 test('prioritize_schedule schedules tasks only (events present)', function (): void {
@@ -344,7 +345,7 @@ test('prioritize_schedule with only doing tasks does not schedule and returns do
     expect((string) $assistantMessage->content)->toContain('Implement linked list lab exercises');
 });
 
-test('edit-like turn after pending schedule draft rewrites prioritize intent to schedule refinement', function (): void {
+test('edit-like turn binds refinement to latest schedule draft message', function (): void {
     config([
         'task-assistant.intent.use_llm' => false,
     ]);
@@ -362,29 +363,29 @@ test('edit-like turn after pending schedule draft rewrites prioritize intent to 
     $user = User::factory()->create();
     $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
 
-    $seedAssistant = $thread->messages()->create([
+    $thread->messages()->create([
         'role' => MessageRole::Assistant,
-        'content' => 'Draft schedule',
+        'content' => 'Older draft schedule',
         'metadata' => [
             'schedule' => [
                 'proposals' => [
                     [
-                        'proposal_id' => 'a',
+                        'proposal_id' => 'older-a',
                         'status' => 'pending',
                         'entity_type' => 'task',
                         'entity_id' => 1,
-                        'title' => 'Task A',
+                        'title' => 'Old Task A',
                         'start_datetime' => '2026-04-02T08:00:00+08:00',
                         'end_datetime' => '2026-04-02T09:00:00+08:00',
                         'duration_minutes' => 60,
                         'apply_payload' => ['action' => 'update_task', 'arguments' => ['taskId' => 1, 'updates' => []]],
                     ],
                     [
-                        'proposal_id' => 'b',
+                        'proposal_id' => 'older-b',
                         'status' => 'pending',
                         'entity_type' => 'task',
                         'entity_id' => 2,
-                        'title' => 'Task B',
+                        'title' => 'Old Task B',
                         'start_datetime' => '2026-04-02T09:30:00+08:00',
                         'end_datetime' => '2026-04-02T10:00:00+08:00',
                         'duration_minutes' => 30,
@@ -398,7 +399,43 @@ test('edit-like turn after pending schedule draft rewrites prioritize intent to 
         ],
     ]);
 
-    expect($seedAssistant->id)->toBeInt();
+    $latestDraft = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => 'Latest draft schedule',
+        'metadata' => [
+            'schedule' => [
+                'proposals' => [
+                    [
+                        'proposal_id' => 'latest-a',
+                        'status' => 'pending',
+                        'entity_type' => 'task',
+                        'entity_id' => 101,
+                        'title' => 'Latest Task A',
+                        'start_datetime' => '2026-04-03T08:00:00+08:00',
+                        'end_datetime' => '2026-04-03T09:00:00+08:00',
+                        'duration_minutes' => 60,
+                        'apply_payload' => ['action' => 'update_task', 'arguments' => ['taskId' => 101, 'updates' => []]],
+                    ],
+                    [
+                        'proposal_id' => 'latest-b',
+                        'status' => 'pending',
+                        'entity_type' => 'task',
+                        'entity_id' => 102,
+                        'title' => 'Latest Task B',
+                        'start_datetime' => '2026-04-03T09:30:00+08:00',
+                        'end_datetime' => '2026-04-03T10:00:00+08:00',
+                        'duration_minutes' => 30,
+                        'apply_payload' => ['action' => 'update_task', 'arguments' => ['taskId' => 102, 'updates' => []]],
+                    ],
+                ],
+            ],
+            'structured' => [
+                'flow' => 'schedule',
+            ],
+        ],
+    ]);
+
+    expect($latestDraft->id)->toBeInt();
 
     $userMessage = $thread->messages()->create([
         'role' => MessageRole::User,
@@ -414,7 +451,94 @@ test('edit-like turn after pending schedule draft rewrites prioritize intent to 
     $assistantMessage->refresh();
     expect(in_array((string) ($assistantMessage->metadata['structured']['flow'] ?? ''), ['schedule', 'prioritize_schedule'], true))->toBeTrue();
     expect($assistantMessage->metadata['schedule']['proposals'] ?? null)->toBeArray();
-    expect($assistantMessage->metadata['schedule']['proposals'][0]['proposal_id'] ?? null)->toBe('b');
+    expect($assistantMessage->metadata['schedule']['proposals'][0]['proposal_id'] ?? null)->toBe('latest-b');
+    expect(array_column($assistantMessage->metadata['schedule']['proposals'] ?? [], 'proposal_id'))->not->toContain('older-a');
+});
+
+test('edit-like turn falls back to fresh schedule when latest draft is not refinable', function (): void {
+    config([
+        'task-assistant.intent.use_llm' => false,
+    ]);
+
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => 'Fresh schedule proposal.',
+                'reasoning' => 'Placed your top tasks into available time slots.',
+                'confirmation' => 'Do these times work?',
+            ])
+            ->withUsage(new Usage(5, 10)),
+    ]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    // Older refinable draft exists.
+    $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => 'Older pending draft',
+        'metadata' => [
+            'schedule' => [
+                'proposals' => [[
+                    'proposal_id' => 'older-a',
+                    'status' => 'pending',
+                    'entity_type' => 'task',
+                    'entity_id' => 1,
+                    'title' => 'Older Task A',
+                    'start_datetime' => '2026-04-02T08:00:00+08:00',
+                    'end_datetime' => '2026-04-02T09:00:00+08:00',
+                    'duration_minutes' => 60,
+                    'apply_payload' => ['action' => 'update_task', 'arguments' => ['taskId' => 1, 'updates' => []]],
+                ]],
+            ],
+            'structured' => ['flow' => 'schedule'],
+        ],
+    ]);
+
+    // Latest draft is non-refinable (no pending proposals).
+    $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => 'Latest non-refinable draft',
+        'metadata' => [
+            'schedule' => [
+                'proposals' => [[
+                    'proposal_id' => 'latest-applied',
+                    'status' => 'applied',
+                    'entity_type' => 'task',
+                    'entity_id' => 99,
+                    'title' => 'Applied task',
+                    'start_datetime' => '2026-04-03T08:00:00+08:00',
+                    'end_datetime' => '2026-04-03T09:00:00+08:00',
+                    'duration_minutes' => 60,
+                    'apply_payload' => ['action' => 'update_task', 'arguments' => ['taskId' => 99, 'updates' => []]],
+                ]],
+            ],
+            'structured' => ['flow' => 'schedule'],
+        ],
+    ]);
+
+    Task::factory()->for($user)->count(2)->create([
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::High,
+        'duration' => 60,
+        'start_datetime' => null,
+        'end_datetime' => now()->addDay(),
+    ]);
+
+    $userMessage = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'move the first later today at evening',
+    ]);
+    $assistantMessage = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
+
+    $assistantMessage->refresh();
+    expect((string) ($assistantMessage->metadata['structured']['flow'] ?? ''))->toBe('schedule');
+    expect(array_column($assistantMessage->metadata['schedule']['proposals'] ?? [], 'proposal_id'))->not->toContain('older-a');
 });
 
 test('schedule refinement without explicit day keeps edited item on its original scheduled date', function (): void {
@@ -1734,7 +1858,7 @@ test('top N scheduling shortfall requires confirmation instead of silent underfi
         ->toContain('Try another time window')
         ->not->toContain('Cancel scheduling for now');
     expect($assistantMessage->metadata['schedule']['placement_digest']['top_n_shortfall'] ?? null)->toBeTrue();
-    expect((string) ($assistantMessage->metadata['schedule']['framing'] ?? ''))->not->toContain('top 3 request');
+    expect((string) ($assistantMessage->metadata['schedule']['framing'] ?? ''))->not->toContain('pending_schedule:');
     expect($thread->metadata['conversation_state']['pending_schedule_fallback'] ?? null)->toBeArray();
 
     CarbonImmutable::setTestNow();

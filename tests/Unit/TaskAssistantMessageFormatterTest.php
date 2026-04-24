@@ -631,7 +631,7 @@ class TaskAssistantMessageFormatterTest extends TestCase
         $this->assertStringContainsString('6:00 PM–7:30 PM', $out);
     }
 
-    public function test_daily_schedule_message_preserves_ranked_row_order_from_payload(): void
+    public function test_daily_schedule_message_sorts_rows_chronologically_for_student_clarity(): void
     {
         $out = $this->formatter->format('daily_schedule', [
             'framing' => 'Here is your schedule.',
@@ -692,8 +692,66 @@ class TaskAssistantMessageFormatterTest extends TestCase
         $this->assertNotFalse($posEight);
         $this->assertNotFalse($posEightForty);
         $this->assertNotFalse($posFourPm);
-        $this->assertTrue($posFourPm < $posEight);
         $this->assertTrue($posEight < $posEightForty);
+        $this->assertTrue($posEightForty < $posFourPm);
+    }
+
+    public function test_daily_schedule_narrative_uses_tomorrow_when_narrative_facts_mark_tomorrow(): void
+    {
+        $out = $this->formatter->format('daily_schedule', [
+            'framing' => 'Here is your open window today slot for Focus block.',
+            'reasoning' => 'This keeps your momentum today.',
+            'confirmation' => 'Do these times work today?',
+            'narrative_facts' => [
+                'requested_horizon_label' => 'tomorrow',
+            ],
+            'blocks' => [[
+                'start_time' => '08:00',
+                'end_time' => '09:00',
+                'task_id' => 31,
+            ]],
+            'items' => [[
+                'title' => 'Focus block',
+                'entity_type' => 'task',
+                'entity_id' => 31,
+                'start_datetime' => '2026-04-25T08:00:00+08:00',
+                'end_datetime' => '2026-04-25T09:00:00+08:00',
+                'duration_minutes' => 60,
+            ]],
+        ]);
+
+        $lower = mb_strtolower($out);
+        $this->assertStringContainsString('tomorrow', $lower);
+        $this->assertStringNotContainsString('open window today', $lower);
+    }
+
+    public function test_daily_schedule_polishes_known_grammar_and_template_phrases(): void
+    {
+        $out = $this->formatter->format('daily_schedule', [
+            'framing' => 'I fit 2 tasks into in your open window today; every row underneath is a 2-block run.',
+            'reasoning' => 'I prioritized the earliest realistic windows so your biggest work starts first and the follow-up blocks stay lighter.',
+            'confirmation' => 'Do these times work before you save?',
+            'blocks' => [[
+                'start_time' => '18:00',
+                'end_time' => '19:00',
+            ]],
+            'items' => [[
+                'title' => 'Task A',
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'start_datetime' => '2026-04-19T18:00:00+08:00',
+                'end_datetime' => '2026-04-19T19:00:00+08:00',
+                'duration_minutes' => 60,
+            ]],
+        ]);
+
+        $this->assertStringNotContainsString('into in', $out);
+        $this->assertStringNotContainsString('2-block run', $out);
+        $this->assertStringNotContainsString('before you save', $out);
+        $this->assertStringNotContainsString('earliest realistic windows', $out);
+        $this->assertStringNotContainsString('biggest work starts first', $out);
+        $this->assertStringNotContainsString('follow-up blocks stay lighter', $out);
+        $this->assertStringContainsString('This keeps the plan specific and realistic for the time you have today.', $out);
     }
 
     public function test_daily_schedule_suppresses_bulk_unplaced_note_when_digest_flag_set(): void
@@ -968,6 +1026,33 @@ class TaskAssistantMessageFormatterTest extends TestCase
         $this->assertStringContainsString('• It is already late, and the remaining free blocks are too short for this task duration.', $out);
     }
 
+    public function test_daily_schedule_confirmation_message_strips_pending_schedule_prefix_from_blocking_rows(): void
+    {
+        $out = $this->formatter->format('daily_schedule', [
+            'confirmation_required' => true,
+            'framing' => 'I drafted what can fit now.',
+            'confirmation_context' => [
+                'reason_message' => 'Only one task fits in this window.',
+                'prompt' => 'Do you want to keep this draft?',
+            ],
+            'blocking_reasons' => [
+                [
+                    'title' => 'pending_schedule: Task A',
+                    'blocked_window' => '5:45 PM-6:45 PM',
+                    'reason' => 'This event overlaps your requested time window.',
+                ],
+            ],
+            'fallback_preview' => [
+                'proposals_count' => 0,
+            ],
+            'items' => [],
+            'blocks' => [],
+        ]);
+
+        $this->assertStringNotContainsString('pending_schedule:', $out);
+        $this->assertStringContainsString('• Task A (5:45 PM-6:45 PM)', $out);
+    }
+
     public function test_daily_schedule_narrative_date_mentions_align_to_actual_item_date(): void
     {
         $out = $this->formatter->format('daily_schedule', [
@@ -1219,7 +1304,7 @@ class TaskAssistantMessageFormatterTest extends TestCase
         ]);
 
         $this->assertStringContainsString('Here are your prioritized items, placed into schedule blocks:', $out);
-        $this->assertStringContainsString('Apr 22 to Apr 24', $out);
+        $this->assertStringNotContainsString('Apr 22 to Apr 24', $out);
         $this->assertStringNotContainsString('#1 Task A', $out);
         $this->assertStringNotContainsString('These items are already scheduled', $out);
     }

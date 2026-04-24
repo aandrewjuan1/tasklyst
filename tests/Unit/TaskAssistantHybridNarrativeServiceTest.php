@@ -65,6 +65,53 @@ test('daily_schedule narrative keeps deterministic reasoning times when model re
     expect($result['confirmation'])->toContain('earlier');
 });
 
+test('daily_schedule fallback framing avoids malformed template preposition joins', function (): void {
+    Prism::fake([]);
+
+    $service = new TaskAssistantHybridNarrativeService;
+
+    $blocksJson = json_encode([
+        [
+            'start_time' => '08:00',
+            'end_time' => '09:00',
+            'label' => 'Focus block',
+            'note' => 'Planned by strict scheduler.',
+        ],
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+    $promptData = [
+        'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
+        'snapshot' => [
+            'today' => '2026-04-24',
+            'timezone' => 'UTC',
+            'tasks' => [],
+            'events' => [],
+            'projects' => [],
+        ],
+        'route_context' => '',
+        'schedule_horizon' => [
+            'mode' => 'single_day',
+            'start_date' => '2026-04-25',
+            'end_date' => '2026-04-25',
+            'label' => 'tomorrow',
+        ],
+    ];
+
+    $result = $service->refineDailySchedule(
+        historyMessages: new Collection,
+        promptData: $promptData,
+        userMessageContent: 'schedule this tomorrow',
+        blocksJson: (string) $blocksJson,
+        deterministicSummary: 'A focused schedule with clear blocks',
+        threadId: 1,
+        userId: 1,
+        isEmptyPlacement: false,
+        schedulableProposalCount: 1,
+    );
+
+    expect(mb_strtolower((string) $result['framing']))->not->toContain('the in your');
+});
+
 test('daily_schedule time grounding rejects mismatched framing end time', function (): void {
     Prism::fake([
         StructuredResponseFake::make()
@@ -510,7 +557,7 @@ test('daily_schedule deterministic reasoning does not imply one continuous block
         schedulableProposalCount: 3,
     );
 
-    expect((string) $result['reasoning'])->toContain('across your planned blocks between 8:00 AM–2:10 PM');
+    expect((string) $result['reasoning'])->toContain('between 8:00 AM–2:10 PM in blocks that fit your availability');
     expect((string) $result['reasoning'])->not->toContain('in the 8:00 AM–2:10 PM block');
     expect((string) $result['reasoning'])->not->toContain('main block of your schedule');
 });
@@ -580,7 +627,7 @@ test('daily_schedule narrative rejects unsupported one-task-per-two-hour-window 
     );
 
     expect((string) $result['reasoning'])->not->toContain('no more than one task per two-hour window');
-    expect((string) $result['reasoning'])->toContain('across your planned blocks between 8:00 AM–2:10 PM');
+    expect((string) $result['reasoning'])->toContain('between 8:00 AM–2:10 PM in blocks that fit your availability');
 });
 
 test('daily_schedule narrative sanitizes mismatched explicit confirmation time and duration claims', function (): void {

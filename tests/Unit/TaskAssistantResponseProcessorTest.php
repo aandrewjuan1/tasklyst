@@ -1264,6 +1264,122 @@ class TaskAssistantResponseProcessorTest extends TestCase
         $this->assertStringNotContainsString('morning and evening', mb_strtolower((string) $result['structured_data']['framing']));
     }
 
+    public function test_daily_schedule_quality_normalization_sorts_rows_chronologically(): void
+    {
+        $processor = app(TaskAssistantResponseProcessor::class);
+
+        $result = $processor->processResponse('daily_schedule', [
+            'proposals' => [
+                [
+                    'proposal_id' => 'p-late',
+                    'status' => 'pending',
+                    'entity_type' => 'task',
+                    'entity_id' => 2,
+                    'title' => 'Later block',
+                    'start_datetime' => '2026-04-24T20:00:00+08:00',
+                    'end_datetime' => '2026-04-24T21:00:00+08:00',
+                    'duration_minutes' => 60,
+                    'apply_payload' => ['action' => 'update_task', 'arguments' => ['taskId' => 2, 'updates' => []]],
+                ],
+                [
+                    'proposal_id' => 'p-early',
+                    'status' => 'pending',
+                    'entity_type' => 'task',
+                    'entity_id' => 1,
+                    'title' => 'Earlier block',
+                    'start_datetime' => '2026-04-24T18:30:00+08:00',
+                    'end_datetime' => '2026-04-24T19:30:00+08:00',
+                    'duration_minutes' => 60,
+                    'apply_payload' => ['action' => 'update_task', 'arguments' => ['taskId' => 1, 'updates' => []]],
+                ],
+            ],
+            'items' => [
+                [
+                    'title' => 'Later block',
+                    'entity_type' => 'task',
+                    'entity_id' => 2,
+                    'start_datetime' => '2026-04-24T20:00:00+08:00',
+                    'end_datetime' => '2026-04-24T21:00:00+08:00',
+                    'duration_minutes' => 60,
+                ],
+                [
+                    'title' => 'Earlier block',
+                    'entity_type' => 'task',
+                    'entity_id' => 1,
+                    'start_datetime' => '2026-04-24T18:30:00+08:00',
+                    'end_datetime' => '2026-04-24T19:30:00+08:00',
+                    'duration_minutes' => 60,
+                ],
+            ],
+            'blocks' => [
+                ['start_time' => '20:00', 'end_time' => '21:00', 'label' => 'Later block', 'task_id' => 2, 'event_id' => null, 'note' => null],
+                ['start_time' => '18:30', 'end_time' => '19:30', 'label' => 'Earlier block', 'task_id' => 1, 'event_id' => null, 'note' => null],
+            ],
+            'schedule_variant' => 'daily',
+            'framing' => 'I fit 2 tasks into in your open window today.',
+            'reasoning' => 'I prioritized the earliest realistic windows so your biggest work starts first.',
+            'confirmation' => 'Do these times line up before you save?',
+        ], [
+            'tasks' => [['id' => 1], ['id' => 2]],
+            'events' => [],
+            'projects' => [],
+        ]);
+
+        $this->assertTrue($result['valid']);
+        $this->assertSame('Earlier block', data_get($result, 'structured_data.items.0.title'));
+        $this->assertStringNotContainsString('into in', (string) data_get($result, 'structured_data.framing'));
+        $this->assertStringNotContainsString('before you save', (string) data_get($result, 'structured_data.confirmation'));
+        $this->assertStringNotContainsString('earliest realistic windows', (string) data_get($result, 'structured_data.reasoning'));
+        $this->assertStringNotContainsString('biggest work starts first', (string) data_get($result, 'structured_data.reasoning'));
+        $this->assertStringContainsString('keeps each block focused', (string) data_get($result, 'structured_data.reasoning'));
+    }
+
+    public function test_daily_schedule_contract_rewrites_malformed_framing_phrase(): void
+    {
+        $processor = app(TaskAssistantResponseProcessor::class);
+
+        $result = $processor->processResponse('daily_schedule', [
+            'proposals' => [[
+                'proposal_id' => 'p1',
+                'status' => 'pending',
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'title' => 'Task A',
+                'start_datetime' => '2026-04-25T08:00:00+08:00',
+                'end_datetime' => '2026-04-25T09:00:00+08:00',
+                'duration_minutes' => 60,
+                'apply_payload' => ['action' => 'update_task', 'arguments' => ['taskId' => 1, 'updates' => []]],
+            ]],
+            'items' => [[
+                'title' => 'Task A',
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'start_datetime' => '2026-04-25T08:00:00+08:00',
+                'end_datetime' => '2026-04-25T09:00:00+08:00',
+                'duration_minutes' => 60,
+            ]],
+            'blocks' => [[
+                'start_time' => '08:00',
+                'end_time' => '09:00',
+                'task_id' => 1,
+            ]],
+            'schedule_variant' => 'daily',
+            'narrative_facts' => ['requested_horizon_label' => 'tomorrow'],
+            'framing' => 'Here is the in your open window today slot I set for Task A.',
+            'reasoning' => 'This keeps things realistic today.',
+            'confirmation' => 'Do these times work today?',
+        ], [
+            'tasks' => [['id' => 1]],
+            'events' => [],
+            'projects' => [],
+        ]);
+
+        $this->assertTrue($result['valid']);
+        $this->assertStringNotContainsString('the in your', (string) data_get($result, 'structured_data.framing'));
+        $this->assertStringContainsString('tomorrow', mb_strtolower((string) data_get($result, 'structured_data.framing')));
+        $this->assertStringContainsString('tomorrow', mb_strtolower((string) data_get($result, 'structured_data.reasoning')));
+    }
+
     public function test_daily_schedule_validation_accepts_structured_explainability_contract_fields(): void
     {
         $processor = app(TaskAssistantResponseProcessor::class);

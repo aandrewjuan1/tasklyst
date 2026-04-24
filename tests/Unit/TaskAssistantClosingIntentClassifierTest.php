@@ -47,3 +47,37 @@ test('short acknowledgement closes when planning context exists', function (): v
         TaskAssistantReasonCodes::CLOSING_CONTEXT_WEIGHTED
     );
 });
+
+test('classifier detects thanks variants from casual phrasing', function (string $message): void {
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $result = app(TaskAssistantClosingIntentClassifier::class)->classify($thread, $message);
+
+    expect($result['is_closing'] ?? false)->toBeTrue();
+    expect($result['reason_codes'] ?? [])->toContain(
+        TaskAssistantReasonCodes::CLOSING_SHORTCIRCUIT_GENERAL_GUIDANCE
+    );
+})->with([
+    'OKI THANK YOU BRO',
+    'i said thank you',
+    'thanks boss',
+    'much appreciated',
+]);
+
+test('classifier detects goodbye variants from casual phrasing', function (string $message): void {
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $result = app(TaskAssistantClosingIntentClassifier::class)->classify($thread, $message);
+
+    expect($result['is_closing'] ?? false)->toBeTrue();
+    expect($result['reason_codes'] ?? [])->toContain(
+        TaskAssistantReasonCodes::CLOSING_SHORTCIRCUIT_GENERAL_GUIDANCE
+    );
+})->with([
+    'good bye',
+    'good-bye',
+    'bye bro',
+    'have a good one',
+]);

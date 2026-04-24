@@ -4,7 +4,6 @@ namespace App\Services\LLM\TaskAssistant;
 
 use App\Models\TaskAssistantThread;
 use App\Services\LLM\Intent\TaskAssistantIntentHybridCue;
-use App\Services\LLM\Intent\TaskAssistantIntentInferenceService;
 use App\Services\LLM\Intent\TaskAssistantIntentResolutionService;
 use App\Services\LLM\Intent\TaskAssistantIntentSignalExtractor;
 use App\Support\LLM\TaskAssistantReasonCodes;
@@ -14,7 +13,6 @@ use Illuminate\Support\Facades\Log;
 final class IntentRoutingPolicy
 {
     public function __construct(
-        private readonly TaskAssistantIntentInferenceService $intentInference,
         private readonly TaskAssistantIntentSignalExtractor $signalExtractor,
         private readonly TaskAssistantIntentResolutionService $resolution,
         private readonly TaskAssistantConversationStateService $conversationState,
@@ -301,6 +299,17 @@ final class IntentRoutingPolicy
             );
         }
 
+        if ($this->isLikelyGeneralAssistancePrompt($normalized)) {
+            return new IntentRoutingDecision(
+                flow: 'general_guidance',
+                confidence: 1.0,
+                reasonCodes: ['general_assistance_prompt_shortcircuit'],
+                constraints: [],
+                clarificationNeeded: false,
+                clarificationQuestion: null,
+            );
+        }
+
         if ($this->isLikelyOffTopicPrompt($normalized)) {
             Log::info('task-assistant.intent.policy', [
                 'layer' => 'intent_policy',
@@ -361,16 +370,8 @@ final class IntentRoutingPolicy
         }
 
         $signals = $this->signalExtractor->extract($normalized);
-        $inference = null;
-        $useLlm = (bool) config('task-assistant.intent.use_llm', true);
-        $skipIntentInference = $this->shouldSkipIntentInference($signals);
-        $skipByLatencyBudget = $this->isLatencyBudgetExceeded();
-        $shouldRunIntentInference = $useLlm && ! $skipIntentInference && ! $skipByLatencyBudget;
-        if ($shouldRunIntentInference) {
-            $inference = $this->intentInference->infer($content);
-        }
-
-        $decision = $this->resolution->resolve($thread, $normalized, $inference, $signals);
+        // Deterministic-first routing: do not invoke LLM intent inference.
+        $decision = $this->resolution->resolve($thread, $normalized, null, $signals);
         $constraints = $this->extractConstraintsForFlow($thread, $normalized, $decision->flow);
         $constraints = $this->applyFreshTopNConstraintOverride($normalized, $decision->flow, $constraints);
 
@@ -380,9 +381,9 @@ final class IntentRoutingPolicy
             'thread_id' => $thread->id,
             'assistant_message_id' => app()->bound('task_assistant.message_id') ? app('task_assistant.message_id') : null,
             'outcome' => 'resolved',
-            'use_llm' => $useLlm,
-            'intent_inference_skipped' => $useLlm && $skipIntentInference,
-            'intent_inference_skipped_by_latency_budget' => $useLlm && $skipByLatencyBudget,
+            'use_llm' => false,
+            'intent_inference_skipped' => true,
+            'intent_inference_skipped_by_latency_budget' => false,
             'signals' => $signals,
             'resolved_flow' => $decision->flow,
             'confidence' => $decision->confidence,
@@ -409,47 +410,6 @@ final class IntentRoutingPolicy
             clarificationNeeded: false,
             clarificationQuestion: null,
         );
-    }
-
-    /**
-     * Skip structured intent inference when heuristics are already decisive.
-     *
-     * @param  array{prioritization?: float, scheduling?: float, hybrid?: float}  $signals
-     */
-    private function shouldSkipIntentInference(array $signals): bool
-    {
-        if (! (bool) config('task-assistant.intent.inference.skip_when_signal_confident', true)) {
-            return false;
-        }
-
-        $scores = [
-            (float) ($signals['prioritization'] ?? 0.0),
-            (float) ($signals['scheduling'] ?? 0.0),
-            (float) ($signals['hybrid'] ?? 0.0),
-        ];
-        rsort($scores);
-
-        $top = (float) ($scores[0] ?? 0.0);
-        $second = (float) ($scores[1] ?? 0.0);
-        $margin = $top - $second;
-
-        $minScore = (float) config('task-assistant.intent.inference.signal_confident_min_score', 0.78);
-        $minMargin = (float) config('task-assistant.intent.inference.signal_confident_min_margin', 0.20);
-
-        return $top >= $minScore && $margin >= $minMargin;
-    }
-
-    private function isLatencyBudgetExceeded(): bool
-    {
-        $budgetMs = max(0, (int) config('task-assistant.performance.latency_budget_ms', 0));
-        if ($budgetMs <= 0 || ! app()->bound('task_assistant.run_started_at_ms')) {
-            return false;
-        }
-
-        $startedAtMs = (int) app('task_assistant.run_started_at_ms');
-        $elapsedMs = (int) round(microtime(true) * 1000) - $startedAtMs;
-
-        return $elapsedMs >= $budgetMs;
     }
 
     public function extractConstraintsForFlow(TaskAssistantThread $thread, string $content, string $resolvedFlow): array
@@ -838,7 +798,7 @@ final class IntentRoutingPolicy
             return null;
         }
 
-        $token = mb_strtolower(trim((string) ($matches[2] ?? '')));
+        $token = mb_strtolower(trim((string) ($matches[1] ?? '')));
         if ($token === '') {
             return null;
         }
@@ -1185,23 +1145,41 @@ final class IntentRoutingPolicy
             'task', 'tasks', 'prioritize', 'priority', 'schedule', 'time block', 'time blocks',
             'calendar', 'study', 'deadline', 'project', 'focus', 'plan my day', 'to do', 'todo',
         ];
-        foreach ($taskKeywords as $keyword) {
-            if (str_contains($normalized, $keyword)) {
-                return false;
-            }
-        }
-
         $offTopicMarkers = [
             'best ', 'who is', 'why he', 'why she', 'relationship', 'politics', 'president',
             'shoes', 'cook', 'martial artist', 'love me', 'keyboard', 'laptop', 'phone',
         ];
-        foreach ($offTopicMarkers as $marker) {
-            if (str_contains($normalized, $marker)) {
-                return true;
+
+        $hasTaskKeyword = false;
+        foreach ($taskKeywords as $keyword) {
+            if (str_contains($normalized, $keyword)) {
+                $hasTaskKeyword = true;
+                break;
             }
         }
 
-        return false;
+        $hasOffTopicMarker = false;
+        foreach ($offTopicMarkers as $marker) {
+            if (str_contains($normalized, $marker)) {
+                $hasOffTopicMarker = true;
+                break;
+            }
+        }
+
+        if (! $hasOffTopicMarker) {
+            return false;
+        }
+
+        if (! $hasTaskKeyword) {
+            return true;
+        }
+
+        $signals = $this->signalExtractor->extract($normalized);
+        $prioritize = (float) ($signals['prioritization'] ?? 0.0);
+        $schedule = (float) ($signals['scheduling'] ?? 0.0);
+        $strongTaskIntentThreshold = 0.72;
+
+        return $prioritize < $strongTaskIntentThreshold && $schedule < $strongTaskIntentThreshold;
     }
 
     private function hasMultiturnListingFollowupContext(TaskAssistantThread $thread): bool

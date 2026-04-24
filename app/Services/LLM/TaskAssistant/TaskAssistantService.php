@@ -35,13 +35,11 @@ use App\Support\LLM\SchedulableProposalPolicy;
 use App\Support\LLM\TaskAssistantFlowNames;
 use App\Support\LLM\TaskAssistantPrioritizeOutputDefaults;
 use App\Support\LLM\TaskAssistantReasonCodes;
-use App\Support\LLM\TaskAssistantSchemas;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Prism\Prism\Enums\Provider;
-use Prism\Prism\Facades\Prism;
 use Prism\Prism\ValueObjects\Messages\AssistantMessage;
 use Prism\Prism\ValueObjects\Messages\UserMessage;
 
@@ -1315,9 +1313,22 @@ final class TaskAssistantService
             return $plan;
         }
 
-        $draftSource = $this->findPendingScheduleDraftSourceMessage($thread, $currentAssistantMessageId);
-        if ($draftSource === null) {
+        $latestDraftSource = $this->findLatestScheduleDraftSourceMessage($thread, $currentAssistantMessageId);
+        if ($latestDraftSource === null) {
             return $plan;
+        }
+
+        $latestDraftRefinable = $this->assistantMessageHasPendingSchedulableProposals($latestDraftSource);
+        Log::info('task-assistant.schedule_refinement.binding', [
+            'layer' => 'schedule_refinement',
+            'thread_id' => $thread->id,
+            'assistant_message_id' => $currentAssistantMessageId,
+            'latest_draft_message_id' => $latestDraftSource->id,
+            'latest_draft_refinable' => $latestDraftRefinable,
+            'fallback_to_fresh_schedule' => ! $latestDraftRefinable,
+        ]);
+        if (! $latestDraftRefinable) {
+            return $this->buildFreshSchedulePlanFromRefinementPlan($plan);
         }
 
         $reasonCodes = array_values(array_unique(array_merge(
@@ -1332,8 +1343,31 @@ final class TaskAssistantService
             clarificationQuestion: $plan->clarificationQuestion,
             reasonCodes: $reasonCodes,
             constraints: array_merge($plan->constraints, [
-                'schedule_refinement_draft_message_id' => $draftSource->id,
+                'schedule_refinement_draft_message_id' => $latestDraftSource->id,
             ]),
+            targetEntities: $plan->targetEntities,
+            timeWindowHint: $plan->timeWindowHint,
+            countLimit: $plan->countLimit,
+            generationProfile: 'schedule',
+        );
+    }
+
+    private function buildFreshSchedulePlanFromRefinementPlan(ExecutionPlan $plan): ExecutionPlan
+    {
+        $reasonCodes = array_values(array_unique(array_merge(
+            $plan->reasonCodes,
+            ['schedule_refinement_latest_not_refinable_fallback_schedule']
+        )));
+        $constraints = $plan->constraints;
+        unset($constraints['schedule_refinement_draft_message_id']);
+
+        return new ExecutionPlan(
+            flow: 'schedule',
+            confidence: $plan->confidence,
+            clarificationNeeded: $plan->clarificationNeeded,
+            clarificationQuestion: $plan->clarificationQuestion,
+            reasonCodes: $reasonCodes,
+            constraints: $constraints,
             targetEntities: $plan->targetEntities,
             timeWindowHint: $plan->timeWindowHint,
             countLimit: $plan->countLimit,
@@ -1381,14 +1415,34 @@ final class TaskAssistantService
         return ($hasEditVerb && $hasScheduleCue) || $hasStandaloneReorderShape || $implicitEditPhrase || $hasDoIndexedSchedulingPhrase;
     }
 
-    private function findPendingScheduleDraftSourceMessage(TaskAssistantThread $thread, int $excludeAssistantMessageId): ?TaskAssistantMessage
+    private function findLatestScheduleDraftSourceMessage(TaskAssistantThread $thread, int $excludeAssistantMessageId): ?TaskAssistantMessage
     {
         return $thread->messages()
             ->where('role', MessageRole::Assistant)
             ->where('id', '!=', $excludeAssistantMessageId)
             ->orderByDesc('id')
             ->get()
-            ->first(fn (TaskAssistantMessage $m): bool => $this->assistantMessageHasPendingSchedulableProposals($m));
+            ->first(function (TaskAssistantMessage $message): bool {
+                $normalized = $this->scheduleDraftMetadataNormalizer->normalizeAndValidate(
+                    is_array($message->metadata ?? null) ? $message->metadata : []
+                );
+
+                if (! ($normalized['valid'] ?? false)) {
+                    Log::debug('task-assistant.schedule_refinement.skip', [
+                        'layer' => 'schedule_refinement',
+                        'thread_id' => $message->thread_id,
+                        'assistant_message_id' => $message->id,
+                        'reason_code' => $normalized['reason_code'] ?? 'invalid_schedule_metadata',
+                        'repairs' => $normalized['repairs'] ?? [],
+                    ]);
+
+                    return false;
+                }
+
+                $proposals = is_array($normalized['proposals'] ?? null) ? $normalized['proposals'] : [];
+
+                return $proposals !== [];
+            });
     }
 
     private function assistantMessageHasPendingSchedulableProposals(TaskAssistantMessage $message): bool
@@ -1575,7 +1629,28 @@ final class TaskAssistantService
                     ['schedule_refinement' => ['skip_reason_code' => 'missing_proposals']]
                 ),
             ]);
-            $this->runGeneralGuidanceFlow($thread, $assistantMessage, $content, $plan);
+            Log::info('task-assistant.schedule_refinement.binding', [
+                'layer' => 'schedule_refinement',
+                'thread_id' => $thread->id,
+                'assistant_message_id' => $assistantMessage->id,
+                'latest_draft_message_id' => $draftMessageId,
+                'latest_draft_refinable' => false,
+                'fallback_to_fresh_schedule' => true,
+            ]);
+            $this->runScheduleFlow($thread, $userMessage, $assistantMessage, $content, $this->buildFreshSchedulePlanFromRefinementPlan($plan));
+
+            return;
+        }
+        if (! $this->scheduleProposalReferenceService->hasPendingSchedulableProposal($sourceProposals)) {
+            Log::info('task-assistant.schedule_refinement.binding', [
+                'layer' => 'schedule_refinement',
+                'thread_id' => $thread->id,
+                'assistant_message_id' => $assistantMessage->id,
+                'latest_draft_message_id' => $draftMessageId,
+                'latest_draft_refinable' => false,
+                'fallback_to_fresh_schedule' => true,
+            ]);
+            $this->runScheduleFlow($thread, $userMessage, $assistantMessage, $content, $this->buildFreshSchedulePlanFromRefinementPlan($plan));
 
             return;
         }
@@ -1923,8 +1998,6 @@ final class TaskAssistantService
         $todoTaskCount = $this->countTodoTasksFromSnapshot($snapshot);
         $doingMeta = $this->collectDoingTasksFromSnapshot($snapshot);
 
-        $pendingBusyIntervals = $this->collectPendingScheduleBusyIntervals($thread, $assistantMessage->id);
-
         if ($todoTaskCount === 0 && $doingMeta['count'] > 0) {
             $result = $this->buildDoingOnlyScheduleGenerationResult(
                 $doingMeta['titles'],
@@ -1944,7 +2017,6 @@ final class TaskAssistantService
                     'explicit_requested_count' => $explicitRequestedCount,
                     'is_strict_set_contract' => (bool) ($plan->constraints['is_strict_set_contract'] ?? false),
                     'schedule_user_id' => $thread->user_id,
-                    'pending_busy_intervals' => $pendingBusyIntervals,
                     'refinement_anchor_date' => is_string($plan->constraints['refinement_anchor_date'] ?? null)
                         ? (string) $plan->constraints['refinement_anchor_date']
                         : null,
@@ -2742,38 +2814,17 @@ final class TaskAssistantService
         if ($llmFallbackAttempted) {
             return null;
         }
-        if (! (bool) config('task-assistant.schedule.refinement.llm_fallback_enabled', true)) {
-            return null;
-        }
+
+        // Deterministic-first refinement: skip LLM operation extraction fallback.
         $llmFallbackAttempted = true;
+        Log::debug('task-assistant.schedule_refinement.llm_fallback_disabled', [
+            'layer' => 'schedule_refinement',
+            'run_id' => app()->bound('task_assistant.run_id') ? app('task_assistant.run_id') : null,
+            'thread_id' => $thread->id,
+            'assistant_message_id' => app()->bound('task_assistant.message_id') ? app('task_assistant.message_id') : null,
+        ]);
 
-        $extracted = $this->scheduleRefinementStructuredOpExtractor->tryExtract(
-            $thread->user,
-            $originalUserContent,
-            $workingProposals,
-        );
-        if (! ($extracted['ok'] ?? false)) {
-            return null;
-        }
-
-        $operations = is_array($extracted['operations'] ?? null) ? $extracted['operations'] : [];
-        if ($operations === []) {
-            return null;
-        }
-
-        $mutation = $this->scheduleDraftMutationService->applyOperations($workingProposals, $operations, $timezone);
-        if (! ($mutation['ok'] ?? false)) {
-            return null;
-        }
-
-        if ($this->hasSchoolClassConflictInDraft($thread, (array) ($mutation['proposals'] ?? []), $timezone)) {
-            return null;
-        }
-
-        return [
-            'proposals' => $mutation['proposals'],
-            'referencedProposalUuids' => $this->proposalUuidsFromScheduleOperations($operations),
-        ];
+        return null;
     }
 
     /**
@@ -3240,107 +3291,14 @@ final class TaskAssistantService
             prompt: $prompt,
         );
 
-        if (! (bool) config('task-assistant.schedule.confirmation_use_llm_narrative', false)) {
-            return $fallback;
-        }
-        if ($this->isLatencyBudgetExceeded()) {
-            Log::info('task-assistant.schedule.confirmation_narrative_skipped_budget', [
-                'layer' => 'schedule_confirmation',
-                'run_id' => app()->bound('task_assistant.run_id') ? app('task_assistant.run_id') : null,
-                'thread_id' => $thread->id,
-                'assistant_message_id' => app()->bound('task_assistant.message_id') ? app('task_assistant.message_id') : null,
-                'reason_code' => $reasonCode,
-            ]);
+        Log::debug('task-assistant.schedule.confirmation_narrative_deterministic', [
+            'layer' => 'schedule_confirmation',
+            'run_id' => app()->bound('task_assistant.run_id') ? app('task_assistant.run_id') : null,
+            'thread_id' => $thread->id,
+            'reason_code' => $reasonCode,
+        ]);
 
-            return $fallback;
-        }
-
-        try {
-            $digest = is_array($scheduleData['placement_digest'] ?? null) ? $scheduleData['placement_digest'] : [];
-            $confirmationSignals = $digest['confirmation_signals'] ?? null;
-            $draftPlacements = $this->compactDraftPlacementsForConfirmation(
-                is_array($scheduleData['proposals'] ?? null) ? $scheduleData['proposals'] : []
-            );
-
-            $payload = [
-                'reason_code' => $reasonCode,
-                'requested_count' => $requestedCount,
-                'placed_count' => $proposalsCount,
-                'requested_count_source' => $requestedCountSource,
-                'requested_window_label' => $requestedWindowLabel,
-                'strict_date' => $strictDate,
-                'reason_message' => $reasonMessage,
-                'decision_prompt' => $prompt,
-                'options' => $options,
-                'reason_details' => $reasonDetails,
-                'confirmation_signals' => is_array($confirmationSignals) ? $confirmationSignals : null,
-                'draft_placements' => $draftPlacements,
-            ];
-            $factsJson = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '{}';
-            $sourceHint = $requestedCountSource === 'explicit_user'
-                ? 'explicit_user'
-                : 'system_default';
-            $strictDateLine = $strictDate !== null ? "Strict date requested: {$strictDate}" : 'Strict date requested: none';
-
-            $structuredResponse = Prism::structured()
-                ->using($this->resolveProvider(), $this->resolveModel())
-                ->withSystemPrompt(view('prompts.task-assistant-system', $this->promptData->forUser($thread->user)))
-                ->withPrompt(<<<PROMPT
-You are writing fallback confirmation copy for a student schedule assistant.
-
-Facts (authoritative):
-{$factsJson}
-
-Constraints:
-- Keep the tone warm, concise, and natural (not robotic). Vary sentence openings when it still matches the facts.
-- Keep all claims factual to the provided facts. Use confirmation_signals and draft_placements when present; never invent calendar items.
-- requested_count_source is "{$sourceHint}".
-- If requested_count_source is system_default, never write phrases like "you asked for top {$requestedCount}".
-- If requested_count_source is explicit_user, it is okay to reference the user requested count naturally.
-- Keep decision wording aligned with the provided options and decision_prompt.
-- Do not mention JSON, schema, backend, or internal systems.
-- {$strictDateLine}
-PROMPT)
-                ->withSchema(TaskAssistantSchemas::scheduleFallbackConfirmationNarrativeSchema())
-                ->withClientOptions($this->resolveConfirmationClientOptions())
-                ->asStructured();
-
-            $structured = is_array($structuredResponse->structured ?? null) ? $structuredResponse->structured : [];
-            $framing = trim((string) ($structured['framing'] ?? ''));
-            $reasoning = trim((string) ($structured['reasoning'] ?? ''));
-            $confirmation = trim((string) ($structured['confirmation'] ?? ''));
-            $reasonMessageCandidate = trim((string) ($structured['reason_message'] ?? $reasonMessage));
-
-            if ($framing === '' || $reasoning === '' || $confirmation === '') {
-                return $fallback;
-            }
-
-            if ($requestedCountSource !== 'explicit_user'
-                && preg_match('/\byou\s+asked\s+for\s+top\s+\d+\b/i', $framing.' '.$reasoning.' '.$confirmation.' '.$reasonMessageCandidate) === 1) {
-                return $fallback;
-            }
-
-            if ($this->containsRoboticFallbackPhrase($framing.' '.$reasoning.' '.$confirmation.' '.$reasonMessageCandidate)) {
-                return $fallback;
-            }
-
-            return [
-                'framing' => $framing,
-                'reasoning' => $reasoning,
-                'confirmation' => $confirmation,
-                'reason_message' => $reasonMessageCandidate !== '' ? $reasonMessageCandidate : $reasonMessage,
-            ];
-        } catch (\Throwable $e) {
-            Log::warning('task-assistant.schedule.confirmation_narrative_failed', [
-                'layer' => 'schedule_confirmation',
-                'run_id' => app()->bound('task_assistant.run_id') ? app('task_assistant.run_id') : null,
-                'thread_id' => $thread->id,
-                'reason_code' => $reasonCode,
-                'error' => $e->getMessage(),
-            ]);
-
-            return $fallback;
-        }
+        return $fallback;
     }
 
     /**
@@ -3358,14 +3316,14 @@ PROMPT)
     ): array {
         if ($reasonCode === 'top_n_shortfall') {
             $taskNoun = $proposalsCount === 1 ? 'task' : 'tasks';
-            $framing = 'I prepared a draft plan that needs your confirmation before I finalize it.';
+            $framing = 'I drafted a plan and paused so you can confirm what feels right.';
             if ($requestedCountSource === 'explicit_user') {
-                $framing = "I preserved your requested top {$requestedCount} and prepared a draft that needs your confirmation.";
+                $framing = "I kept your top {$requestedCount} request and drafted the best fit I could find so far.";
             }
 
             return [
                 'framing' => $framing,
-                'reasoning' => "Only {$proposalsCount} {$taskNoun} fit in {$requestedWindowLabel}. Nothing is final yet until you choose how to proceed.",
+                'reasoning' => "Only {$proposalsCount} {$taskNoun} fit in {$requestedWindowLabel}. Nothing is final yet, and we can adjust this together.",
                 'confirmation' => $prompt,
                 'reason_message' => $reasonMessage,
             ];
@@ -3377,8 +3335,8 @@ PROMPT)
                 : 'that day';
 
             return [
-                'framing' => "I kept your {$datePhrase} request and paused so you can decide before I widen the day.",
-                'reasoning' => 'Nothing is final yet. I need your decision before changing beyond your requested day.',
+                'framing' => "I kept your {$datePhrase} request and paused before widening beyond that day.",
+                'reasoning' => 'Nothing is final yet. Tell me if you want to keep this day or expand the window.',
                 'confirmation' => $prompt,
                 'reason_message' => $reasonMessage,
             ];
@@ -4497,8 +4455,6 @@ PROMPT)
         );
         $todoTaskCount = $this->countTodoTasksFromSnapshot($snapshot);
         $doingMeta = $this->collectDoingTasksFromSnapshot($snapshot);
-        $pendingBusyIntervals = $this->collectPendingScheduleBusyIntervals($thread, $assistantMessage->id);
-
         if ($todoTaskCount === 0 && $doingMeta['count'] > 0) {
             $result = $this->buildDoingOnlyScheduleGenerationResult(
                 $doingMeta['titles'],
@@ -4519,7 +4475,6 @@ PROMPT)
                     'explicit_requested_count' => $explicitRequestedCount,
                     'is_strict_set_contract' => (bool) ($plan->constraints['is_strict_set_contract'] ?? false),
                     'schedule_user_id' => $thread->user_id,
-                    'pending_busy_intervals' => $pendingBusyIntervals,
                 ]
             );
         }
@@ -4605,7 +4560,7 @@ PROMPT)
             'routing_hint' => is_string($routingHint) ? $routingHint : null,
             'demotion_reason_detail' => is_string($demotionReasonDetail) ? $demotionReasonDetail : null,
             'prioritize_variant' => $plan->flow === 'prioritize' ? TaskAssistantPrioritizeVariant::Rank->value : null,
-            'intent_use_llm' => (bool) config('task-assistant.intent.use_llm', true),
+            'intent_use_llm' => false,
             ...$this->buildInferenceTelemetry($plan),
         ]);
     }
@@ -4621,7 +4576,8 @@ PROMPT)
 
         return [
             'inference_mode' => $this->resolveInferenceModeForLogs($plan),
-            'intent_inference_enabled' => (bool) config('task-assistant.intent.use_llm', true),
+            'intent_inference_enabled' => false,
+            'intent_inference_skipped' => true,
             'llm_provider' => $provider,
             'llm_model' => $model,
             'llm_endpoint_host' => $providerUrl !== null ? parse_url($providerUrl, PHP_URL_HOST) : null,
@@ -4630,27 +4586,7 @@ PROMPT)
 
     private function resolveInferenceModeForLogs(ExecutionPlan $plan): string
     {
-        if (
-            $plan->flow === TaskAssistantFlowNames::GENERAL_GUIDANCE
-            && (
-                in_array(TaskAssistantReasonCodes::GENERAL_GUIDANCE_GREETING_ONLY_DETERMINISTIC, $plan->reasonCodes, true)
-                || in_array(TaskAssistantReasonCodes::GENERAL_GUIDANCE_GREETING_ONLY, $plan->reasonCodes, true)
-                || in_array(TaskAssistantReasonCodes::GENERAL_GUIDANCE_CLOSING_ONLY, $plan->reasonCodes, true)
-            )
-        ) {
-            return 'deterministic_only';
-        }
-
-        if (in_array($plan->flow, [
-            TaskAssistantFlowNames::SCHEDULE,
-            TaskAssistantFlowNames::PRIORITIZE,
-            TaskAssistantFlowNames::PRIORITIZE_SCHEDULE,
-            TaskAssistantFlowNames::LISTING_FOLLOWUP,
-        ], true)) {
-            return 'hybrid_deterministic_plus_llm';
-        }
-
-        return 'llm_primary';
+        return 'deterministic_only';
     }
 
     private function resolveProviderUrlForLogs(string $provider): ?string

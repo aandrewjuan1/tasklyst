@@ -4,12 +4,9 @@ namespace App\Services\LLM\TaskAssistant;
 
 use App\Models\User;
 use App\Support\LLM\TaskAssistantPrioritizeOutputDefaults;
-use App\Support\LLM\TaskAssistantSchemas;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Log;
 use Prism\Prism\Enums\Provider;
-use Prism\Prism\Facades\Prism;
-use Prism\Prism\ValueObjects\Messages\UserMessage;
 
 /**
  * Structured LLM calls for the general guidance redirect flow.
@@ -52,183 +49,55 @@ final class TaskAssistantGeneralGuidanceService
         string $userMessage,
         ?string $forcedMode = null,
     ): array {
-        $promptData = $this->promptData->forUser($user);
-        // Hide tools from this prompt so the model doesn't leak tool/function
-        // signature artifacts (we also pass withTools([]) below).
-
         $timeContext = '';
         $timeLabelForFallback = null;
         if ($this->isLikelyTimeQuery($userMessage)) {
+            $promptData = $this->promptData->forUser($user);
             $timezone = (string) ($promptData['userContext']['timezone'] ?? config('app.timezone', 'UTC'));
             $now = CarbonImmutable::now($timezone);
             $timeLabel = $now->format('g:i A');
             $timeLabelForFallback = $timeLabel;
-
-            // Feed deterministic time context into the LLM so the final wording
-            // stays fully dynamic.
-            $timeContext = "\n\nTime context (deterministic, use exactly): The current time for the user is {$timeLabel}. ".
-                'Use this exact time value in your answer (do not reformat/guess), then redirect into the next action by asking a single question about prioritizing vs scheduling.';
+            $timeContext = " Right now, it's {$timeLabel} for you.";
         }
-
-        $maxRetries = max(0, (int) config('task-assistant.retry.max_retries', 2));
-        $schema = TaskAssistantSchemas::generalGuidanceSchema();
-
-        $messages = collect([
-            new UserMessage(
-                'User message for guidance mode selection: '.$userMessage.$timeContext."\n\n".
-                'Generate intent + acknowledgement + message + suggested_next_actions + next_options. '.
-                'Keep the user prompt as the primary context anchor for every field. '.
-                'Do not output generic boilerplate if the prompt gives concrete context. '.
-                'Use concise, supportive wording grounded in the user message. '.
-                'Write natural conversational English for a student. Prefer verbal clauses over nominalized/formal phrasing. '.
-                'Do not quote or parrot the full user message. Paraphrase the meaning naturally. '.
-                'Field boundaries are strict: acknowledgement=1 short empathy sentence (no refusal/boundary), message=1-3 short sentences (for out_of_scope include a single gentle refusal/boundary here, then redirect). '.
-                'suggested_next_actions must be 2-3 short verb-led clauses (no noun labels). '.
-                'next_options must be the LAST student-visible paragraph: one or two warm sentences starting with If you want or If you would like, offering to help decide what to do first or rank priorities AND to schedule or block time for important work. Do not include chip labels or bullets. '.
-                'Do not mention snapshot, JSON, backend, or database in next_options.'
-            ),
-        ]);
 
         $resolvedMode = $this->resolveGuidanceMode($userMessage, $forcedMode);
         $resolvedIntent = $this->intentFromMode($resolvedMode);
-        $startedAt = microtime(true);
+        $intent = $this->isLikelyEmotionalOffDomain($userMessage)
+            ? self::INTENT_OUT_OF_SCOPE
+            : $resolvedIntent;
+        $acknowledgement = match ($intent) {
+            self::INTENT_OUT_OF_SCOPE => "That's outside what I can help with directly.",
+            self::INTENT_UNCLEAR => "I didn't quite catch that yet.",
+            default => 'I hear you.',
+        };
+        $message = match ($intent) {
+            self::INTENT_OUT_OF_SCOPE => 'I can still help with school tasks by deciding what to do first or planning time blocks.',
+            self::INTENT_UNCLEAR => 'Say what you want in one short sentence, and I will turn it into a clear next step.',
+            default => $timeContext !== ''
+                ? trim($timeContext).' I can help you turn this into a clear next action.'
+                : 'Tell me what feels most urgent, and I will help you pick the next move.',
+        };
 
-        for ($attempt = 0; $attempt <= $maxRetries; $attempt++) {
-            try {
-                $structuredResponse = Prism::structured()
-                    ->using($this->resolveProvider(), $this->resolveModel())
-                    ->withSystemPrompt(view('prompts.task-assistant-system', $promptData))
-                    ->withMessages($messages->all())
-                    ->withTools([])
-                    ->withSchema($schema)
-                    ->withClientOptions($this->resolveClientOptionsForRoute('general_guidance'))
-                    ->asStructured();
-
-                $payload = $structuredResponse->structured ?? [];
-                $payload = is_array($payload) ? $payload : [];
-
-                $mode = $forcedMode !== null ? $this->normalizeGuidanceMode($forcedMode) : $resolvedMode;
-
-                $intent = $this->intentFromMode($mode);
-                if ($intent === self::INTENT_TASK) {
-                    // Friendly-general mode can accept model intent labels.
-                    $intent = $this->normalizeIntent((string) ($payload['intent'] ?? ''));
-                }
-
-                if ($this->isLikelyEmotionalOffDomain($userMessage)) {
-                    $intent = self::INTENT_OUT_OF_SCOPE;
-                }
-
-                $acknowledgement = $this->normalizeGeneralGuidanceText((string) ($payload['acknowledgement'] ?? ''));
-                $message = $this->normalizeGeneralGuidanceText((string) ($payload['message'] ?? ''));
-                $suggestedNextActions = $this->normalizeSuggestedNextActions($payload['suggested_next_actions'] ?? null);
-
-                $acknowledgement = $this->sanitizeUserFacingLanguage($acknowledgement);
-                $message = $this->sanitizeUserFacingLanguage($message);
-
-                $acknowledgement = $this->humanizeTone(
-                    $this->lightweightAcknowledgementPolish($intent, $acknowledgement),
-                    $intent,
-                    $userMessage
-                );
-                $message = $this->humanizeTone(
-                    $this->lightweightMessagePolish($intent, $message, $userMessage),
-                    $intent,
-                    $userMessage
-                );
-
-                if ($intent === self::INTENT_OUT_OF_SCOPE) {
-                    $acknowledgement = $this->enforceOutOfScopeSafeAcknowledgement($acknowledgement);
-                    $message = $this->enforceOutOfScopeNoAdvice($message, $userMessage);
-                }
-
-                if (str_contains($userMessage, 'GREETING_GUARDRAIL:')) {
-                    [$intent, $acknowledgement, $message, $suggestedNextActions] = $this->enforceGreetingOnlyOutput(
-                        $intent,
-                        $acknowledgement,
-                        $message,
-                        $suggestedNextActions,
-                        (string) ($payload['next_options'] ?? ''),
-                    );
-                }
-
-                if ($acknowledgement === '') {
-                    $acknowledgement = match ($intent) {
-                        self::INTENT_OUT_OF_SCOPE => "That's an interesting question.",
-                        self::INTENT_UNCLEAR => "I didn't quite catch that yet.",
-                        default => 'I hear you.',
-                    };
-                }
-
-                $message = $this->normalizeGeneralGuidanceText($message);
-                $acknowledgement = $this->stripBoundaryFromAcknowledgement($acknowledgement);
-
-                if ($message === '') {
-                    $message = match ($intent) {
-                        self::INTENT_OUT_OF_SCOPE => "I can't help with that topic, but I can help you move forward with your tasks.",
-                        self::INTENT_UNCLEAR => "I didn't fully understand that yet. Rephrase what you need in one short sentence, and I'll help you take the next step.",
-                        default => "Tell me what you're working on or what's stressing you most, and I'll help you pick one clear next step.",
-                    };
-                }
-
-                if ($intent === self::INTENT_UNCLEAR) {
-                    [$acknowledgement, $message] = $this->enforceUnclearQuality($acknowledgement, $message);
-                }
-
-                $acknowledgement = $this->clampAtSentenceBoundary($acknowledgement, 220);
-                $message = $this->clampAtSentenceBoundary($message, self::MAX_GENERAL_GUIDANCE_MESSAGE_CHARS);
-
-                $suggestedNextActions = $this->enforceSuggestedNextActions(
-                    $this->normalizeClausalSuggestedNextActions($suggestedNextActions, $intent),
-                    $intent
-                );
-
-                $nextOptions = $this->finalizeNextOptionsString(
-                    $this->sanitizeUserFacingLanguage(
-                        $this->normalizeGeneralGuidanceText((string) ($payload['next_options'] ?? ''))
-                    )
-                );
-
-                return [
-                    'intent' => $intent,
-                    'acknowledgement' => $acknowledgement,
-                    'message' => $message,
-                    'suggested_next_actions' => $suggestedNextActions,
-                    'next_options' => $nextOptions,
-                    'next_options_chip_texts' => $this->deterministicGeneralGuidanceChipTexts($user),
-                ];
-            } catch (\Throwable $e) {
-                if ($attempt === $maxRetries) {
-                    Log::warning('task-assistant.general_guidance.generate_failed', [
-                        'layer' => 'llm_guidance',
-                        'user_id' => $user->id,
-                        'error' => $e->getMessage(),
-                        'attempts' => $attempt + 1,
-                        'latency_ms' => (int) round((microtime(true) - $startedAt) * 1000),
-                    ]);
-
-                    return [
-                        'intent' => $resolvedIntent,
-                        'acknowledgement' => 'I hear you.',
-                        'message' => $timeLabelForFallback !== null
-                            ? "Right now, it's {$timeLabelForFallback} for you. I can help you turn this into a clear next action."
-                            : 'I can help make this manageable with one clear next step.',
-                        'suggested_next_actions' => $this->enforceSuggestedNextActions([], $resolvedIntent),
-                        'next_options' => $this->finalizeNextOptionsString(''),
-                        'next_options_chip_texts' => $this->deterministicGeneralGuidanceChipTexts($user),
-                    ];
-                }
-            }
+        if ($timeLabelForFallback !== null && $intent !== self::INTENT_OUT_OF_SCOPE) {
+            $message = "Right now, it's {$timeLabelForFallback} for you. I can help you turn this into a clear next action.";
         }
 
+        $suggestedNextActions = $this->enforceSuggestedNextActions([], $intent);
+        $nextOptions = $this->finalizeNextOptionsString('');
+
+        Log::info('task-assistant.general_guidance.generate_deterministic', [
+            'layer' => 'llm_guidance',
+            'user_id' => $user->id,
+            'resolved_mode' => $resolvedMode,
+            'resolved_intent' => $intent,
+        ]);
+
         return [
-            'intent' => $resolvedIntent,
-            'acknowledgement' => 'I hear you.',
-            'message' => $timeLabelForFallback !== null
-                ? "Right now, it's {$timeLabelForFallback} for you. I can help you turn this into a clear next action."
-                : 'I can help make this feel more manageable with one clear next step.',
-            'suggested_next_actions' => $this->enforceSuggestedNextActions([], $resolvedIntent),
-            'next_options' => $this->finalizeNextOptionsString(''),
+            'intent' => $intent,
+            'acknowledgement' => $this->clampAtSentenceBoundary($acknowledgement, 220),
+            'message' => $this->clampAtSentenceBoundary($message, self::MAX_GENERAL_GUIDANCE_MESSAGE_CHARS),
+            'suggested_next_actions' => $suggestedNextActions,
+            'next_options' => $nextOptions,
             'next_options_chip_texts' => $this->deterministicGeneralGuidanceChipTexts($user),
         ];
     }
@@ -260,45 +129,7 @@ final class TaskAssistantGeneralGuidanceService
             return self::MODE_FRIENDLY_GENERAL;
         }
 
-        // Keep classifier fallback for truly ambiguous, longer prompts only.
-        if (mb_strlen($normalized) < 40) {
-            return self::MODE_FRIENDLY_GENERAL;
-        }
-
-        if (! (bool) config('task-assistant.general_guidance.enable_mode_classifier', false)) {
-            return self::MODE_FRIENDLY_GENERAL;
-        }
-        if ($this->isLatencyBudgetExceeded()) {
-            Log::info('task-assistant.general_guidance.mode_classifier_skipped_budget', [
-                'layer' => 'llm_guidance',
-                'thread_id' => app()->bound('task_assistant.thread_id') ? app('task_assistant.thread_id') : null,
-                'assistant_message_id' => app()->bound('task_assistant.message_id') ? app('task_assistant.message_id') : null,
-            ]);
-
-            return self::MODE_FRIENDLY_GENERAL;
-        }
-
-        try {
-            $modeResponse = Prism::structured()
-                ->using($this->resolveProvider(), $this->resolveModel())
-                ->withPrompt(
-                    'Classify this user message for guidance mode. '.
-                    'Use one of: friendly_general, gibberish_unclear, off_topic. '.
-                    'Return JSON only.'."\n\n".
-                    'USER MESSAGE: '.$userMessage
-                )
-                ->withSchema(TaskAssistantSchemas::generalGuidanceModeSchema())
-                ->withClientOptions($this->resolveClientOptionsForRoute('general_guidance_target'))
-                ->asStructured();
-
-            $structured = is_array($modeResponse->structured ?? null) ? $modeResponse->structured : [];
-            $confidence = is_numeric($structured['confidence'] ?? null) ? (float) $structured['confidence'] : 0.0;
-            $mode = $this->normalizeGuidanceMode((string) ($structured['guidance_mode'] ?? ''));
-
-            return $confidence >= 0.6 ? $mode : self::MODE_FRIENDLY_GENERAL;
-        } catch (\Throwable) {
-            return self::MODE_FRIENDLY_GENERAL;
-        }
+        return self::MODE_FRIENDLY_GENERAL;
     }
 
     private function isLikelyFriendlyGeneralPrompt(string $userMessage): bool
@@ -964,65 +795,29 @@ final class TaskAssistantGeneralGuidanceService
         string $clarifyingQuestion,
         string $userAnswer
     ): array {
-        $promptData = $this->promptData->forUser($user);
-        $maxRetries = max(0, (int) config('task-assistant.retry.max_retries', 2));
-        $schema = TaskAssistantSchemas::generalGuidanceTargetSchema();
+        $normalized = mb_strtolower(trim($userAnswer));
+        $scheduleSignals = preg_match('/\b(schedule|calendar|time block|time slot|when|later|today|tomorrow|this week|at\s+\d{1,2}(:\d{2})?\s*(am|pm)?)\b/u', $normalized) === 1;
+        $prioritizeSignals = preg_match('/\b(priorit(?:y|ize)|top|first|next|urgent|important|rank|what should i do first)\b/u', $normalized) === 1;
 
-        $messages = collect([
-            new UserMessage(
-                'Guidance question that the assistant asked: '.$clarifyingQuestion."\n\n".
-                'User answer: '.$userAnswer."\n\n".
-                'Decide whether the answer indicates: prioritize or schedule.'
-            ),
-        ]);
-
-        for ($attempt = 0; $attempt <= $maxRetries; $attempt++) {
-            try {
-                $structuredResponse = Prism::structured()
-                    ->using($this->resolveProvider(), $this->resolveModel())
-                    ->withSystemPrompt(view('prompts.task-assistant-system', $promptData))
-                    ->withMessages($messages->all())
-                    ->withTools([])
-                    ->withSchema($schema)
-                    ->withClientOptions($this->resolveClientOptionsForRoute('general_guidance_target'))
-                    ->asStructured();
-
-                $payload = $structuredResponse->structured ?? [];
-                $payload = is_array($payload) ? $payload : [];
-
-                $confidence = isset($payload['confidence']) && is_numeric($payload['confidence'])
-                    ? max(0.0, min(1.0, (float) $payload['confidence']))
-                    : 0.0;
-
-                $target = $this->normalizeTarget((string) ($payload['target'] ?? 'either'));
-
-                return [
-                    'target' => $target,
-                    'confidence' => $confidence,
-                    'rationale' => isset($payload['rationale']) ? trim((string) $payload['rationale']) : null,
-                ];
-            } catch (\Throwable $e) {
-                if ($attempt === $maxRetries) {
-                    Log::warning('task-assistant.general_guidance.target_resolve_failed', [
-                        'layer' => 'llm_guidance',
-                        'user_id' => $user->id,
-                        'error' => $e->getMessage(),
-                        'attempts' => $attempt + 1,
-                    ]);
-
-                    return [
-                        'target' => 'either',
-                        'confidence' => 0.0,
-                        'rationale' => null,
-                    ];
-                }
-            }
+        if ($scheduleSignals && ! $prioritizeSignals) {
+            return [
+                'target' => 'schedule',
+                'confidence' => 0.92,
+                'rationale' => 'deterministic_schedule_keywords',
+            ];
+        }
+        if ($prioritizeSignals && ! $scheduleSignals) {
+            return [
+                'target' => 'prioritize',
+                'confidence' => 0.92,
+                'rationale' => 'deterministic_prioritize_keywords',
+            ];
         }
 
         return [
             'target' => 'either',
-            'confidence' => 0.0,
-            'rationale' => null,
+            'confidence' => 0.45,
+            'rationale' => 'deterministic_ambiguous_answer',
         ];
     }
 

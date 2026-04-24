@@ -665,13 +665,18 @@ final class TaskAssistantMessageFormatter
         $framing = TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy(trim((string) ($data['framing'] ?? '')));
         $reasoning = TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy(trim((string) ($data['reasoning'] ?? '')));
         $confirmation = TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy(trim((string) ($data['confirmation'] ?? '')));
+        $framing = $this->polishScheduleSentence($framing);
+        $reasoning = $this->polishScheduleSentence($reasoning);
+        $confirmation = $this->polishScheduleSentence($confirmation);
 
         $items = is_array($data['items'] ?? null) ? $data['items'] : [];
         $blocks = is_array($data['blocks'] ?? null) ? $data['blocks'] : [];
+        ['items' => $items, 'blocks' => $blocks] = $this->sortScheduleRowsForDisplay($items, $blocks);
         $framing = $this->harmonizeScheduleNarrativeDateMentions($items, $framing);
         $reasoning = $this->harmonizeScheduleNarrativeDateMentions($items, $reasoning);
         $confirmation = $this->harmonizeScheduleNarrativeDateMentions($items, $confirmation);
-        $normalizedNarrative = $this->normalizeDailyScheduleNarrativeFields($items, $blocks, $framing, $reasoning, $confirmation);
+        $narrativeFacts = is_array($data['narrative_facts'] ?? null) ? $data['narrative_facts'] : [];
+        $normalizedNarrative = $this->normalizeDailyScheduleNarrativeFields($items, $blocks, $framing, $reasoning, $confirmation, $narrativeFacts);
         $framing = $normalizedNarrative['framing'];
         $reasoning = $normalizedNarrative['reasoning'];
         $confirmation = $normalizedNarrative['confirmation'];
@@ -876,15 +881,34 @@ final class TaskAssistantMessageFormatter
      *   corrections: array<string, array{from: string, to: string}>
      * }
      */
-    public function normalizeDailyScheduleNarrativeFields(array $items, array $blocks, string $framing, string $reasoning, string $confirmation): array
-    {
-        $facts = $this->buildScheduleNarrativeFacts($items, $blocks);
+    public function normalizeDailyScheduleNarrativeFields(
+        array $items,
+        array $blocks,
+        string $framing,
+        string $reasoning,
+        string $confirmation,
+        array $narrativeFacts = [],
+    ): array {
+        $facts = $this->buildScheduleNarrativeFacts($items, $blocks, $narrativeFacts);
         $corrections = [];
         $normalized = [
             'framing' => $this->applyScheduleNarrativeCorrections($framing, $facts, 'framing', $corrections),
             'reasoning' => $this->applyScheduleNarrativeCorrections($reasoning, $facts, 'reasoning', $corrections),
             'confirmation' => $this->applyScheduleNarrativeCorrections($confirmation, $facts, 'confirmation', $corrections),
         ];
+        foreach (['framing', 'reasoning', 'confirmation'] as $field) {
+            $value = trim((string) ($normalized[$field] ?? ''));
+            if ($value === '') {
+                continue;
+            }
+            if ($this->containsHardBlockedSchedulePhrases($value)) {
+                $normalized[$field] = $this->rewriteScheduleNarrativeForMentorTone($field, $items, $value);
+                $corrections[$field.'_hard_block_rewrite'] = [
+                    'from' => $value,
+                    'to' => (string) $normalized[$field],
+                ];
+            }
+        }
 
         return [
             ...$normalized,
@@ -901,11 +925,14 @@ final class TaskAssistantMessageFormatter
         $reasonCode = trim((string) ($ctx['reason_code'] ?? ''));
         $reason = TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy(trim((string) ($ctx['reason_message'] ?? '')));
         $prompt = TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy(trim((string) ($ctx['prompt'] ?? '')));
+        $reason = $this->polishScheduleSentence($reason);
+        $prompt = $this->polishScheduleSentence($prompt);
         $preview = is_array($data['fallback_preview'] ?? null) ? $data['fallback_preview'] : [];
 
         $paragraphs = [];
         $framing = TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy(trim((string) ($data['framing'] ?? '')));
         if ($framing !== '') {
+            $framing = $this->polishScheduleSentence($framing);
             $paragraphs[] = $framing;
         }
         if ($reason !== '') {
@@ -919,6 +946,7 @@ final class TaskAssistantMessageFormatter
 
         $items = is_array($data['items'] ?? null) ? $data['items'] : [];
         $blocks = is_array($data['blocks'] ?? null) ? $data['blocks'] : [];
+        ['items' => $items, 'blocks' => $blocks] = $this->sortScheduleRowsForDisplay($items, $blocks);
         if ($items !== []) {
             $lines = [];
             foreach ($items as $idx => $item) {
@@ -1029,6 +1057,7 @@ final class TaskAssistantMessageFormatter
                 continue;
             }
             $title = trim((string) ($row['title'] ?? 'Busy item'));
+            $title = preg_replace('/^pending_schedule:\s*/iu', '', $title) ?? $title;
             $window = trim((string) ($row['blocked_window'] ?? ''));
             if ($title === '') {
                 continue;
@@ -1116,6 +1145,69 @@ final class TaskAssistantMessageFormatter
         }
 
         return '~'.$hours.' '.$hourLabel.' '.$remainingMinutes.' min';
+    }
+
+    private function polishScheduleSentence(string $text): string
+    {
+        $value = trim($text);
+        if ($value === '') {
+            return '';
+        }
+
+        $value = preg_replace('/\binto in\b/iu', 'into', $value) ?? $value;
+        $value = preg_replace('/\bbefore you save\b/iu', 'before we lock it in', $value) ?? $value;
+        $value = preg_replace('/\b2-block run\b/iu', 'two focused blocks', $value) ?? $value;
+        $value = preg_replace('/\bearliest realistic windows\b/iu', 'time that fits your availability', $value) ?? $value;
+        $value = preg_replace('/\s+/u', ' ', $value) ?? $value;
+
+        return trim($value);
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $items
+     * @param  list<array<string, mixed>>  $blocks
+     * @return array{items: list<array<string, mixed>>, blocks: list<array<string, mixed>>}
+     */
+    private function sortScheduleRowsForDisplay(array $items, array $blocks): array
+    {
+        if (count($items) <= 1 || count($items) !== count($blocks)) {
+            return ['items' => $items, 'blocks' => $blocks];
+        }
+
+        $rows = [];
+        foreach ($items as $index => $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+            $start = trim((string) ($item['start_datetime'] ?? ''));
+            $timestamp = $start !== '' ? strtotime($start) : false;
+            $rows[] = [
+                'index' => $index,
+                'timestamp' => $timestamp === false ? PHP_INT_MAX : (int) $timestamp,
+            ];
+        }
+
+        if (count($rows) !== count($items)) {
+            return ['items' => $items, 'blocks' => $blocks];
+        }
+
+        usort($rows, static function (array $left, array $right): int {
+            if ($left['timestamp'] === $right['timestamp']) {
+                return $left['index'] <=> $right['index'];
+            }
+
+            return $left['timestamp'] <=> $right['timestamp'];
+        });
+
+        $sortedItems = [];
+        $sortedBlocks = [];
+        foreach ($rows as $row) {
+            $index = (int) ($row['index'] ?? 0);
+            $sortedItems[] = $items[$index];
+            $sortedBlocks[] = $blocks[$index];
+        }
+
+        return ['items' => $sortedItems, 'blocks' => $sortedBlocks];
     }
 
     /**
@@ -1358,7 +1450,7 @@ final class TaskAssistantMessageFormatter
      *   dominant_daypart: string|null
      * }
      */
-    private function buildScheduleNarrativeFacts(array $items, array $blocks): array
+    private function buildScheduleNarrativeFacts(array $items, array $blocks, array $narrativeFacts = []): array
     {
         $dates = [];
         $hours = [];
@@ -1400,10 +1492,17 @@ final class TaskAssistantMessageFormatter
             }
         }
 
+        $relativeDayLabel = null;
+        $requestedLabel = mb_strtolower(trim((string) ($narrativeFacts['requested_horizon_label'] ?? '')));
+        if ($requestedLabel === 'today' || $requestedLabel === 'tomorrow' || $requestedLabel === 'tonight') {
+            $relativeDayLabel = $requestedLabel === 'tonight' ? 'today' : $requestedLabel;
+        }
+
         return [
             'is_multi_day' => $isMultiDay,
             'span_label' => $spanLabel,
             'dominant_daypart' => $this->dominantDaypartFromHours($hours),
+            'relative_day_label' => $relativeDayLabel,
         ];
     }
 
@@ -1411,7 +1510,8 @@ final class TaskAssistantMessageFormatter
      * @param  array{
      *   is_multi_day: bool,
      *   span_label: string,
-     *   dominant_daypart: string|null
+     *   dominant_daypart: string|null,
+     *   relative_day_label: string|null
      * }  $facts
      * @param  array<string, array{from: string, to: string}>  $corrections
      */
@@ -1433,6 +1533,14 @@ final class TaskAssistantMessageFormatter
                     $updated = "Here is your plan across {$span}. ".ltrim($updated);
                 }
             }
+        } else {
+            $updated = (string) preg_replace('/\bI spread placements across\b[^.?!]*[.?!]?\s*/iu', '', $updated);
+            $singleDayLabel = is_string($facts['relative_day_label'] ?? null) ? (string) $facts['relative_day_label'] : '';
+            if ($singleDayLabel === 'tomorrow') {
+                $updated = (string) preg_replace('/\b(today|tonight)\b/iu', 'tomorrow', $updated);
+            } elseif ($singleDayLabel === 'today') {
+                $updated = (string) preg_replace('/\btomorrow\b/iu', 'today', $updated);
+            }
         }
 
         $dominantDaypart = $facts['dominant_daypart'];
@@ -1453,6 +1561,67 @@ final class TaskAssistantMessageFormatter
         }
 
         return $updated;
+    }
+
+    private function containsHardBlockedSchedulePhrases(string $value): bool
+    {
+        $normalized = mb_strtolower($value);
+        foreach ([
+            'earliest realistic windows',
+            'biggest work starts first',
+            'follow-up blocks stay lighter',
+            'across your planned blocks between',
+        ] as $blocked) {
+            if (str_contains($normalized, $blocked)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $items
+     */
+    private function rewriteScheduleNarrativeForMentorTone(string $field, array $items, string $fallback): string
+    {
+        if (count($items) <= 1) {
+            $title = trim((string) data_get($items, '0.title', 'this task'));
+            if ($title === '') {
+                $title = 'this task';
+            }
+            $timeLabel = $this->formatTimeRangeLabel(
+                (string) data_get($items, '0.start_datetime', ''),
+                (string) data_get($items, '0.end_datetime', '')
+            );
+
+            return match ($field) {
+                'framing' => $timeLabel !== ''
+                    ? "I placed {$title} at {$timeLabel} so you have one clear block to focus on."
+                    : "I placed {$title} in one clear block so you can get started quickly.",
+                'reasoning' => 'This keeps the plan specific and realistic for the time you have today.',
+                'confirmation' => 'If you want a different slot, tell me and I will shift it.',
+                default => $fallback,
+            };
+        }
+
+        return match ($field) {
+            'framing' => 'I arranged these blocks in a practical order that fits your available windows.',
+            'reasoning' => 'This sequence keeps each block focused and avoids overloading any single part of the day.',
+            'confirmation' => 'If any block should move, tell me which one and I will adjust it.',
+            default => $fallback,
+        };
+    }
+
+    private function formatTimeRangeLabel(string $startRaw, string $endRaw): string
+    {
+        $start = strtotime($startRaw);
+        $end = strtotime($endRaw);
+        if ($start === false || $end === false) {
+            return '';
+        }
+
+        return date('g:i A', $start).'–'.date('g:i A', $end);
     }
 
     private function extractHourFromHhmm(string $value): ?int

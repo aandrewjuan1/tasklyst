@@ -39,7 +39,7 @@ final class ScheduleFramingNarrativeSupport
                 "For what you asked, I blocked {$windowPhrase} time for {$primaryLabel}—the row just below has the exact start and end.",
                 "I lined up a focused block for {$primaryLabel} {$windowPhrase}; you will see the times in the next line.",
                 "{$windowLead}, I placed {$primaryLabel} on your plan—check the block below for the clock times.",
-                "Here is the {$windowPhrase} slot I set for {$primaryLabel}. The next line shows the precise window.",
+                "Here is a slot {$windowPhrase} that I set for {$primaryLabel}. The next line shows the precise window.",
                 "You wanted this scheduled—I tucked {$primaryLabel} {$windowPhrase}. The row underneath has start and end.",
                 "{$windowLead} I carved out time for {$primaryLabel}; details are right below so nothing feels vague.",
                 "I matched your request with a single block for {$primaryLabel} {$windowPhrase}; scroll one line down for times.",

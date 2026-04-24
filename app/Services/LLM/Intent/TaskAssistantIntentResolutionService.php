@@ -26,6 +26,12 @@ final class TaskAssistantIntentResolutionService
         ?TaskAssistantIntentInferenceResult $inference,
         array $signals,
     ): IntentRoutingDecision {
+        // Deterministic-first runtime path: if no inference payload is provided,
+        // route strictly from heuristic signals regardless of config flags.
+        if ($inference === null) {
+            return $this->resolveSignalOnly($thread, $signals);
+        }
+
         Log::debug('task-assistant.intent_resolution.begin', [
             'layer' => 'intent_resolution',
             'run_id' => app()->bound('task_assistant.run_id') ? app('task_assistant.run_id') : null,
@@ -42,7 +48,7 @@ final class TaskAssistantIntentResolutionService
             return $this->resolveSignalOnly($thread, $signals);
         }
 
-        if ($inference === null || $inference->connectionFailed) {
+        if ($inference->connectionFailed) {
             $signalDecision = $this->resolveSignalOnly($thread, $signals);
             $mergedCodes = array_values(array_unique(array_merge(
                 ['intent_llm_unavailable_signal_fallback'],

@@ -166,6 +166,7 @@ final class TaskAssistantStructuredFlowGenerator
             'window_selection_struct' => $scheduleExplainability['window_selection_struct'] ?? null,
             'ordering_rationale_struct' => $scheduleExplainability['ordering_rationale_struct'] ?? [],
             'blocking_reasons_struct' => $scheduleExplainability['blocking_reasons_struct'] ?? [],
+            'narrative_facts' => $scheduleExplainability['narrative_facts'] ?? [],
             'confirmation_required' => false,
             'awaiting_user_decision' => false,
             'confirmation_context' => null,
@@ -422,6 +423,7 @@ final class TaskAssistantStructuredFlowGenerator
             'window_selection_struct' => $scheduleExplainability['window_selection_struct'] ?? null,
             'ordering_rationale_struct' => $scheduleExplainability['ordering_rationale_struct'] ?? [],
             'blocking_reasons_struct' => $scheduleExplainability['blocking_reasons_struct'] ?? [],
+            'narrative_facts' => $scheduleExplainability['narrative_facts'] ?? [],
             'confirmation_required' => false,
             'awaiting_user_decision' => false,
             'confirmation_context' => null,
@@ -463,7 +465,8 @@ final class TaskAssistantStructuredFlowGenerator
      *   fallback_choice_explanation: string|null,
      *   window_selection_struct: array<string, mixed>,
      *   ordering_rationale_struct: list<array<string, mixed>>,
-     *   blocking_reasons_struct: list<array<string, mixed>>
+     *   blocking_reasons_struct: list<array<string, mixed>>,
+     *   narrative_facts: array<string, mixed>
      * }
      */
     private function buildScheduleExplainability(
@@ -491,11 +494,13 @@ final class TaskAssistantStructuredFlowGenerator
         $horizonStart = is_string($horizon['start_date'] ?? null) ? (string) $horizon['start_date'] : '';
         $horizonEnd = is_string($horizon['end_date'] ?? null) ? (string) $horizon['end_date'] : '';
         $meaningfulWindow = $windowStart !== '' && $windowEnd !== '' && ! ($windowStart === '00:00' && $windowEnd === '23:59');
+        $narrativeFacts = $this->buildScheduleNarrativeFacts($proposals, $requestedHorizonLabel);
+        $isPlacementMultiDay = (bool) ($narrativeFacts['is_multi_day'] ?? false);
 
         $windowSelectionExplanation = ($meaningfulWindow && $hasExplicitClockTime)
             ? 'I prioritized slots between '.$this->formatClockLabel($windowStart).' and '.$this->formatClockLabel($windowEnd).' so this plan fits the time window you asked for.'
-            : 'I prioritized the earliest realistic windows in your requested time frame while avoiding conflicts.';
-        if ($horizonStart !== '' && $horizonEnd !== '' && $horizonStart !== $horizonEnd) {
+            : 'I prioritized conflict-free windows in your requested time frame so this stays realistic.';
+        if ($isPlacementMultiDay && $horizonStart !== '' && $horizonEnd !== '' && $horizonStart !== $horizonEnd) {
             $windowSelectionExplanation .= " I spread placements across {$horizonStart} to {$horizonEnd} when needed.";
         }
 
@@ -608,7 +613,80 @@ final class TaskAssistantStructuredFlowGenerator
             ],
             'ordering_rationale_struct' => $orderingRationaleStruct,
             'blocking_reasons_struct' => $blockingReasonsStruct,
+            'narrative_facts' => $narrativeFacts,
         ];
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $proposals
+     * @return array<string, mixed>
+     */
+    private function buildScheduleNarrativeFacts(array $proposals, string $requestedHorizonLabel): array
+    {
+        $dates = [];
+        $hours = [];
+        foreach ($proposals as $proposal) {
+            if (! is_array($proposal)) {
+                continue;
+            }
+            $startRaw = trim((string) ($proposal['start_datetime'] ?? ''));
+            if ($startRaw === '') {
+                continue;
+            }
+            try {
+                $start = new \DateTimeImmutable($startRaw);
+                $dates[$start->format('Y-m-d')] = true;
+                $hours[] = (int) $start->format('H');
+            } catch (\Throwable) {
+                continue;
+            }
+        }
+
+        $dateKeys = array_keys($dates);
+        sort($dateKeys);
+        $startDate = $dateKeys[0] ?? null;
+        $endDate = $dateKeys[count($dateKeys) - 1] ?? null;
+        $isMultiDay = count($dateKeys) > 1;
+
+        return [
+            'has_placements' => $dateKeys !== [],
+            'is_multi_day' => $isMultiDay,
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+            'date_count' => count($dateKeys),
+            'requested_horizon_label' => $requestedHorizonLabel,
+            'dominant_daypart' => $this->resolveDominantDaypart($hours),
+        ];
+    }
+
+    /**
+     * @param  list<int>  $hours
+     */
+    private function resolveDominantDaypart(array $hours): ?string
+    {
+        if ($hours === []) {
+            return null;
+        }
+
+        $buckets = [
+            'morning' => 0,
+            'afternoon' => 0,
+            'evening' => 0,
+        ];
+
+        foreach ($hours as $hour) {
+            if ($hour < 12) {
+                $buckets['morning']++;
+            } elseif ($hour < 18) {
+                $buckets['afternoon']++;
+            } else {
+                $buckets['evening']++;
+            }
+        }
+
+        arsort($buckets);
+
+        return (string) array_key_first($buckets);
     }
 
     /**
