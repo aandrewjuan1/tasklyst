@@ -68,10 +68,12 @@ class CalendarFeedSyncService
         $feed->loadMissing('user');
 
         $eventsInRawFeed = count($events);
-        $importPastMonths = $feed->user !== null
-            ? $feed->user->resolvedCalendarImportPastMonths()
-            : (int) config('calendar_feeds.default_import_past_months');
-        $events = $this->filterEventsWithinSyncWindow($events, $importPastMonths);
+        $importPastMonths = $feed->resolvedImportPastMonths();
+        $events = $this->filterEventsWithinSyncWindow(
+            $events,
+            $importPastMonths,
+            (bool) $feed->exclude_overdue_items
+        );
         $eventsInWindow = count($events);
 
         if ($events === []) {
@@ -395,13 +397,14 @@ class CalendarFeedSyncService
      * @param  array<int, array<string, mixed>>  $events
      * @return array<int, array<string, mixed>>
      */
-    private function filterEventsWithinSyncWindow(array $events, int $importPastMonths): array
+    private function filterEventsWithinSyncWindow(array $events, int $importPastMonths, bool $excludeOverdueItems): array
     {
-        $today = now()->startOfDay();
+        $now = now();
+        $today = $now->copy()->startOfDay();
         $pastLimit = $today->copy()->subMonths($importPastMonths)->startOfDay();
         $futureLimit = $today->copy()->addYear()->endOfDay();
 
-        return array_values(array_filter($events, static function (array $event) use ($pastLimit, $futureLimit): bool {
+        return array_values(array_filter($events, static function (array $event) use ($excludeOverdueItems, $now, $pastLimit, $futureLimit): bool {
             $start = $event['dtstart'] ?? null;
             $end = $event['dtend'] ?? null;
 
@@ -417,6 +420,10 @@ class CalendarFeedSyncService
             }
 
             if ($effectiveStart instanceof \Carbon\CarbonInterface && $effectiveStart->gt($futureLimit)) {
+                return false;
+            }
+
+            if ($excludeOverdueItems && $effectiveEnd instanceof \Carbon\CarbonInterface && $effectiveEnd->lt($now)) {
                 return false;
             }
 

@@ -28,8 +28,20 @@ class ConnectCalendarFeedAction
                 'sync_enabled' => true,
             ];
 
+            if ($existing->import_past_months === null) {
+                $attributes['import_past_months'] = $user->resolvedCalendarImportPastMonths();
+            }
+
             if ($dto->name !== null && $dto->name !== '') {
                 $attributes['name'] = $dto->name;
+            }
+
+            if ($dto->excludeOverdueItems !== null) {
+                $attributes['exclude_overdue_items'] = $dto->excludeOverdueItems;
+            }
+
+            if ($dto->importPastMonths !== null) {
+                $attributes['import_past_months'] = $dto->importPastMonths;
             }
 
             if ($attributes !== []) {
@@ -41,7 +53,11 @@ class ConnectCalendarFeedAction
             return new ConnectCalendarFeedResult($existing, $syncResult);
         }
 
-        $feed = $this->calendarFeedService->createFeed($user, $dto->toServiceAttributes());
+        $feed = $this->calendarFeedService->createFeed($user, [
+            ...$dto->toServiceAttributes(),
+            'exclude_overdue_items' => $dto->excludeOverdueItems ?? true,
+            'import_past_months' => $dto->importPastMonths ?? $user->resolvedCalendarImportPastMonths(),
+        ]);
 
         $syncResult = $this->calendarFeedSyncService->sync($feed, notifyUserOnSuccess: true);
 

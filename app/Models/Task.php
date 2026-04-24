@@ -757,6 +757,29 @@ class Task extends Model
     }
 
     /**
+     * Exclude overdue Brightspace tasks from feeds configured to hide overdue items.
+     */
+    public function scopeWithoutHiddenOverdueFeedItems(Builder $query, CarbonInterface $asOf): Builder
+    {
+        return $query->where(function (Builder $outer) use ($asOf): void {
+            $outer->where(function (Builder $q): void {
+                $q->where('source_type', '!=', TaskSourceType::Brightspace->value)
+                    ->orWhereNull('calendar_feed_id');
+            })->orWhere(function (Builder $q) use ($asOf): void {
+                $q->where('source_type', TaskSourceType::Brightspace->value)
+                    ->whereNotNull('calendar_feed_id')
+                    ->where(function (Builder $inner) use ($asOf): void {
+                        $inner->whereNull('end_datetime')
+                            ->orWhere('end_datetime', '>=', $asOf)
+                            ->orWhereHas('calendarFeed', function (Builder $feedQuery): void {
+                                $feedQuery->where('exclude_overdue_items', false);
+                            });
+                    });
+            });
+        });
+    }
+
+    /**
      * Order tasks by priority: urgent → high → medium → low.
      */
     public function scopeOrderByPriority(Builder $query): Builder

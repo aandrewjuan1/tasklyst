@@ -342,6 +342,7 @@ class extends Component
         $overdueCount = Task::query()
             ->forUser($userId)
             ->incomplete()
+            ->withoutHiddenOverdueFeedItems($now)
             ->overdue($now)
             ->whereDoesntHave('recurringTask')
             ->count();
@@ -408,6 +409,7 @@ class extends Component
             ->with(['project'])
             ->forUser($userId)
             ->incomplete()
+            ->withoutHiddenOverdueFeedItems($now)
             ->overdue($now)
             ->whereDoesntHave('recurringTask')
             ->orderByPriority()
@@ -1421,11 +1423,10 @@ class extends Component
      *   name: string,
      *   source: string,
      *   sync_enabled: bool,
+     *   exclude_overdue_items: bool,
+     *   import_past_months: int,
      *   last_synced_at: string|null,
-     *   status: string,
      *   total_imported: int,
-     *   updated_last_24h: int,
-     *   latest_import_activity_at: string|null
      * }>
      */
     #[Computed]
@@ -1440,7 +1441,7 @@ class extends Component
             ->where('user_id', $userId)
             ->orderByDesc('last_synced_at')
             ->limit(self::FEED_HEALTH_LIMIT)
-            ->get(['id', 'name', 'source', 'sync_enabled', 'last_synced_at', 'created_at']);
+            ->get(['id', 'name', 'source', 'sync_enabled', 'exclude_overdue_items', 'import_past_months', 'last_synced_at', 'created_at']);
 
         if ($feeds->isEmpty()) {
             return collect();
@@ -1448,11 +1449,9 @@ class extends Component
 
         $feedIds = $feeds->pluck('id')->all();
 
-        /** @var Collection<int, object{calendar_feed_id: int, total_imported: int|string, updated_last_24h: int|string, latest_import_activity_at: string|null}> $taskStats */
+        /** @var Collection<int, object{calendar_feed_id: int, total_imported: int|string}> $taskStats */
         $taskStats = Task::query()
             ->selectRaw('calendar_feed_id, COUNT(*) as total_imported')
-            ->selectRaw('SUM(CASE WHEN updated_at >= ? THEN 1 ELSE 0 END) as updated_last_24h', [now()->subDay()])
-            ->selectRaw('MAX(updated_at) as latest_import_activity_at')
             ->whereIn('calendar_feed_id', $feedIds)
             ->where('source_type', TaskSourceType::Brightspace->value)
             ->groupBy('calendar_feed_id')
@@ -1460,7 +1459,6 @@ class extends Component
             ->keyBy('calendar_feed_id');
 
         return $feeds->map(function (CalendarFeed $feed) use ($taskStats): array {
-            $status = $this->resolveFeedHealthStatus((bool) $feed->sync_enabled, $feed->last_synced_at);
             $stats = $taskStats->get($feed->id);
 
             return [
@@ -1468,16 +1466,13 @@ class extends Component
                 'name' => (string) ($feed->name ?: __('Untitled feed')),
                 'source' => (string) $feed->source,
                 'sync_enabled' => (bool) $feed->sync_enabled,
+                'exclude_overdue_items' => (bool) $feed->exclude_overdue_items,
+                'import_past_months' => (int) $feed->resolvedImportPastMonths(),
                 'last_synced_at' => $feed->last_synced_at?->toIso8601String(),
-                'status' => $status,
-                'status_rank' => $this->resolveFeedHealthStatusRank($status),
                 'total_imported' => (int) ($stats?->total_imported ?? 0),
-                'updated_last_24h' => (int) ($stats?->updated_last_24h ?? 0),
-                'latest_import_activity_at' => $stats?->latest_import_activity_at,
             ];
         })
             ->sortBy(fn (array $row): array => [
-                (int) ($row['status_rank'] ?? 99),
                 $row['last_synced_at'] ? -\Carbon\Carbon::parse($row['last_synced_at'])->getTimestamp() : PHP_INT_MAX,
             ])
             ->values();
@@ -1491,26 +1486,16 @@ class extends Component
         return $this->calendarFeedHealth
             ->map(function (array $feed): array {
                 $lastSyncedAt = $feed['last_synced_at'] ? \Carbon\Carbon::parse($feed['last_synced_at']) : null;
-                $latestImportAt = $feed['latest_import_activity_at'] ? \Carbon\Carbon::parse($feed['latest_import_activity_at']) : null;
 
                 return [
                     'id' => (int) $feed['id'],
                     'name' => (string) $feed['name'],
                     'source' => (string) $feed['source'],
                     'source_label' => ucfirst((string) $feed['source']),
-                    'status' => (string) $feed['status'],
-                    'status_label' => match ((string) $feed['status']) {
-                        'fresh' => __('Fresh'),
-                        'stale' => __('Stale'),
-                        'critical' => __('Critical'),
-                        'sync_off' => __('Sync Off'),
-                        default => __('Never Synced'),
-                    },
+                    'exclude_overdue_items' => (bool) ($feed['exclude_overdue_items'] ?? false),
+                    'import_past_months' => (int) ($feed['import_past_months'] ?? (int) config('calendar_feeds.default_import_past_months')),
                     'total_imported' => (int) ($feed['total_imported'] ?? 0),
-                    'updated_last_24h' => (int) ($feed['updated_last_24h'] ?? 0),
                     'last_synced_human' => $lastSyncedAt?->diffForHumans() ?? __('Never'),
-                    'latest_import_activity_human' => $latestImportAt?->diffForHumans(),
-                    'latest_import_activity_title' => $latestImportAt?->translatedFormat('M j, Y · H:i'),
                 ];
             })
             ->values()
@@ -1661,41 +1646,6 @@ class extends Component
             ActivityLogAction::CollaboratorRemoved->value,
             ActivityLogAction::CollaboratorPermissionUpdated->value,
         ];
-    }
-
-    private function resolveFeedHealthStatus(bool $syncEnabled, ?\Carbon\CarbonInterface $lastSyncedAt): string
-    {
-        if (! $syncEnabled) {
-            return 'sync_off';
-        }
-
-        if ($lastSyncedAt === null) {
-            return 'never_synced';
-        }
-
-        $minutesSinceSync = $lastSyncedAt->diffInMinutes(now());
-
-        if ($minutesSinceSync <= 90) {
-            return 'fresh';
-        }
-
-        if ($minutesSinceSync <= (24 * 60)) {
-            return 'stale';
-        }
-
-        return 'critical';
-    }
-
-    private function resolveFeedHealthStatusRank(string $status): int
-    {
-        return match ($status) {
-            'critical' => 0,
-            'stale' => 1,
-            'sync_off' => 2,
-            'never_synced' => 3,
-            'fresh' => 4,
-            default => 5,
-        };
     }
 
     protected function requireAuth(string $message): ?User

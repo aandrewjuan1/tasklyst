@@ -8,6 +8,8 @@ it('accepts a valid eac brightspace feed url', function () {
         'calendarFeedPayload' => [
             'feedUrl' => 'https://eac.brightspace.com/d2l/le/calendar/feed/user/feed.ics?token=apqjq1ev4nrpqrjddc65',
             'name' => 'Brightspace – All Courses',
+            'excludeOverdueItems' => true,
+            'importPastMonths' => 3,
         ],
     ];
 
@@ -21,6 +23,8 @@ it('rejects a non brightspace feed url', function () {
         'calendarFeedPayload' => [
             'feedUrl' => 'https://www.tiktok.com/@wistful.spoony/video/7603603609464622339',
             'name' => 'Some name',
+            'excludeOverdueItems' => true,
+            'importPastMonths' => 3,
         ],
     ];
 
@@ -29,4 +33,3 @@ it('rejects a non brightspace feed url', function () {
     expect($validator->fails())->toBeTrue()
         ->and($validator->errors()->has('calendarFeedPayload.feedUrl'))->toBeTrue();
 });
-

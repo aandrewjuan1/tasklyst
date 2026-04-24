@@ -518,3 +518,123 @@ ICS;
 
     expect($user->fresh()->notifications()->count())->toBe(0);
 });
+
+it('excludes overdue events when feed is configured to exclude overdue items', function () {
+    $user = User::factory()->create();
+
+    /** @var CalendarFeed $feed */
+    $feed = CalendarFeed::query()->create([
+        'user_id' => $user->id,
+        'name' => 'Brightspace – All Courses',
+        'feed_url' => 'https://example.test/calendar.ics',
+        'source' => 'brightspace',
+        'sync_enabled' => true,
+        'exclude_overdue_items' => true,
+    ]);
+
+    $pastStart = now()->subDays(2)->setTime(9, 0)->utc();
+    $pastEnd = $pastStart->copy()->addHour();
+    $futureStart = now()->addDays(2)->setTime(9, 0)->utc();
+    $futureEnd = $futureStart->copy()->addHour();
+
+    $ics = <<<ICS
+BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:overdue-excluded@example.com
+SUMMARY:Already overdue
+DTSTART:{$pastStart->format('Ymd\\THis\\Z')}
+DTEND:{$pastEnd->format('Ymd\\THis\\Z')}
+END:VEVENT
+BEGIN:VEVENT
+UID:future-allowed@example.com
+SUMMARY:Upcoming
+DTSTART:{$futureStart->format('Ymd\\THis\\Z')}
+DTEND:{$futureEnd->format('Ymd\\THis\\Z')}
+END:VEVENT
+END:VCALENDAR
+ICS;
+
+    Http::fake([
+        $feed->feed_url => Http::response($ics, 200),
+    ]);
+
+    $service = app(CalendarFeedSyncService::class);
+    $service->sync($feed);
+
+    expect(Task::query()->where('source_id', 'overdue-excluded@example.com')->exists())->toBeFalse();
+    expect(Task::query()->where('source_id', 'future-allowed@example.com')->exists())->toBeTrue();
+});
+
+it('includes overdue events when feed allows overdue items', function () {
+    $user = User::factory()->create();
+
+    /** @var CalendarFeed $feed */
+    $feed = CalendarFeed::query()->create([
+        'user_id' => $user->id,
+        'name' => 'Brightspace – All Courses',
+        'feed_url' => 'https://example.test/calendar.ics',
+        'source' => 'brightspace',
+        'sync_enabled' => true,
+        'exclude_overdue_items' => false,
+    ]);
+
+    $pastStart = now()->subDays(2)->setTime(9, 0)->utc();
+    $pastEnd = $pastStart->copy()->addHour();
+
+    $ics = <<<ICS
+BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:overdue-allowed@example.com
+SUMMARY:Already overdue
+DTSTART:{$pastStart->format('Ymd\\THis\\Z')}
+DTEND:{$pastEnd->format('Ymd\\THis\\Z')}
+END:VEVENT
+END:VCALENDAR
+ICS;
+
+    Http::fake([
+        $feed->feed_url => Http::response($ics, 200),
+    ]);
+
+    $service = app(CalendarFeedSyncService::class);
+    $service->sync($feed);
+
+    expect(Task::query()->where('source_id', 'overdue-allowed@example.com')->exists())->toBeTrue();
+});
+
+it('uses feed import months instead of user-level fallback when feed setting exists', function () {
+    $user = User::factory()->withCalendarImportPastMonths(1)->create();
+
+    /** @var CalendarFeed $feed */
+    $feed = CalendarFeed::query()->create([
+        'user_id' => $user->id,
+        'name' => 'Brightspace – All Courses',
+        'feed_url' => 'https://example.test/calendar.ics',
+        'source' => 'brightspace',
+        'sync_enabled' => true,
+        'import_past_months' => 6,
+    ]);
+
+    $start = now()->subMonths(5)->setTime(9, 0)->utc();
+    $end = $start->copy()->addHour();
+
+    $ics = <<<ICS
+BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:feed-specific-months@example.com
+SUMMARY:Feed scoped lookback event
+DTSTART:{$start->format('Ymd\\THis\\Z')}
+DTEND:{$end->format('Ymd\\THis\\Z')}
+END:VEVENT
+END:VCALENDAR
+ICS;
+
+    Http::fake([
+        $feed->feed_url => Http::response($ics, 200),
+    ]);
+
+    $service = app(CalendarFeedSyncService::class);
+    $service->sync($feed);
+
+    expect(Task::query()->where('source_id', 'feed-specific-months@example.com')->exists())->toBeTrue();
+});

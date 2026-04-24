@@ -11,6 +11,7 @@ let sharedFeedHealthLoadPromise = null;
  * @param {object} initial
  * @param {number} initial.importPastMonths
  * @param {number} initial.importPastMonthsSaved
+ * @param {boolean} initial.connectIncludeOverdue
  * @param {number[]} initial.importPastChoices
  * @param {Record<string, string>} initial.importPastMonthLabels
  * @param {Record<string, string>} initial.strings
@@ -43,10 +44,13 @@ export function calendarFeedsPopover(initial) {
         savingFeedName: false,
         savedFeedNameViaEnter: false,
         justCanceledFeedName: false,
+        savingFeedOverdueIds: new Set(),
+        savingFeedImportMonthsIds: new Set(),
 
         importPastMonths: Number(initial.importPastMonths) || 3,
         importPastMonthsSaved: Number(initial.importPastMonthsSaved) || Number(initial.importPastMonths) || 3,
         importPastMonthsSaveGen: 0,
+        connectIncludeOverdue: Boolean(initial.connectIncludeOverdue ?? false),
         importPastChoices: Array.isArray(initial.importPastChoices) ? initial.importPastChoices : [1, 3, 6],
         importPastMonthLabels: initial.importPastMonthLabels && typeof initial.importPastMonthLabels === 'object'
             ? initial.importPastMonthLabels
@@ -71,21 +75,21 @@ export function calendarFeedsPopover(initial) {
             return map[key] ?? key;
         },
 
-        statusClass(status) {
-            if (status === 'fresh') {
-                return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200';
-            }
-            if (status === 'stale') {
-                return 'bg-amber-100 text-amber-900 dark:bg-amber-950/50 dark:text-amber-200';
-            }
-            if (status === 'critical') {
-                return 'bg-red-100 text-red-800 dark:bg-red-950/50 dark:text-red-200';
-            }
-            if (status === 'sync_off') {
-                return 'bg-zinc-200 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200';
-            }
+        importPastLabelFor(value) {
+            const key = String(Number(value));
+            const map = this.importPastMonthLabels || {};
 
-            return 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200';
+            return map[key] ?? key;
+        },
+
+        normalizeFeed(feed) {
+            const months = Number(feed?.import_past_months);
+
+            return {
+                ...feed,
+                exclude_overdue_items: Boolean(feed?.exclude_overdue_items ?? false),
+                import_past_months: Number.isFinite(months) ? months : (Number(this.importPastMonthsSaved) || 3),
+            };
         },
 
         async ensureFeedHealthLoaded(force = false) {
@@ -101,7 +105,7 @@ export function calendarFeedsPopover(initial) {
                 && (nowMs - FEED_HEALTH_SHARED.lastLoadedAt) < this.feedHealthRefreshWindowMs;
 
             if (!force && sharedFresh) {
-                this.feedHealth = [...FEED_HEALTH_SHARED.feedHealth];
+                this.feedHealth = FEED_HEALTH_SHARED.feedHealth.map((feed) => this.normalizeFeed(feed));
                 this.lastFeedHealthLoadedAt = FEED_HEALTH_SHARED.lastLoadedAt;
 
                 return;
@@ -122,7 +126,7 @@ export function calendarFeedsPopover(initial) {
                 this.loadingFeedHealth = true;
                 try {
                     await sharedFeedHealthLoadPromise;
-                    this.feedHealth = [...FEED_HEALTH_SHARED.feedHealth];
+                    this.feedHealth = FEED_HEALTH_SHARED.feedHealth.map((feed) => this.normalizeFeed(feed));
                     this.lastFeedHealthLoadedAt = FEED_HEALTH_SHARED.lastLoadedAt;
                 } catch {
                     this.feedHealth = [];
@@ -150,7 +154,7 @@ export function calendarFeedsPopover(initial) {
 
             try {
                 await sharedFeedHealthLoadPromise;
-                this.feedHealth = [...FEED_HEALTH_SHARED.feedHealth];
+                this.feedHealth = FEED_HEALTH_SHARED.feedHealth.map((feed) => this.normalizeFeed(feed));
                 this.lastFeedHealthLoadedAt = FEED_HEALTH_SHARED.lastLoadedAt;
             } catch {
                 this.feedHealth = [];
@@ -269,6 +273,8 @@ export function calendarFeedsPopover(initial) {
                 await this.$wire.$call('connectCalendarFeed', {
                     feedUrl: url,
                     name: name || null,
+                    excludeOverdueItems: !this.connectIncludeOverdue,
+                    importPastMonths: Number(this.importPastMonths),
                 });
 
                 this.feedUrl = '';
@@ -297,6 +303,12 @@ export function calendarFeedsPopover(initial) {
             const previousFeedHealth = Array.isArray(this.feedHealth)
                 ? this.feedHealth.map((feed) => ({ ...feed }))
                 : [];
+
+            this.$wire.$dispatch('toast', {
+                type: 'info',
+                message: strings.syncingCalendar ?? '',
+                skipDedupe: true,
+            });
 
             try {
                 await this.$wire.$call('syncCalendarFeed', Number(id));
@@ -443,35 +455,91 @@ export function calendarFeedsPopover(initial) {
             if (!this.importPastChoiceAllowed(next)) {
                 return;
             }
-            if (next === this.importPastMonthsSaved && this.importPastMonths === next) {
+            if (next === this.importPastMonths && this.importPastMonthsSaved === next) {
                 return;
             }
 
-            const gen = ++this.importPastMonthsSaveGen;
-            const snapshot = {
-                months: this.importPastMonths,
-                saved: this.importPastMonthsSaved,
-            };
-
             this.importPastMonths = next;
             this.importPastMonthsSaved = next;
+        },
+
+        async toggleFeedOverduePolicy(feed) {
+            if (!feed || !feed.id) {
+                return;
+            }
+
+            const feedId = Number(feed.id);
+            this.savingFeedOverdueIds = this.savingFeedOverdueIds || new Set();
+            this.savingFeedImportMonthsIds = this.savingFeedImportMonthsIds || new Set();
+            if (this.savingFeedOverdueIds.has(feedId) || this.savingFeedImportMonthsIds.has(feedId)) {
+                return;
+            }
+
+            const previousFeedHealth = Array.isArray(this.feedHealth) ? this.feedHealth.map((row) => ({ ...row })) : [];
+            const previousExclude = Boolean(feed.exclude_overdue_items ?? false);
+            const nextExclude = !previousExclude;
+
+            this.savingFeedOverdueIds.add(feedId);
+            // Immediate local flip so row icon/toggle state updates before network roundtrip.
+            feed.exclude_overdue_items = nextExclude;
+            this.feedHealth = (this.feedHealth || []).map((row) => (
+                Number(row.id) === feedId
+                    ? { ...row, exclude_overdue_items: nextExclude }
+                    : row
+            ));
 
             try {
-                const promise = this.$wire.$call('updateCalendarImportPastMonths', next);
-                const ok = await promise;
-                if (gen !== this.importPastMonthsSaveGen) {
-                    return;
-                }
+                const ok = await this.$wire.$call('updateCalendarFeedOverduePolicy', feedId, nextExclude);
                 if (!ok) {
-                    this.importPastMonths = snapshot.months;
-                    this.importPastMonthsSaved = snapshot.saved;
+                    feed.exclude_overdue_items = previousExclude;
+                    this.feedHealth = previousFeedHealth;
                 }
             } catch {
-                if (gen !== this.importPastMonthsSaveGen) {
-                    return;
+                feed.exclude_overdue_items = previousExclude;
+                this.feedHealth = previousFeedHealth;
+            } finally {
+                this.savingFeedOverdueIds.delete(feedId);
+            }
+        },
+
+        async pickFeedImportPastMonths(feed, value) {
+            if (!feed || !feed.id) {
+                return;
+            }
+
+            const next = Number(value);
+            if (!this.importPastChoiceAllowed(next)) {
+                return;
+            }
+
+            const feedId = Number(feed.id);
+            this.savingFeedImportMonthsIds = this.savingFeedImportMonthsIds || new Set();
+            this.savingFeedOverdueIds = this.savingFeedOverdueIds || new Set();
+            if (this.savingFeedImportMonthsIds.has(feedId) || this.savingFeedOverdueIds.has(feedId)) {
+                return;
+            }
+            if (Number(feed.import_past_months) === next) {
+                return;
+            }
+
+            const previousFeedHealth = Array.isArray(this.feedHealth) ? this.feedHealth.map((row) => ({ ...row })) : [];
+
+            this.savingFeedImportMonthsIds.add(feedId);
+            this.feedHealth = (this.feedHealth || []).map((row) => (
+                Number(row.id) === feedId
+                    ? { ...row, import_past_months: next }
+                    : row
+            ));
+
+            try {
+                const ok = await this.$wire.$call('updateCalendarFeedImportPastMonths', feedId, next);
+                if (!ok) {
+                    this.feedHealth = previousFeedHealth;
                 }
-                this.importPastMonths = snapshot.months;
-                this.importPastMonthsSaved = snapshot.saved;
+            } catch {
+                this.feedHealth = previousFeedHealth;
+            } finally {
+                this.savingFeedImportMonthsIds.delete(feedId);
             }
         },
     };

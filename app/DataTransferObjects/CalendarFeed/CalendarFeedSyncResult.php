@@ -81,23 +81,23 @@ final readonly class CalendarFeedSyncResult
         if ($forConnect) {
             if ($this->itemsApplied > 0) {
                 return trans_choice(
-                    '{1} Connected. :count item synced.|[2,*] Connected. :count items synced.',
+                    '{1} Connected. :count item synced. Reload the page to reflect changes.|[2,*] Connected. :count items synced. Reload the page to reflect changes.',
                     $this->itemsApplied,
                     ['count' => $this->itemsApplied]
                 );
             }
 
-            return __('Connected. Sync complete.');
+            return __('Connected. Sync complete. Reload the page to reflect changes.');
         }
 
         if ($this->itemsApplied > 0) {
             return trans_choice(
-                '{1} Sync complete. :count item.|[2,*] Sync complete. :count items.',
+                '{1} Sync complete. :count item. Reload the page to reflect changes.|[2,*] Sync complete. :count items. Reload the page to reflect changes.',
                 $this->itemsApplied,
                 ['count' => $this->itemsApplied]
             );
         }
 
-        return __('Sync complete.');
+        return __('Sync complete. Reload the page to reflect changes.');
     }
 }

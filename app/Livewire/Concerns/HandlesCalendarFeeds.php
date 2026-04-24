@@ -7,6 +7,8 @@ use App\Actions\CalendarFeed\DisconnectCalendarFeedAction;
 use App\Actions\CalendarFeed\SyncCalendarFeedAction;
 use App\DataTransferObjects\CalendarFeed\CalendarFeedSyncResult;
 use App\DataTransferObjects\CalendarFeed\CreateCalendarFeedDto;
+use App\Http\Requests\UpdateCalendarFeedImportPastMonthsRequest;
+use App\Http\Requests\UpdateCalendarFeedOverduePolicyRequest;
 use App\Http\Requests\UpdateCalendarImportPastMonthsRequest;
 use App\Models\CalendarFeed;
 use App\Models\User;
@@ -109,7 +111,7 @@ trait HandlesCalendarFeeds
         $this->authorize('update', $feed);
 
         try {
-            $result = $this->syncCalendarFeedAction->execute($feed, notifyUserOnSuccess: true, queue: true);
+            $result = $this->syncCalendarFeedAction->execute($feed, notifyUserOnSuccess: true, queue: false);
         } catch (\Throwable $e) {
             Log::error('Failed to sync calendar feed.', [
                 'user_id' => $user->id,
@@ -270,6 +272,130 @@ trait HandlesCalendarFeeds
             'toast',
             type: 'info',
             message: __('Import window saved. Use “Sync again” on each feed to pull events with the new range.'),
+            skipDedupe: true,
+        );
+
+        return true;
+    }
+
+    public function updateCalendarFeedImportPastMonths(int $feedId, int $months): bool
+    {
+        /** @var User|null $user */
+        $user = $this->requireAuth(__('You must be logged in to update calendar import settings.'));
+        if ($user === null) {
+            return false;
+        }
+
+        $feed = CalendarFeed::query()
+            ->where('user_id', $user->id)
+            ->find($feedId);
+
+        if ($feed === null) {
+            $this->dispatch('toast', type: 'error', message: __('Calendar feed not found.'));
+
+            return false;
+        }
+
+        $this->authorize('update', $feed);
+
+        $request = new UpdateCalendarFeedImportPastMonthsRequest;
+
+        try {
+            Validator::make(
+                ['months' => $months],
+                $request->rules(),
+                $request->messages(),
+                $request->attributes()
+            )->validate();
+        } catch (ValidationException $e) {
+            $message = $e->validator->errors()->first('months') ?: __('Please choose a valid number of months.');
+            $this->dispatch('toast', type: 'error', message: $message, skipDedupe: true);
+
+            return false;
+        }
+
+        try {
+            $feed->forceFill(['import_past_months' => $months])->save();
+        } catch (\Throwable $e) {
+            Log::error('Failed to update calendar feed import past months.', [
+                'user_id' => $user->id,
+                'feed_id' => $feedId,
+                'months' => $months,
+                'exception' => $e,
+            ]);
+
+            $this->dispatch('toast', type: 'error', message: __('Couldn’t save this feed import window. Try again.'), skipDedupe: true);
+
+            return false;
+        }
+
+        $this->dispatch(
+            'toast',
+            type: 'info',
+            message: __('Feed import window saved. Use “Sync again” to pull events with the new range.'),
+            skipDedupe: true,
+        );
+
+        return true;
+    }
+
+    public function updateCalendarFeedOverduePolicy(int $feedId, bool $excludeOverdue): bool
+    {
+        /** @var User|null $user */
+        $user = $this->requireAuth(__('You must be logged in to update calendar feed settings.'));
+        if ($user === null) {
+            return false;
+        }
+
+        $feed = CalendarFeed::query()
+            ->where('user_id', $user->id)
+            ->find($feedId);
+
+        if ($feed === null) {
+            $this->dispatch('toast', type: 'error', message: __('Calendar feed not found.'));
+
+            return false;
+        }
+
+        $this->authorize('update', $feed);
+
+        $request = new UpdateCalendarFeedOverduePolicyRequest;
+
+        try {
+            Validator::make(
+                ['excludeOverdue' => $excludeOverdue],
+                $request->rules(),
+                $request->messages(),
+                $request->attributes()
+            )->validate();
+        } catch (ValidationException $e) {
+            $message = $e->validator->errors()->first('excludeOverdue') ?: __('Please choose a valid overdue preference.');
+            $this->dispatch('toast', type: 'error', message: $message, skipDedupe: true);
+
+            return false;
+        }
+
+        try {
+            $feed->forceFill(['exclude_overdue_items' => $excludeOverdue])->save();
+        } catch (\Throwable $e) {
+            Log::error('Failed to update calendar feed overdue policy.', [
+                'user_id' => $user->id,
+                'feed_id' => $feedId,
+                'exclude_overdue_items' => $excludeOverdue,
+                'exception' => $e,
+            ]);
+
+            $this->dispatch('toast', type: 'error', message: __('Couldn’t save overdue preference. Try again.'), skipDedupe: true);
+
+            return false;
+        }
+
+        $this->dispatch(
+            'toast',
+            type: 'info',
+            message: $excludeOverdue
+                ? __('Overdue calendar items will be excluded on future syncs.')
+                : __('Overdue calendar items will be included on future syncs.'),
             skipDedupe: true,
         );
 

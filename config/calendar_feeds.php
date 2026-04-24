@@ -9,7 +9,8 @@ return [
     |
     | Events whose effective end is strictly before this rolling cutoff
     | (start of today minus N calendar months) are skipped on sync.
-    | Users may override with users.calendar_import_past_months; null uses default.
+    | Feeds may override with calendar_feeds.import_past_months.
+    | Legacy user-level fallback (users.calendar_import_past_months) remains as a fallback.
     |
     */
 

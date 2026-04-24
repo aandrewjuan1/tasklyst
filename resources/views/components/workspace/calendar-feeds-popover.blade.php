@@ -22,12 +22,14 @@
         $alpineBootstrap = [
             'importPastMonths' => (int) $importPastMonths,
             'importPastMonthsSaved' => (int) $importPastMonths,
+            'connectIncludeOverdue' => false,
             'importPastChoices' => $importPastChoices,
             'importPastMonthLabels' => $importPastMonthLabels,
             'strings' => [
                 'pleaseEnterBrightspaceUrl' => __('Please enter your Brightspace calendar URL.'),
                 'useBrightspaceSubscribeUrl' => __('Please use a Brightspace calendar link that starts with https://eac.brightspace.com/d2l/le/calendar/feed/user/feed.ics'),
                 'connectingCalendar' => __('Connecting your calendar…'),
+                'syncingCalendar' => __('Syncing your calendar…'),
                 'couldNotConnectFeed' => __('Couldn’t connect the calendar feed. Try again.'),
             ],
         ];
@@ -124,15 +126,34 @@
                                     </div>
                                 </template>
                             </div>
-                            <div class="flex shrink-0 items-center gap-2">
-                                <span
-                                    class="inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold leading-none"
-                                    :class="statusClass(feed.status)"
-                                    role="status"
-                                >
-                                    <span x-text="syncingIds?.has(feed.id) ? '{{ __('Syncing…') }}' : feed.status_label"></span>
-                                </span>
+                            <div class="flex shrink-0 items-center">
                                 <div class="flex items-center gap-1.5">
+                                    <template x-if="feed.exclude_overdue_items">
+                                        <flux:tooltip content="{{ __('Turn on overdue import') }}">
+                                            <flux:button
+                                                type="button"
+                                                size="xs"
+                                                variant="ghost"
+                                                icon="exclamation-triangle"
+                                                class="text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                                                x-bind:disabled="savingFeedOverdueIds?.has(feed.id) || savingFeedImportMonthsIds?.has(feed.id)"
+                                                @click="toggleFeedOverduePolicy(feed)"
+                                            />
+                                        </flux:tooltip>
+                                    </template>
+                                    <template x-if="!feed.exclude_overdue_items">
+                                        <flux:tooltip content="{{ __('Turn off overdue import') }}">
+                                            <flux:button
+                                                type="button"
+                                                size="xs"
+                                                variant="outline"
+                                                icon="exclamation-triangle"
+                                                class="border-red-300 bg-red-500/10 text-red-700 hover:bg-red-500/15 hover:text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300"
+                                                x-bind:disabled="savingFeedOverdueIds?.has(feed.id) || savingFeedImportMonthsIds?.has(feed.id)"
+                                                @click="toggleFeedOverduePolicy(feed)"
+                                            />
+                                        </flux:tooltip>
+                                    </template>
                                     <flux:tooltip content="{{ __('Sync again') }}">
                                         <flux:button
                                             type="button"
@@ -157,23 +178,45 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="space-y-1 text-[11px] leading-relaxed text-muted-foreground">
+                        <div class="space-y-2 text-[11px] leading-relaxed text-muted-foreground">
+                            <template x-if="!feed.exclude_overdue_items">
+                                <div class="space-y-1.5 rounded-md bg-muted/15 p-2 dark:bg-white/5">
+                                    <div class="flex items-center gap-1.5">
+                                        <flux:icon name="clock" class="size-3 text-muted-foreground/80" />
+                                        <span>{{ __('Import lookback: ') }}</span>
+                                        <span class="font-medium text-foreground" x-text="importPastLabelFor(feed.import_past_months)"></span>
+                                    </div>
+                                    <div class="flex gap-1 rounded-md border border-border/60 bg-muted/25 p-0.5 dark:border-white/10 dark:bg-white/5">
+                                        @foreach ($importPastChoices as $m)
+                                            <button
+                                                type="button"
+                                                class="min-w-0 flex-1 rounded px-1.5 py-1 text-[10px] font-semibold leading-tight transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/45 disabled:opacity-50"
+                                                :class="Number(feed.import_past_months) === {{ (int) $m }}
+                                                    ? 'bg-brand-blue text-white shadow-sm dark:bg-brand-blue'
+                                                    : 'text-muted-foreground hover:bg-background/90 hover:text-foreground'"
+                                                :disabled="savingFeedImportMonthsIds?.has(feed.id) || savingFeedOverdueIds?.has(feed.id)"
+                                                @click="pickFeedImportPastMonths(feed, {{ (int) $m }})"
+                                            >
+                                                @if ($m === 1)
+                                                    {{ __('1 mo') }}
+                                                @elseif ($m === 3)
+                                                    {{ __('3 mo') }}
+                                                @elseif ($m === 6)
+                                                    {{ __('6 mo') }}
+                                                @else
+                                                    {{ trans_choice(':count mo|:count mos', $m, ['count' => $m]) }}
+                                                @endif
+                                            </button>
+                                        @endforeach
+                                    </div>
+                                </div>
+                            </template>
                             <p>
                                 <span>{{ __('Last sync: ') }}</span><span x-text="feed.last_synced_human"></span>
                             </p>
                             <p>
-                                <span>{{ __('Import lookback: ') }}</span><span x-text="importPastSavedLabel()"></span>
-                            </p>
-                            <p>
-                                <span>{{ __('Updated 24h: ') }}</span><span x-text="feed.updated_last_24h"></span>
-                                <span> · </span>
                                 <span>{{ __('Total imported: ') }}</span><span x-text="feed.total_imported"></span>
                             </p>
-                            <template x-if="feed.latest_import_activity_human">
-                                <p :title="feed.latest_import_activity_title">
-                                    <span>{{ __('Latest import activity: ') }}</span><span x-text="feed.latest_import_activity_human"></span>
-                                </p>
-                            </template>
                         </div>
                     </li>
                 </template>
@@ -253,44 +296,73 @@
                     </div>
 
                     <div class="flex flex-col gap-3 px-3 py-3 text-[11px]">
-                        <div class="space-y-2 border-b border-brand-blue/15 pb-3 dark:border-brand-blue/15">
-                            <span class="block text-[11px] font-medium text-muted-foreground" id="calendar-import-past-months-label">
-                                {{ __('How far back to import') }}
-                            </span>
-                            <div
-                                class="flex gap-1 rounded-md border border-border/60 bg-muted/25 p-0.5 dark:border-white/10 dark:bg-white/5"
-                                role="group"
-                                aria-labelledby="calendar-import-past-months-label"
-                            >
-                                @foreach ($importPastChoices as $m)
-                                    <button
-                                        type="button"
-                                        class="min-w-0 flex-1 rounded px-1.5 py-1 text-[10px] font-semibold leading-tight transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/45 disabled:opacity-50"
-                                        :class="Number(importPastMonths) === {{ (int) $m }}
-                                            ? 'bg-brand-blue text-white shadow-sm dark:bg-brand-blue'
-                                            : 'text-muted-foreground hover:bg-background/90 hover:text-foreground'"
-                                        :disabled="connecting"
-                                        @click="pickImportPastMonths({{ (int) $m }})"
-                                    >
-                                        @if ($m === 1)
-                                            {{ __('1 mo') }}
-                                        @elseif ($m === 3)
-                                            {{ __('3 mo') }}
-                                        @elseif ($m === 6)
-                                            {{ __('6 mo') }}
-                                        @else
-                                            {{ trans_choice(':count mo|:count mos', $m, ['count' => $m]) }}
-                                        @endif
-                                    </button>
-                                @endforeach
-                            </div>
-                            <p class="text-[10px] leading-relaxed text-muted-foreground/80">
-                                {{ __('Events that ended before this window are not imported.') }}
-                            </p>
-                        </div>
                         <div class="space-y-2">
                             <div class="space-y-1">
-                                <label class="block text-[11px] font-medium text-muted-foreground">{{ __('Feed URL') }}</label>
+                                <div class="flex items-center justify-between gap-2">
+                                    <label class="block text-[11px] font-medium text-muted-foreground">{{ __('Feed URL') }}</label>
+                                    <div class="flex items-center gap-1.5">
+                                        <template x-if="!connectIncludeOverdue">
+                                            <flux:tooltip content="{{ __('Turn on overdue import') }}">
+                                                <flux:button
+                                                    type="button"
+                                                    size="xs"
+                                                    variant="ghost"
+                                                    icon="exclamation-triangle"
+                                                    class="text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                                                    x-bind:disabled="connecting"
+                                                    @click="connectIncludeOverdue = true"
+                                                />
+                                            </flux:tooltip>
+                                        </template>
+                                        <template x-if="connectIncludeOverdue">
+                                            <flux:tooltip content="{{ __('Turn off overdue import') }}">
+                                                <flux:button
+                                                    type="button"
+                                                    size="xs"
+                                                    variant="outline"
+                                                    icon="exclamation-triangle"
+                                                    class="border-red-300 bg-red-500/10 text-red-700 hover:bg-red-500/15 hover:text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300"
+                                                    x-bind:disabled="connecting"
+                                                    @click="connectIncludeOverdue = false"
+                                                />
+                                            </flux:tooltip>
+                                        </template>
+                                    </div>
+                                </div>
+                                <template x-if="connectIncludeOverdue">
+                                    <div class="space-y-2">
+                                        <span class="block text-[11px] font-medium text-muted-foreground" id="calendar-import-past-months-label">
+                                            {{ __('How far back to import') }}
+                                        </span>
+                                        <div
+                                            class="flex gap-1 rounded-md border border-border/60 bg-muted/25 p-0.5 dark:border-white/10 dark:bg-white/5"
+                                            role="group"
+                                            aria-labelledby="calendar-import-past-months-label"
+                                        >
+                                            @foreach ($importPastChoices as $m)
+                                                <button
+                                                    type="button"
+                                                    class="min-w-0 flex-1 rounded px-1.5 py-1 text-[10px] font-semibold leading-tight transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/45 disabled:opacity-50"
+                                                    :class="Number(importPastMonths) === {{ (int) $m }}
+                                                        ? 'bg-brand-blue text-white shadow-sm dark:bg-brand-blue'
+                                                        : 'text-muted-foreground hover:bg-background/90 hover:text-foreground'"
+                                                    :disabled="connecting"
+                                                    @click="pickImportPastMonths({{ (int) $m }})"
+                                                >
+                                                    @if ($m === 1)
+                                                        {{ __('1 mo') }}
+                                                    @elseif ($m === 3)
+                                                        {{ __('3 mo') }}
+                                                    @elseif ($m === 6)
+                                                        {{ __('6 mo') }}
+                                                    @else
+                                                        {{ trans_choice(':count mo|:count mos', $m, ['count' => $m]) }}
+                                                    @endif
+                                                </button>
+                                            @endforeach
+                                        </div>
+                                    </div>
+                                </template>
                                 <div class="grid grid-cols-[minmax(0,4fr)_auto] items-center gap-2">
                                     <flux:input
                                         x-ref="urlInput"

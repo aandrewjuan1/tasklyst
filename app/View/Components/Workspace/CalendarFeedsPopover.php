@@ -48,12 +48,14 @@ class CalendarFeedsPopover extends Component
         $this->alpineBootstrap = [
             'importPastMonths' => $this->importPastMonths,
             'importPastMonthsSaved' => $this->importPastMonths,
+            'connectIncludeOverdue' => false,
             'importPastChoices' => $this->importPastChoices,
             'importPastMonthLabels' => $this->importPastMonthLabels,
             'strings' => [
                 'pleaseEnterBrightspaceUrl' => __('Please enter your Brightspace calendar URL.'),
                 'useBrightspaceSubscribeUrl' => __('Please use a Brightspace calendar link that starts with https://eac.brightspace.com/d2l/le/calendar/feed/user/feed.ics'),
                 'connectingCalendar' => __('Connecting your calendar…'),
+                'syncingCalendar' => __('Syncing your calendar…'),
                 'couldNotConnectFeed' => __('Couldn’t connect the calendar feed. Try again.'),
             ],
         ];

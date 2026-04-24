@@ -522,6 +522,7 @@ trait HandlesTasks
             ->withCount('comments')
             ->withCount('activityLogs')
             ->forUser($userId);
+        $taskQuery->withoutHiddenOverdueFeedItems(now());
 
         if (! $searchAllItems) {
             $date = method_exists($this, 'getParsedSelectedDate')
@@ -690,6 +691,7 @@ trait HandlesTasks
             ->withCount('comments')
             ->withCount('activityLogs')
             ->forUser($userId);
+        $taskQuery->withoutHiddenOverdueFeedItems(now());
 
         if (! $searchAllItems) {
             $date = method_exists($this, 'getParsedSelectedDate')
