@@ -22,7 +22,7 @@ it('selects strict window miss scenario from triggers', function (): void {
     ]);
 
     expect(data_get($out, 'explanation_meta.scenario_key'))->toBe('STRICT_WINDOW_NO_FIT');
-    expect((string) ($out['reasoning'] ?? ''))->toContain('Physics Lecture (8:00 AM-10:00 AM)');
+    expect((string) ($out['reasoning'] ?? ''))->toContain('Physics Lecture');
     expect((string) ($out['reasoning'] ?? ''))->toContain('1:30 PM');
 });
 
@@ -129,9 +129,10 @@ it('selects blocker shifted scenario and mentions up to two blocker titles with 
     ]);
 
     expect(data_get($out, 'explanation_meta.scenario_key'))->toBe('BLOCKED_WINDOW_SHIFTED');
-    expect((string) ($out['reasoning'] ?? ''))->toContain('ELECTIVE 5 (8:00 AM-10:00 AM)');
-    expect((string) ($out['reasoning'] ?? ''))->toContain('ELECTIVE 10 (1:00 PM-2:00 PM)');
+    expect((string) ($out['reasoning'] ?? ''))->toContain('ELECTIVE 5');
+    expect((string) ($out['reasoning'] ?? ''))->toContain('ELECTIVE 10');
     expect((string) ($out['reasoning'] ?? ''))->not->toContain('Client Review');
+    expect((string) ($out['reasoning'] ?? ''))->not->toContain('occupied your earlier requested window');
 });
 
 it('keeps blocker evidence for tomorrow horizon', function (): void {
@@ -152,6 +153,32 @@ it('keeps blocker evidence for tomorrow horizon', function (): void {
         'chosen_time_label' => '10:30 AM',
     ]);
 
-    expect((string) ($out['reasoning'] ?? ''))->toContain('Physics Lecture (8:00 AM-10:00 AM)');
+    expect((string) ($out['reasoning'] ?? ''))->toContain('Physics Lecture');
     expect((string) ($out['reasoning'] ?? ''))->toContain('10:30 AM');
+});
+
+it('uses daypart reference wording for morning slot with afternoon classes', function (): void {
+    $service = new DeterministicScheduleExplanationService;
+
+    $out = $service->composeNormal([
+        'flow_source' => 'schedule',
+        'schedule_scope' => 'all_entities',
+        'requested_window_label' => "this week's window",
+        'requested_count' => 1,
+        'placed_count' => 1,
+        'unplaced_count' => 0,
+        'trigger_list' => ['requested_window_unsatisfied'],
+        'strict_window_requested' => false,
+        'explicit_requested_window' => false,
+        'blocking_reasons' => [
+            ['title' => 'ELECTIVE 3', 'blocked_window' => '1:45 PM-6:15 PM', 'reason' => 'overlap', 'source_type' => 'class'],
+            ['title' => 'YES', 'blocked_window' => '12:45 PM-2:15 PM', 'reason' => 'overlap', 'source_type' => 'class'],
+        ],
+        'chosen_time_label' => '8:00 AM',
+    ]);
+
+    expect(data_get($out, 'explanation_meta.scenario_key'))->toBe('BLOCKED_WINDOW_SHIFTED');
+    expect((string) ($out['reasoning'] ?? ''))->toContain('morning');
+    expect((string) ($out['reasoning'] ?? ''))->toContain('afternoon classes');
+    expect((string) ($out['reasoning'] ?? ''))->not->toContain('occupied your earlier requested window');
 });

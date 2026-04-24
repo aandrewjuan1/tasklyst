@@ -416,6 +416,30 @@ it('uses explicit task datetime ranges for unplaced blocker rows', function (): 
         ->toContain('11:00 AM');
 });
 
+it('collects busy blockers across the entire requested range window', function (): void {
+    $generator = app(TaskAssistantStructuredFlowGenerator::class);
+    $method = new ReflectionMethod(TaskAssistantStructuredFlowGenerator::class, 'buildScheduleExplainability');
+    $method->setAccessible(true);
+
+    $snapshot = [
+        'timezone' => 'UTC',
+        'time_window' => ['start' => '08:00', 'end' => '10:00'],
+        'schedule_horizon' => ['start_date' => '2026-04-22', 'end_date' => '2026-04-24', 'label' => 'this week'],
+        'events_for_busy' => [[
+            'id' => 7002,
+            'title' => 'Day 3 blocked lecture',
+            'starts_at' => '2026-04-24T08:30:00+00:00',
+            'ends_at' => '2026-04-24T09:30:00+00:00',
+        ]],
+    ];
+
+    $result = $method->invoke($generator, $snapshot, [], [], ['unplaced_units' => []], []);
+    $blocking = is_array($result['blocking_reasons'] ?? null) ? $result['blocking_reasons'] : [];
+
+    expect($blocking)->not->toBe([]);
+    expect((string) ($blocking[0]['title'] ?? ''))->toBe('Day 3 blocked lecture');
+});
+
 it('does not truncate too far when the available same-day window is too small', function (): void {
     config([
         'task-assistant.schedule.max_horizon_days' => 2,
@@ -654,6 +678,46 @@ it('does not place new proposals over already scheduled task windows', function 
     $blockedEnd = new DateTimeImmutable('2026-04-12T11:00:00+00:00');
     $overlap = $start < $blockedEnd && $end > $blockedStart;
     expect($overlap)->toBeFalse();
+});
+
+it('treats recurring task occurrences as busy even without concrete starts_at rows', function (): void {
+    $generator = app(TaskAssistantStructuredFlowGenerator::class);
+    $method = new ReflectionMethod(TaskAssistantStructuredFlowGenerator::class, 'buildBusyRanges');
+    $method->setAccessible(true);
+
+    $snapshot = [
+        'tasks' => [[
+            'id' => 91,
+            'title' => 'Daily recurring block',
+            'is_recurring' => true,
+            'starts_at' => null,
+            'ends_at' => null,
+            'duration_minutes' => 60,
+            'recurring_payload' => [
+                'type' => 'daily',
+                'interval' => 1,
+                'start_datetime' => '2026-04-12T10:00:00+00:00',
+                'end_datetime' => null,
+                'days_of_week' => [],
+            ],
+        ]],
+        'events' => [],
+        'events_for_busy' => [],
+        'school_class_busy_intervals' => [],
+    ];
+
+    /** @var array<int, array{start: DateTimeImmutable, end: DateTimeImmutable}> $busy */
+    $busy = $method->invoke(
+        $generator,
+        $snapshot,
+        new DateTimeImmutable('2026-04-13 08:00:00', new DateTimeZone('UTC')),
+        new DateTimeImmutable('2026-04-13 22:00:00', new DateTimeZone('UTC')),
+        new DateTimeZone('UTC')
+    );
+
+    expect($busy)->not->toBe([]);
+    expect($busy[0]['start']->format('H:i'))->toBe('10:00');
+    expect($busy[0]['end']->format('H:i'))->toBe('11:00');
 });
 
 it('uses adaptive tomorrow fallback when narrow non-strict window cannot place any unit', function (): void {

@@ -17,6 +17,7 @@ final class IntentRoutingPolicy
         private readonly TaskAssistantIntentResolutionService $resolution,
         private readonly TaskAssistantConversationStateService $conversationState,
         private readonly TaskAssistantListingReferenceResolver $listingReferenceResolver,
+        private readonly TaskAssistantNamedTaskTargetResolver $namedTaskTargetResolver,
         private readonly TaskAssistantClosingIntentClassifier $closingIntentClassifier,
         private readonly TaskAssistantGreetingIntentClassifier $greetingIntentClassifier,
     ) {}
@@ -149,6 +150,7 @@ final class IntentRoutingPolicy
         if ($this->isLikelyPrioritizeScheduleCombinedPrompt($normalized)) {
             $constraints = $this->extractConstraintsForFlow($thread, $normalized, 'prioritize_schedule');
             $constraints = $this->applyFreshTopNConstraintOverride($normalized, 'prioritize_schedule', $constraints);
+            [$clarificationNeeded, $clarificationQuestion] = $this->resolveClarificationFromConstraints($constraints);
 
             Log::info('task-assistant.intent.policy', [
                 'layer' => 'intent_policy',
@@ -171,14 +173,15 @@ final class IntentRoutingPolicy
                 confidence: 1.0,
                 reasonCodes: ['prioritize_schedule_combined_prompt'],
                 constraints: $constraints,
-                clarificationNeeded: false,
-                clarificationQuestion: null,
+                clarificationNeeded: $clarificationNeeded,
+                clarificationQuestion: $clarificationQuestion,
             );
         }
 
         if ($this->isLikelyFreshDayPlanningPrompt($normalized)) {
             $constraints = $this->extractConstraintsForFlow($thread, $normalized, 'prioritize_schedule');
             $constraints = $this->applyFreshTopNConstraintOverride($normalized, 'prioritize_schedule', $constraints);
+            [$clarificationNeeded, $clarificationQuestion] = $this->resolveClarificationFromConstraints($constraints);
 
             Log::info('task-assistant.intent.policy', [
                 'layer' => 'intent_policy',
@@ -201,8 +204,8 @@ final class IntentRoutingPolicy
                 confidence: 1.0,
                 reasonCodes: ['fresh_day_planning_prioritize_schedule'],
                 constraints: $constraints,
-                clarificationNeeded: false,
-                clarificationQuestion: null,
+                clarificationNeeded: $clarificationNeeded,
+                clarificationQuestion: $clarificationQuestion,
             );
         }
 
@@ -215,6 +218,7 @@ final class IntentRoutingPolicy
                 $constraints = $this->extractConstraintsForFlow($thread, $normalized, 'prioritize_schedule');
                 $constraints = $this->applyFreshTopNConstraintOverride($normalized, 'prioritize_schedule', $constraints);
             }
+            [$clarificationNeeded, $clarificationQuestion] = $this->resolveClarificationFromConstraints($constraints);
 
             Log::info('task-assistant.intent.policy', [
                 'layer' => 'intent_policy',
@@ -237,8 +241,8 @@ final class IntentRoutingPolicy
                 confidence: 1.0,
                 reasonCodes: ['fresh_batch_schedule_shortcircuit'],
                 constraints: $constraints,
-                clarificationNeeded: false,
-                clarificationQuestion: null,
+                clarificationNeeded: $clarificationNeeded,
+                clarificationQuestion: $clarificationQuestion,
             );
         }
 
@@ -273,6 +277,7 @@ final class IntentRoutingPolicy
 
         if ($this->hasPendingScheduleDraftContext($thread) && $this->isLikelyScheduleRefinementEditPrompt($normalized)) {
             $constraints = $this->extractConstraintsForFlow($thread, $normalized, 'schedule');
+            [$clarificationNeeded, $clarificationQuestion] = $this->resolveClarificationFromConstraints($constraints);
             Log::info('task-assistant.intent.policy', [
                 'layer' => 'intent_policy',
                 'run_id' => app()->bound('task_assistant.run_id') ? app('task_assistant.run_id') : null,
@@ -294,8 +299,8 @@ final class IntentRoutingPolicy
                 confidence: 1.0,
                 reasonCodes: ['schedule_refinement_context_shortcircuit'],
                 constraints: $constraints,
-                clarificationNeeded: false,
-                clarificationQuestion: null,
+                clarificationNeeded: $clarificationNeeded,
+                clarificationQuestion: $clarificationQuestion,
             );
         }
 
@@ -374,6 +379,7 @@ final class IntentRoutingPolicy
         $decision = $this->resolution->resolve($thread, $normalized, null, $signals);
         $constraints = $this->extractConstraintsForFlow($thread, $normalized, $decision->flow);
         $constraints = $this->applyFreshTopNConstraintOverride($normalized, $decision->flow, $constraints);
+        [$clarificationNeeded, $clarificationQuestion] = $this->resolveClarificationFromConstraints($constraints);
 
         Log::info('task-assistant.intent.policy', [
             'layer' => 'intent_policy',
@@ -407,8 +413,8 @@ final class IntentRoutingPolicy
             confidence: $decision->confidence,
             reasonCodes: $decision->reasonCodes,
             constraints: $constraints,
-            clarificationNeeded: false,
-            clarificationQuestion: null,
+            clarificationNeeded: $clarificationNeeded,
+            clarificationQuestion: $clarificationQuestion,
         );
     }
 
@@ -434,6 +440,26 @@ final class IntentRoutingPolicy
             }
         } elseif ($useSelected && $selected !== []) {
             $targetEntities = $selected;
+        }
+
+        $namedTaskResolution = [
+            'status' => 'none',
+            'matched_phrase' => null,
+            'target_entity' => null,
+            'clarification_question' => null,
+            'candidates' => [],
+        ];
+        if (
+            in_array($resolvedFlow, ['schedule', 'prioritize_schedule'], true)
+            && $targetEntities === []
+        ) {
+            $namedTaskResolution = $this->namedTaskTargetResolver->resolve($thread, $content);
+            if (($namedTaskResolution['status'] ?? 'none') === 'single') {
+                $singleTarget = $namedTaskResolution['target_entity'] ?? null;
+                if (is_array($singleTarget)) {
+                    $targetEntities = [$singleTarget];
+                }
+            }
         }
 
         [$countLimit, $countLimitExplicitlyRequested] = $this->extractCountLimitWithSource($normalized);
@@ -482,6 +508,7 @@ final class IntentRoutingPolicy
             'time_window_hint' => $this->extractTimeWindowHint($normalized),
             'strict_window' => $this->extractStrictWindowFlag($normalized),
             'target_entities' => $targetEntities,
+            'named_task_resolution' => $namedTaskResolution,
             'routing_signal_strength' => $routingSignal,
             'routing_hint' => ($resolvedFlow === 'prioritize' && ($routingSignal['schedule'] ?? 0.0) >= 0.55)
                 ? 'schedule_followup_likely_next_turn'
@@ -1280,5 +1307,27 @@ final class IntentRoutingPolicy
         }
 
         return $out;
+    }
+
+    /**
+     * @param  array<string, mixed>  $constraints
+     * @return array{0: bool, 1: ?string}
+     */
+    private function resolveClarificationFromConstraints(array $constraints): array
+    {
+        $resolution = is_array($constraints['named_task_resolution'] ?? null)
+            ? $constraints['named_task_resolution']
+            : [];
+        $status = (string) ($resolution['status'] ?? 'none');
+        if ($status !== 'ambiguous') {
+            return [false, null];
+        }
+
+        $question = trim((string) ($resolution['clarification_question'] ?? ''));
+        if ($question === '') {
+            $question = 'I found multiple matching tasks. Which one should I schedule?';
+        }
+
+        return [true, $question];
     }
 }

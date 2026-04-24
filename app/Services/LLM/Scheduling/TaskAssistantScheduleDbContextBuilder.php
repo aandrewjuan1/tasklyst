@@ -227,6 +227,17 @@ final class TaskAssistantScheduleDbContextBuilder
                     'school_class_id' => $task->school_class_id,
                     'duration_minutes' => $task->duration,
                     'is_recurring' => $task->recurringTask !== null,
+                    'recurring_payload' => $task->recurringTask !== null
+                        ? [
+                            'type' => $task->recurringTask->recurrence_type?->value,
+                            'interval' => max(1, (int) ($task->recurringTask->interval ?? 1)),
+                            'start_datetime' => $task->recurringTask->start_datetime?->toIso8601String(),
+                            'end_datetime' => $task->recurringTask->end_datetime?->toIso8601String(),
+                            'days_of_week' => is_string($task->recurringTask->days_of_week)
+                                ? (json_decode($task->recurringTask->days_of_week, true) ?: [])
+                                : [],
+                        ]
+                        : null,
                 ];
             })
             ->values()

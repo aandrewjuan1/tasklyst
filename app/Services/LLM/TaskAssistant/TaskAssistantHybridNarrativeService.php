@@ -320,7 +320,11 @@ final class TaskAssistantHybridNarrativeService
         $scheduleSource = trim((string) ($promptData['schedule_source'] ?? 'schedule'));
         $scheduleSelectionHint = $scheduleSource === 'prioritize_schedule'
             ? ' Selection context: these rows were selected from the student-first prioritized tasks (task-first with configured event override, then task tiers/scoring). Keep your explanation aligned with this deterministic selection; do not claim a different ranking rule.'
-            : '';
+            : (
+                $scheduleSource === 'targeted_schedule'
+                    ? ' Selection context: the student asked to schedule a specific named task. Keep framing explicit that this plan is for that requested task.'
+                    : ''
+            );
 
         $digestBlock = '';
         $trimDigest = $placementDigestJson !== null ? trim($placementDigestJson) : '';

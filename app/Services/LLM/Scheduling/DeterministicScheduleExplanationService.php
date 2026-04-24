@@ -77,20 +77,22 @@ final class DeterministicScheduleExplanationService
             scenarioKey: $scenarioKey,
             requestedWindowLabel: $requestedWindowLabel,
             chosenTimeLabel: $chosenTimeLabel,
-            blockersText: $blockersText,
+            selectedBlockers: $selectedBlockers,
             requestedCount: $requestedCount,
             placedCount: $placedCount,
             unplacedCount: $unplacedCount,
             fallbackMode: $fallbackMode,
             nearestLabel: $nearestLabel,
             hasBlockerTitles: $blockerTitles !== [],
+            chosenDaypart: $chosenDaypart,
+            explicitRequestedWindow: $explicitRequestedWindow,
         );
         $confirmation = $this->buildConfirmation(
             scenarioKey: $scenarioKey,
             unplacedCount: $unplacedCount,
         );
 
-        $toneKey = $this->resolveCoachingToneKey($scenarioKey, $chosenDaypart);
+        $toneKey = $this->resolveCoachingToneKey($scenarioKey, $chosenDaypart, $chosenTimeLabel, $selectedBlockers);
         $coachLine = $this->coachingLineForToneKey($toneKey);
         if ($coachLine !== '' && ! str_contains(mb_strtolower($reasoning), mb_strtolower($coachLine))) {
             $reasoning = trim($reasoning.' '.$coachLine);
@@ -274,14 +276,24 @@ final class DeterministicScheduleExplanationService
         string $scenarioKey,
         string $requestedWindowLabel,
         string $chosenTimeLabel,
-        string $blockersText,
+        array $selectedBlockers,
         int $requestedCount,
         int $placedCount,
         int $unplacedCount,
         string $fallbackMode,
         string $nearestLabel,
         bool $hasBlockerTitles,
+        string $chosenDaypart,
+        bool $explicitRequestedWindow,
     ): string {
+        $blockersText = $this->joinBlockersWithWindows($selectedBlockers);
+        $dayContext = $this->buildDayContextReasoning(
+            chosenDaypart: $chosenDaypart,
+            chosenTimeLabel: $chosenTimeLabel,
+            selectedBlockers: $selectedBlockers,
+            explicitRequestedWindow: $explicitRequestedWindow,
+        );
+
         return match ($scenarioKey) {
             'STRICT_WINDOW_NO_FIT' => $hasBlockerTitles
                 ? "I could not fit {$requestedWindowLabel} because {$blockersText} occupied that period, so I used the nearest open slot{$this->suffixAtLabel($chosenTimeLabel)}."
@@ -293,7 +305,11 @@ final class DeterministicScheduleExplanationService
             'TOP_N_SHORTFALL' => "You asked for {$requestedCount}, and {$placedCount} fit in {$requestedWindowLabel} in this pass.".($hasBlockerTitles ? " Main blockers were {$blockersText}." : ''),
             'UNPLACED_TARGETS_EXIST' => "I scheduled what fit and left {$unplacedCount} unscheduled item(s) because no conflict-free slot remained in this window.".($hasBlockerTitles ? " The tightest constraints were {$blockersText}." : ''),
             'BLOCKED_WINDOW_SHIFTED' => $hasBlockerTitles
-                ? "I placed this{$this->suffixAtLabel($chosenTimeLabel)} because {$blockersText} occupied your earlier requested window."
+                ? (
+                    $dayContext !== ''
+                        ? "I placed this{$this->suffixAtLabel($chosenTimeLabel)}. {$dayContext}"
+                        : "I placed this{$this->suffixAtLabel($chosenTimeLabel)} because {$blockersText} were the tightest constraints in your day."
+                )
                 : "I placed this{$this->suffixAtLabel($chosenTimeLabel)} because your earlier window was occupied.",
             'PLACEMENT_OUTSIDE_HORIZON' => "The closest valid slot was outside the original horizon, so I drafted the nearest feasible alternative{$this->suffixAtLabel($chosenTimeLabel)}.",
             'REQUESTED_WINDOW_HONORED' => "That window stayed open and conflict-free, so placement remained inside {$requestedWindowLabel}.",
@@ -477,12 +493,30 @@ final class DeterministicScheduleExplanationService
         return ($hour24 * 60) + $minute;
     }
 
-    private function resolveCoachingToneKey(string $scenarioKey, string $chosenDaypart): string
-    {
+    /**
+     * @param  list<array{title:string,blocked_window:string}>  $selectedBlockers
+     */
+    private function resolveCoachingToneKey(
+        string $scenarioKey,
+        string $chosenDaypart,
+        string $chosenTimeLabel,
+        array $selectedBlockers
+    ): string {
+        $chosenMinutes = $this->parseTimeFromLabelToMinutes($chosenTimeLabel);
+        $latestBlockerEnd = $this->latestBlockerEndMinutes($selectedBlockers);
+        $isAfterCommitments = $chosenMinutes !== null
+            && $latestBlockerEnd !== null
+            && $chosenMinutes >= $latestBlockerEnd;
+
         return match ($scenarioKey) {
             'STRICT_WINDOW_NO_FIT', 'AUTO_ROLL_LATER_TO_TOMORROW', 'ADAPTIVE_FALLBACK_RELAXED' => 'fallback_nearest',
             'TOP_N_SHORTFALL', 'UNPLACED_TARGETS_EXIST' => 'partial_fit',
-            'BLOCKED_WINDOW_SHIFTED' => 'post_class_or_after_commitment',
+            'BLOCKED_WINDOW_SHIFTED' => $isAfterCommitments ? 'post_class_or_after_commitment' : match (mb_strtolower($chosenDaypart)) {
+                'morning' => 'morning_momentum',
+                'afternoon' => 'afternoon_restart',
+                'evening' => 'evening_closure',
+                default => 'realistic_planning',
+            },
             default => match (mb_strtolower($chosenDaypart)) {
                 'morning' => 'morning_momentum',
                 'afternoon' => 'afternoon_restart',
@@ -490,6 +524,101 @@ final class DeterministicScheduleExplanationService
                 default => 'realistic_planning',
             },
         };
+    }
+
+    /**
+     * @param  list<array{title:string,blocked_window:string}>  $selectedBlockers
+     */
+    private function buildDayContextReasoning(
+        string $chosenDaypart,
+        string $chosenTimeLabel,
+        array $selectedBlockers,
+        bool $explicitRequestedWindow,
+    ): string {
+        if ($selectedBlockers === []) {
+            return '';
+        }
+
+        $chosenDaypart = mb_strtolower(trim($chosenDaypart));
+        $blockerDayparts = $this->blockerDayparts($selectedBlockers);
+        if ($blockerDayparts === []) {
+            return '';
+        }
+
+        $topBlockers = array_slice($selectedBlockers, 0, 2);
+        $blockerNames = implode(' and ', array_map(
+            static fn (array $row): string => (string) ($row['title'] ?? ''),
+            $topBlockers
+        ));
+
+        if ($chosenDaypart === 'morning' && in_array('afternoon', $blockerDayparts, true)) {
+            return "You have {$blockerNames} later in the day, so doing this in the morning keeps your afternoon classes uninterrupted.";
+        }
+
+        if ($chosenDaypart === 'afternoon' && in_array('morning', $blockerDayparts, true)) {
+            return "Your morning already has {$blockerNames}, so this afternoon slot gives you a cleaner focus window.";
+        }
+
+        if ($chosenDaypart === 'evening' && (in_array('morning', $blockerDayparts, true) || in_array('afternoon', $blockerDayparts, true))) {
+            return "Your earlier classes ({$blockerNames}) make evening the most realistic focused slot today.";
+        }
+
+        if ($explicitRequestedWindow) {
+            return "It is the clearest opening around your existing commitments ({$blockerNames}).";
+        }
+
+        return "This fits around your existing commitments ({$blockerNames}) without overloading the rest of your day.";
+    }
+
+    /**
+     * @param  list<array{title:string,blocked_window:string}>  $selectedBlockers
+     * @return list<string>
+     */
+    private function blockerDayparts(array $selectedBlockers): array
+    {
+        $dayparts = [];
+        foreach ($selectedBlockers as $row) {
+            $window = (string) ($row['blocked_window'] ?? '');
+            $startMinutes = $this->windowStartMinutes($window);
+            $dayparts[] = match (true) {
+                $startMinutes < 12 * 60 => 'morning',
+                $startMinutes < 18 * 60 => 'afternoon',
+                default => 'evening',
+            };
+        }
+
+        return array_values(array_unique($dayparts));
+    }
+
+    private function parseTimeFromLabelToMinutes(string $label): ?int
+    {
+        if (preg_match('/\b(\d{1,2}):(\d{2})\s*(AM|PM)\b/i', $label, $matches) !== 1) {
+            return null;
+        }
+
+        return $this->parseTimeToMinutes(sprintf('%s:%s %s', $matches[1], $matches[2], strtoupper((string) $matches[3])));
+    }
+
+    /**
+     * @param  list<array{title:string,blocked_window:string}>  $selectedBlockers
+     */
+    private function latestBlockerEndMinutes(array $selectedBlockers): ?int
+    {
+        $latest = null;
+        foreach ($selectedBlockers as $row) {
+            $window = trim((string) ($row['blocked_window'] ?? ''));
+            $parts = preg_split('/\s*-\s*/', $window);
+            if (! is_array($parts) || count($parts) !== 2) {
+                continue;
+            }
+            $end = $this->parseTimeToMinutes((string) $parts[1]);
+            if ($end === null) {
+                continue;
+            }
+            $latest = $latest === null ? $end : max($latest, $end);
+        }
+
+        return $latest;
     }
 
     private function coachingLineForToneKey(string $toneKey): string

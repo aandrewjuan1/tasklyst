@@ -2473,6 +2473,106 @@ test('pending schedule fallback proceeds on affirmative follow-up', function ():
     expect((string) $assistantMessage->content)->not->toContain('Would you like me to use this plan?');
 });
 
+test('ambiguous named scheduling prompt returns clarification and skips schedule proposals', function (): void {
+    config(['task-assistant.intent.use_llm' => false]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    Task::factory()->for($user)->create([
+        'title' => 'morning 5km run',
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::Medium,
+    ]);
+    Task::factory()->for($user)->create([
+        'title' => 'evening 5km run',
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::Medium,
+    ]);
+
+    $userMessage = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'schedule my 5km run for tomorrow',
+    ]);
+    $assistantMessage = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
+
+    $assistantMessage->refresh();
+
+    expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('general_guidance');
+    expect((string) ($assistantMessage->metadata['general_guidance']['message'] ?? ''))->toContain('Which one should I schedule');
+    expect($assistantMessage->metadata['schedule'] ?? null)->toBeNull();
+});
+
+test('numeric reply resolves pending named task clarification and schedules selected option', function (): void {
+    config(['task-assistant.intent.use_llm' => false]);
+
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => 'I scheduled your selected task for tomorrow.',
+                'reasoning' => 'This fits your requested window.',
+                'confirmation' => 'Would you like any timing changes?',
+            ])
+            ->withUsage(new Usage(3, 7)),
+    ]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    Task::factory()->for($user)->create([
+        'title' => 'morning 5km run',
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::Medium,
+        'duration' => 45,
+    ]);
+    Task::factory()->for($user)->create([
+        'title' => 'evening 5km run',
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::Medium,
+        'duration' => 60,
+    ]);
+
+    $firstUser = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'schedule my 5km run for tomorrow',
+    ]);
+    $firstAssistant = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $firstUser->id, $firstAssistant->id);
+    $firstAssistant->refresh();
+    $thread->refresh();
+
+    expect($firstAssistant->metadata['structured']['flow'] ?? null)->toBe('general_guidance');
+    expect((string) ($firstAssistant->metadata['general_guidance']['message'] ?? ''))->toContain('1)');
+    expect((string) ($firstAssistant->metadata['general_guidance']['message'] ?? ''))->toContain('2)');
+    $expectedSecondOptionId = (int) ($thread->metadata['conversation_state']['pending_named_task_clarification']['candidates'][1]['entity_id'] ?? 0);
+    expect($expectedSecondOptionId)->toBeGreaterThan(0);
+
+    $secondUser = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => '2',
+    ]);
+    $secondAssistant = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $secondUser->id, $secondAssistant->id);
+    $secondAssistant->refresh();
+    $thread->refresh();
+
+    expect($secondAssistant->metadata['structured']['flow'] ?? null)->toBe('schedule');
+    expect($thread->metadata['conversation_state']['pending_named_task_clarification'] ?? null)->toBeNull();
+    expect((array) ($thread->metadata['conversation_state']['last_schedule']['target_entities'] ?? []))->toHaveCount(1);
+    expect((int) ($thread->metadata['conversation_state']['last_schedule']['target_entities'][0]['entity_id'] ?? 0))->toBe($expectedSecondOptionId);
+});
+
 test('pending schedule fallback decline asks for alternate window and clears pending state', function (): void {
     config(['task-assistant.intent.use_llm' => false]);
 

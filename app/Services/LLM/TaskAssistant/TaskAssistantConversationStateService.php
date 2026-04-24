@@ -374,6 +374,86 @@ final class TaskAssistantConversationStateService
     }
 
     /**
+     * @param  list<array{entity_type: string, entity_id: int, title: string}>  $candidates
+     */
+    public function rememberPendingNamedTaskClarification(
+        TaskAssistantThread $thread,
+        string $initialUserMessage,
+        string $question,
+        string $flow,
+        array $candidates,
+    ): void {
+        $state = $this->get($thread);
+        $state['pending_named_task_clarification'] = [
+            'initial_user_message' => $initialUserMessage,
+            'question' => $question,
+            'flow' => $flow,
+            'candidates' => $candidates,
+            'created_at' => now()->toIso8601String(),
+        ];
+        $this->put($thread, $state);
+    }
+
+    /**
+     * @return array{
+     *   initial_user_message: string,
+     *   question: string,
+     *   flow: string,
+     *   candidates: list<array{entity_type: string, entity_id: int, title: string}>,
+     *   created_at?: string
+     * }|null
+     */
+    public function pendingNamedTaskClarification(TaskAssistantThread $thread): ?array
+    {
+        $state = $this->get($thread);
+        $pending = $state['pending_named_task_clarification'] ?? null;
+        if (! is_array($pending)) {
+            return null;
+        }
+
+        $question = trim((string) ($pending['question'] ?? ''));
+        $flow = trim((string) ($pending['flow'] ?? ''));
+        $initialUserMessage = trim((string) ($pending['initial_user_message'] ?? ''));
+        $candidates = is_array($pending['candidates'] ?? null) ? $pending['candidates'] : [];
+        $normalizedCandidates = [];
+        foreach ($candidates as $candidate) {
+            if (! is_array($candidate)) {
+                continue;
+            }
+            $type = trim((string) ($candidate['entity_type'] ?? ''));
+            $id = (int) ($candidate['entity_id'] ?? 0);
+            $title = trim((string) ($candidate['title'] ?? ''));
+            if ($type === '' || $id <= 0 || $title === '') {
+                continue;
+            }
+            $normalizedCandidates[] = [
+                'entity_type' => $type,
+                'entity_id' => $id,
+                'title' => $title,
+            ];
+        }
+
+        if ($question === '' || $flow === '' || $normalizedCandidates === []) {
+            return null;
+        }
+
+        return [
+            'initial_user_message' => $initialUserMessage,
+            'question' => $question,
+            'flow' => $flow,
+            'candidates' => $normalizedCandidates,
+            'created_at' => is_string($pending['created_at'] ?? null) ? $pending['created_at'] : null,
+        ];
+    }
+
+    public function clearPendingNamedTaskClarification(TaskAssistantThread $thread): void
+    {
+        $state = $this->get($thread);
+        unset($state['pending_named_task_clarification']);
+        $this->put($thread, $state);
+    }
+
+    /**
      * Clears listing selection state (legacy name; prefer {@see clearLastListing}).
      */
     public function clearSelectedEntities(TaskAssistantThread $thread): void

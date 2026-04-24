@@ -2,13 +2,16 @@
 
 namespace App\Services\LLM\Scheduling;
 
+use App\Enums\TaskRecurrenceType;
 use App\Enums\TaskStatus;
+use App\Models\RecurringTask;
 use App\Models\Task;
 use App\Models\TaskAssistantThread;
 use App\Models\User;
 use App\Services\LLM\Prioritization\TaskPrioritizationService;
 use App\Services\LLM\TaskAssistant\TaskAssistantHybridNarrativeService;
 use App\Services\LLM\TaskAssistant\TaskAssistantPromptData;
+use App\Services\RecurrenceExpander;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
@@ -27,6 +30,7 @@ final class TaskAssistantStructuredFlowGenerator
         private readonly TaskAssistantWindowPlacementService $windowPlacementService,
         private readonly ScheduleConfirmationSignalsBuilder $confirmationSignalsBuilder,
         private readonly DeterministicScheduleExplanationService $deterministicExplanationService,
+        private readonly RecurrenceExpander $recurrenceExpander,
     ) {}
 
     /**
@@ -876,10 +880,15 @@ final class TaskAssistantStructuredFlowGenerator
             return [];
         }
         $horizon = is_array($snapshot['schedule_horizon'] ?? null) ? $snapshot['schedule_horizon'] : [];
-        $day = is_string($horizon['start_date'] ?? null) ? (string) $horizon['start_date'] : '';
-        if ($day === '') {
+        $rangeStartDate = is_string($horizon['start_date'] ?? null) ? (string) $horizon['start_date'] : '';
+        $rangeEndDate = is_string($horizon['end_date'] ?? null) ? (string) $horizon['end_date'] : $rangeStartDate;
+        if ($rangeStartDate === '' || $rangeEndDate === '') {
             return [];
         }
+        $timezoneName = is_string($snapshot['timezone'] ?? null) && trim((string) $snapshot['timezone']) !== ''
+            ? (string) $snapshot['timezone']
+            : (string) config('app.timezone', 'Asia/Manila');
+        $timezone = new \DateTimeZone($timezoneName);
 
         $out = [];
         $events = is_array($snapshot['events_for_busy'] ?? null) ? $snapshot['events_for_busy'] : [];
@@ -894,12 +903,20 @@ final class TaskAssistantStructuredFlowGenerator
                 continue;
             }
             try {
-                $startDt = new \DateTimeImmutable($start);
-                $endDt = new \DateTimeImmutable($end);
+                $startDt = new \DateTimeImmutable($start, $timezone);
+                $endDt = new \DateTimeImmutable($end, $timezone);
             } catch (\Throwable) {
                 continue;
             }
-            if ($startDt->format('Y-m-d') !== $day && $endDt->format('Y-m-d') !== $day) {
+            if (! $this->intervalOverlapsRequestedWindow(
+                $startDt,
+                $endDt,
+                $rangeStartDate,
+                $rangeEndDate,
+                $windowStart,
+                $windowEnd,
+                $timezone
+            )) {
                 continue;
             }
             $windowLabel = $startDt->format('g:i A').'-'.$endDt->format('g:i A');
@@ -925,12 +942,20 @@ final class TaskAssistantStructuredFlowGenerator
                 continue;
             }
             try {
-                $startDt = new \DateTimeImmutable($start);
-                $endDt = new \DateTimeImmutable($end);
+                $startDt = new \DateTimeImmutable($start, $timezone);
+                $endDt = new \DateTimeImmutable($end, $timezone);
             } catch (\Throwable) {
                 continue;
             }
-            if ($startDt->format('Y-m-d') !== $day && $endDt->format('Y-m-d') !== $day) {
+            if (! $this->intervalOverlapsRequestedWindow(
+                $startDt,
+                $endDt,
+                $rangeStartDate,
+                $rangeEndDate,
+                $windowStart,
+                $windowEnd,
+                $timezone
+            )) {
                 continue;
             }
             $classTitle = trim((string) ($interval['title'] ?? $interval['subject_name'] ?? $interval['name'] ?? ''));
@@ -949,6 +974,29 @@ final class TaskAssistantStructuredFlowGenerator
         }
 
         return $out;
+    }
+
+    private function intervalOverlapsRequestedWindow(
+        \DateTimeImmutable $intervalStart,
+        \DateTimeImmutable $intervalEnd,
+        string $rangeStartDate,
+        string $rangeEndDate,
+        string $windowStart,
+        string $windowEnd,
+        \DateTimeZone $timezone
+    ): bool {
+        try {
+            $rangeStart = new \DateTimeImmutable($rangeStartDate.' '.$windowStart, $timezone);
+            $rangeEnd = new \DateTimeImmutable($rangeEndDate.' '.$windowEnd, $timezone);
+        } catch (\Throwable) {
+            return false;
+        }
+
+        if ($rangeEnd <= $rangeStart) {
+            return false;
+        }
+
+        return $intervalStart < $rangeEnd && $intervalEnd > $rangeStart;
     }
 
     /**
@@ -1369,6 +1417,17 @@ final class TaskAssistantStructuredFlowGenerator
                 'school_class_id' => $task->school_class_id,
                 'duration_minutes' => $task->duration,
                 'is_recurring' => $task->recurringTask !== null,
+                'recurring_payload' => $task->recurringTask !== null
+                    ? [
+                        'type' => $task->recurringTask->recurrence_type?->value,
+                        'interval' => max(1, (int) ($task->recurringTask->interval ?? 1)),
+                        'start_datetime' => $task->recurringTask->start_datetime?->toIso8601String(),
+                        'end_datetime' => $task->recurringTask->end_datetime?->toIso8601String(),
+                        'days_of_week' => is_string($task->recurringTask->days_of_week)
+                            ? (json_decode($task->recurringTask->days_of_week, true) ?: [])
+                            : [],
+                    ]
+                    : null,
             ];
         }
 
@@ -2948,10 +3007,117 @@ final class TaskAssistantStructuredFlowGenerator
                 'end' => $taskEnd > $dayEnd ? $dayEnd : $taskEnd,
             ];
         }
+        $this->appendRecurringTaskBusyRanges($ranges, $taskSource, $dayStart, $dayEnd, $timezone);
 
         usort($ranges, fn (array $a, array $b): int => $a['start'] <=> $b['start']);
 
         return $ranges;
+    }
+
+    /**
+     * @param  list<array{start:\DateTimeImmutable,end:\DateTimeImmutable}>  $ranges
+     * @param  list<array<string,mixed>>  $tasks
+     */
+    private function appendRecurringTaskBusyRanges(
+        array &$ranges,
+        array $tasks,
+        \DateTimeImmutable $dayStart,
+        \DateTimeImmutable $dayEnd,
+        \DateTimeZone $timezone
+    ): void {
+        foreach ($tasks as $task) {
+            if (! is_array($task) || empty($task['is_recurring'])) {
+                continue;
+            }
+
+            if ($this->safeDateTime($task['starts_at'] ?? null, $timezone) instanceof \DateTimeImmutable) {
+                continue;
+            }
+
+            $recurringPayload = is_array($task['recurring_payload'] ?? null) ? $task['recurring_payload'] : [];
+            if (! $this->isRecurringTaskOccurringOnDay($recurringPayload, $dayStart, $dayEnd)) {
+                continue;
+            }
+
+            $startAt = $this->resolveRecurringBusyStart($task, $recurringPayload, $timezone);
+            if (! $startAt instanceof \DateTimeImmutable) {
+                continue;
+            }
+
+            $startAt = $startAt->setDate(
+                (int) $dayStart->format('Y'),
+                (int) $dayStart->format('m'),
+                (int) $dayStart->format('d')
+            );
+            $durationMinutes = max(1, (int) ($task['duration_minutes'] ?? 60));
+            $endAt = $startAt->modify("+{$durationMinutes} minutes");
+            if ($endAt <= $dayStart || $startAt >= $dayEnd) {
+                continue;
+            }
+
+            $ranges[] = [
+                'start' => $startAt < $dayStart ? $dayStart : $startAt,
+                'end' => $endAt > $dayEnd ? $dayEnd : $endAt,
+            ];
+        }
+    }
+
+    /**
+     * @param  array<string,mixed>  $recurringPayload
+     */
+    private function isRecurringTaskOccurringOnDay(
+        array $recurringPayload,
+        \DateTimeImmutable $dayStart,
+        \DateTimeImmutable $dayEnd
+    ): bool {
+        $type = trim((string) ($recurringPayload['type'] ?? ''));
+        $recurrenceType = TaskRecurrenceType::tryFrom($type);
+        if (! $recurrenceType instanceof TaskRecurrenceType) {
+            return false;
+        }
+
+        $recurring = new RecurringTask;
+        $recurring->recurrence_type = $recurrenceType;
+        $recurring->interval = max(1, (int) ($recurringPayload['interval'] ?? 1));
+        $recurring->start_datetime = is_string($recurringPayload['start_datetime'] ?? null)
+            ? (string) $recurringPayload['start_datetime']
+            : null;
+        $recurring->end_datetime = is_string($recurringPayload['end_datetime'] ?? null)
+            ? (string) $recurringPayload['end_datetime']
+            : null;
+
+        $daysOfWeek = is_array($recurringPayload['days_of_week'] ?? null) ? $recurringPayload['days_of_week'] : [];
+        $recurring->days_of_week = json_encode(array_values(array_map('intval', $daysOfWeek)));
+
+        $occurrences = $this->recurrenceExpander->expand(
+            $recurring,
+            CarbonImmutable::instance($dayStart),
+            CarbonImmutable::instance($dayEnd),
+        );
+
+        return $occurrences !== [];
+    }
+
+    /**
+     * @param  array<string,mixed>  $task
+     * @param  array<string,mixed>  $recurringPayload
+     */
+    private function resolveRecurringBusyStart(
+        array $task,
+        array $recurringPayload,
+        \DateTimeZone $timezone
+    ): ?\DateTimeImmutable {
+        $taskStart = $this->safeDateTime($task['starts_at'] ?? null, $timezone);
+        if ($taskStart instanceof \DateTimeImmutable) {
+            return $taskStart;
+        }
+
+        $recurringStart = $this->safeDateTime($recurringPayload['start_datetime'] ?? null, $timezone);
+        if ($recurringStart instanceof \DateTimeImmutable) {
+            return $recurringStart;
+        }
+
+        return null;
     }
 
     private function buildFreeWindows(array $busyRanges, \DateTimeImmutable $dayStart, \DateTimeImmutable $dayEnd): array

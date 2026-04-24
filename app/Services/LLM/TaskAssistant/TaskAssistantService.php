@@ -219,6 +219,12 @@ final class TaskAssistantService
 
                     $this->logRoutingDecision($thread, $assistantMessage, $forcedPlan);
 
+                    if ($forcedPlan->clarificationNeeded) {
+                        $this->runNamedTaskClarificationFlow($thread, $assistantMessage, $content, $forcedPlan);
+
+                        return;
+                    }
+
                     $candidateSnapshot = $this->candidateProvider->candidatesForUser(
                         $thread->user,
                         taskLimit: $this->snapshotTaskLimit(),
@@ -264,6 +270,20 @@ final class TaskAssistantService
                 }
             }
 
+            $pendingNamedTaskClarification = $this->conversationState->pendingNamedTaskClarification($thread);
+            if ($pendingNamedTaskClarification !== null) {
+                $handled = $this->handlePendingNamedTaskClarification(
+                    thread: $thread,
+                    userMessage: $userMessage,
+                    assistantMessage: $assistantMessage,
+                    userMessageContent: $content,
+                    pendingState: $pendingNamedTaskClarification,
+                );
+                if ($handled) {
+                    return;
+                }
+            }
+
             if ($this->handleDeterministicChipClientAction(
                 thread: $thread,
                 userMessage: $userMessage,
@@ -279,6 +299,12 @@ final class TaskAssistantService
             $plan = $this->maybeRewritePlanForScheduleRefinement($thread, $plan, $assistantMessage->id, $content);
             $this->persistRoutingTrace($assistantMessage, $initialPlan, $plan);
             $this->logRoutingDecision($thread, $assistantMessage, $plan);
+
+            if ($plan->clarificationNeeded) {
+                $this->runNamedTaskClarificationFlow($thread, $assistantMessage, $content, $plan);
+
+                return;
+            }
 
             if (in_array($plan->flow, [TaskAssistantFlowNames::PRIORITIZE, TaskAssistantFlowNames::SCHEDULE, TaskAssistantFlowNames::PRIORITIZE_SCHEDULE, TaskAssistantFlowNames::LISTING_FOLLOWUP], true)) {
                 $candidateSnapshot = $this->candidateProvider->candidatesForUser(
@@ -1992,6 +2018,12 @@ final class TaskAssistantService
         $historyMessages = collect($this->mapToPrismMessages($this->loadHistoryMessages($thread, $userMessage->id)));
         $scheduleTargets = $plan->targetEntities;
         $timeWindowHint = $plan->timeWindowHint;
+        $namedTaskResolution = is_array($plan->constraints['named_task_resolution'] ?? null)
+            ? $plan->constraints['named_task_resolution']
+            : [];
+        $scheduleSource = (($namedTaskResolution['status'] ?? 'none') === 'single')
+            ? 'targeted_schedule'
+            : 'schedule';
         $explicitRequestedCount = $this->extractExplicitRequestedCount($content);
         $snapshot = $this->candidateProvider->candidatesForUser(
             $thread->user,
@@ -2013,7 +2045,7 @@ final class TaskAssistantService
                 historyMessages: $historyMessages,
                 options: [
                     'target_entities' => $scheduleTargets,
-                    'schedule_source' => 'schedule',
+                    'schedule_source' => $scheduleSource,
                     'time_window_hint' => $timeWindowHint,
                     'count_limit' => $plan->countLimit,
                     'explicit_requested_count' => $explicitRequestedCount,
@@ -2145,6 +2177,9 @@ final class TaskAssistantService
      */
     private function maybeRemapScheduleToPrioritize(TaskAssistantThread $thread, ExecutionPlan $plan, string $userMessageContent): ExecutionPlan
     {
+        if ($plan->clarificationNeeded) {
+            return $plan;
+        }
         if ($plan->flow !== 'schedule') {
             return $plan;
         }
@@ -4297,14 +4332,257 @@ final class TaskAssistantService
         return new ExecutionPlan(
             flow: $flow,
             confidence: $decision->confidence,
-            clarificationNeeded: false,
-            clarificationQuestion: null,
+            clarificationNeeded: $decision->clarificationNeeded,
+            clarificationQuestion: $decision->clarificationQuestion,
             reasonCodes: $decision->reasonCodes,
             constraints: $constraints,
             targetEntities: $targetEntities,
             timeWindowHint: $timeWindowHint,
             countLimit: $countLimit,
             generationProfile: $generationProfile,
+        );
+    }
+
+    private function runNamedTaskClarificationFlow(
+        TaskAssistantThread $thread,
+        TaskAssistantMessage $assistantMessage,
+        string $userMessageContent,
+        ExecutionPlan $plan,
+    ): void {
+        $question = trim((string) $plan->clarificationQuestion);
+        if ($question === '') {
+            $question = 'I found multiple matching tasks. Which one should I schedule?';
+        }
+
+        $namedResolution = is_array($plan->constraints['named_task_resolution'] ?? null)
+            ? $plan->constraints['named_task_resolution']
+            : [];
+        $candidateTitles = is_array($namedResolution['candidates'] ?? null)
+            ? array_values(array_filter(array_map(
+                static fn (mixed $candidate): string => is_array($candidate)
+                    ? trim((string) ($candidate['title'] ?? ''))
+                    : '',
+                $namedResolution['candidates']
+            ), static fn (string $title): bool => $title !== ''))
+            : [];
+
+        $candidateTitles = array_slice($candidateTitles, 0, 3);
+        $numberedChoices = [];
+        foreach ($candidateTitles as $index => $title) {
+            $numberedChoices[] = ($index + 1).') '.$title;
+        }
+        $numberedText = $numberedChoices !== [] ? "\n\n".implode("\n", $numberedChoices) : '';
+
+        $generationResult = [
+            'valid' => true,
+            'data' => [
+                'intent' => 'task',
+                'acknowledgement' => 'I can schedule that for you.',
+                'message' => $question.$numberedText,
+                'suggested_next_actions' => [
+                    'Reply with a number (for example 1 or 2) or the exact title.',
+                ],
+                'next_options' => 'Reply with the number of your task choice and I will schedule it in your requested time window.',
+                'next_options_chip_texts' => [],
+            ],
+            'errors' => [],
+        ];
+
+        $candidates = is_array($namedResolution['candidates'] ?? null)
+            ? array_values(array_filter($namedResolution['candidates'], static fn (mixed $row): bool => is_array($row)))
+            : [];
+        if ($candidates !== []) {
+            $this->conversationState->rememberPendingNamedTaskClarification(
+                thread: $thread,
+                initialUserMessage: $userMessageContent,
+                question: $question,
+                flow: $plan->flow,
+                candidates: $candidates,
+            );
+        }
+
+        $execution = $this->flowExecutionEngine->executeStructuredFlow(
+            flow: 'general_guidance',
+            metadataKey: 'general_guidance',
+            thread: $thread,
+            assistantMessage: $assistantMessage,
+            generationResult: $generationResult,
+            assistantFallbackContent: $question,
+        );
+
+        $this->streamFlowEnvelope(
+            thread: $thread,
+            assistantMessage: $assistantMessage,
+            flow: 'general_guidance',
+            execution: $execution
+        );
+    }
+
+    /**
+     * @param  array{
+     *   initial_user_message: string,
+     *   question: string,
+     *   flow: string,
+     *   candidates: list<array{entity_type: string, entity_id: int, title: string}>,
+     *   created_at?: string
+     * }  $pendingState
+     */
+    private function handlePendingNamedTaskClarification(
+        TaskAssistantThread $thread,
+        TaskAssistantMessage $userMessage,
+        TaskAssistantMessage $assistantMessage,
+        string $userMessageContent,
+        array $pendingState,
+    ): bool {
+        $selected = $this->resolvePendingNamedTaskSelection($userMessageContent, $pendingState['candidates']);
+        if ($selected === null) {
+            if (preg_match('/^\s*\d+\s*$/u', $userMessageContent) === 1) {
+                $this->publishNamedTaskChoiceReminder($thread, $assistantMessage, $pendingState);
+
+                return true;
+            }
+
+            $this->conversationState->clearPendingNamedTaskClarification($thread);
+
+            return false;
+        }
+
+        $this->conversationState->clearPendingNamedTaskClarification($thread);
+
+        $composedMessage = trim((string) ($pendingState['initial_user_message'] ?? ''));
+        if ($composedMessage === '') {
+            $composedMessage = $userMessageContent;
+        }
+
+        $flow = in_array((string) ($pendingState['flow'] ?? ''), ['schedule', 'prioritize_schedule'], true)
+            ? (string) $pendingState['flow']
+            : 'schedule';
+        $forcedConstraints = $this->routingPolicy->extractConstraintsForFlow($thread, $composedMessage, $flow);
+        $forcedConstraints['target_entities'] = [$selected];
+        $forcedConstraints['named_task_resolution'] = [
+            'status' => 'single',
+            'matched_phrase' => null,
+            'target_entity' => $selected,
+            'clarification_question' => null,
+            'candidates' => [$selected],
+        ];
+
+        $forcedTimeWindowHint = is_string($forcedConstraints['time_window_hint'] ?? null)
+            ? $forcedConstraints['time_window_hint']
+            : null;
+        $forcedPlan = new ExecutionPlan(
+            flow: $flow,
+            confidence: 1.0,
+            clarificationNeeded: false,
+            clarificationQuestion: null,
+            reasonCodes: ['named_task_clarification_selection'],
+            constraints: $forcedConstraints,
+            targetEntities: [$selected],
+            timeWindowHint: $forcedTimeWindowHint,
+            countLimit: 1,
+            generationProfile: 'schedule',
+        );
+
+        $this->logRoutingDecision($thread, $assistantMessage, $forcedPlan);
+
+        if ($forcedPlan->flow === 'prioritize_schedule') {
+            $this->runPrioritizeScheduleFlow($thread, $userMessage, $assistantMessage, $composedMessage, $forcedPlan);
+
+            return true;
+        }
+
+        $this->runScheduleFlow($thread, $userMessage, $assistantMessage, $composedMessage, $forcedPlan);
+
+        return true;
+    }
+
+    /**
+     * @param  list<array{entity_type: string, entity_id: int, title: string}>  $candidates
+     * @return array{entity_type: string, entity_id: int, title: string}|null
+     */
+    private function resolvePendingNamedTaskSelection(string $content, array $candidates): ?array
+    {
+        $trimmed = trim($content);
+        if ($trimmed === '') {
+            return null;
+        }
+
+        if (preg_match('/^\s*(\d+)\s*$/u', $trimmed, $matches) === 1) {
+            $index = ((int) ($matches[1] ?? 0)) - 1;
+            if ($index >= 0 && isset($candidates[$index])) {
+                return $candidates[$index];
+            }
+
+            return null;
+        }
+
+        $normalized = mb_strtolower(trim(preg_replace('/\s+/u', ' ', $trimmed) ?? $trimmed));
+        foreach ($candidates as $candidate) {
+            $title = mb_strtolower(trim((string) ($candidate['title'] ?? '')));
+            if ($title !== '' && str_contains($normalized, $title)) {
+                return $candidate;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  array{
+     *   question: string,
+     *   candidates: list<array{entity_type: string, entity_id: int, title: string}>
+     * }  $pendingState
+     */
+    private function publishNamedTaskChoiceReminder(
+        TaskAssistantThread $thread,
+        TaskAssistantMessage $assistantMessage,
+        array $pendingState,
+    ): void {
+        $question = trim((string) ($pendingState['question'] ?? ''));
+        if ($question === '') {
+            $question = 'Please choose one task so I can schedule it.';
+        }
+        $titles = array_map(
+            static fn (array $candidate): string => (string) ($candidate['title'] ?? ''),
+            array_slice($pendingState['candidates'], 0, 3)
+        );
+        $numbered = [];
+        foreach ($titles as $index => $title) {
+            $title = trim($title);
+            if ($title === '') {
+                continue;
+            }
+            $numbered[] = ($index + 1).') '.$title;
+        }
+
+        $message = trim($question."\n\n".implode("\n", $numbered));
+        $generationResult = [
+            'valid' => true,
+            'data' => [
+                'intent' => 'task',
+                'acknowledgement' => 'I still need your task choice first.',
+                'message' => $message,
+                'suggested_next_actions' => ['Reply with 1, 2, or 3 to pick the exact task.'],
+                'next_options' => 'Once you pick a number, I will continue scheduling.',
+                'next_options_chip_texts' => [],
+            ],
+            'errors' => [],
+        ];
+
+        $execution = $this->flowExecutionEngine->executeStructuredFlow(
+            flow: 'general_guidance',
+            metadataKey: 'general_guidance',
+            thread: $thread,
+            assistantMessage: $assistantMessage,
+            generationResult: $generationResult,
+            assistantFallbackContent: $message,
+        );
+
+        $this->streamFlowEnvelope(
+            thread: $thread,
+            assistantMessage: $assistantMessage,
+            flow: 'general_guidance',
+            execution: $execution
         );
     }
 

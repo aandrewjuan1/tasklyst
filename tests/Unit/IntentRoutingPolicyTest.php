@@ -934,6 +934,122 @@ test('schedule phrase with afternoon and evening maps to combined hint', functio
     expect($decision->constraints['time_window_hint'])->toBe('afternoon_evening');
 });
 
+test('schedule named task resolves explicit target entity from user tasks', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $target = \App\Models\Task::factory()->for($user)->create([
+        'title' => '5km run',
+    ]);
+
+    \App\Models\Task::factory()->for($user)->create([
+        'title' => 'Read chapter 4',
+    ]);
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'schedule my 5km run for tomorrow');
+
+    expect($decision->flow)->toBe('schedule');
+    expect($decision->clarificationNeeded)->toBeFalse();
+    expect($decision->constraints['target_entities'])->toHaveCount(1);
+    expect((int) $decision->constraints['target_entities'][0]['entity_id'])->toBe($target->id);
+});
+
+test('schedule named task ambiguity requires clarification', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    \App\Models\Task::factory()->for($user)->create(['title' => 'morning 5km run']);
+    \App\Models\Task::factory()->for($user)->create(['title' => 'evening 5km run']);
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'schedule my 5km run for tomorrow');
+
+    expect($decision->flow)->toBe('schedule');
+    expect($decision->clarificationNeeded)->toBeTrue();
+    expect($decision->clarificationQuestion)->not->toBeNull();
+    expect($decision->constraints['target_entities'])->toBe([]);
+});
+
+test('schedule task called phrase resolves explicit target entity', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $target = \App\Models\Task::factory()->for($user)->create([
+        'title' => 'review chemistry notes',
+    ]);
+
+    \App\Models\Task::factory()->for($user)->create([
+        'title' => 'review physics notes',
+    ]);
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'schedule task called review chemistry notes tomorrow evening');
+
+    expect($decision->flow)->toBe('schedule');
+    expect($decision->clarificationNeeded)->toBeFalse();
+    expect($decision->constraints['target_entities'])->toHaveCount(1);
+    expect((int) $decision->constraints['target_entities'][0]['entity_id'])->toBe($target->id);
+});
+
+test('exact title match wins over broader substring matches', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $exact = \App\Models\Task::factory()->for($user)->create([
+        'title' => '5km run',
+    ]);
+    \App\Models\Task::factory()->for($user)->create([
+        'title' => '5km run with coach',
+    ]);
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'schedule my task 5km run tomorrow');
+
+    expect($decision->flow)->toBe('schedule');
+    expect($decision->clarificationNeeded)->toBeFalse();
+    expect($decision->constraints['target_entities'])->toHaveCount(1);
+    expect((int) $decision->constraints['target_entities'][0]['entity_id'])->toBe($exact->id);
+});
+
+test('unknown named task falls back without clarification', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    \App\Models\Task::factory()->for($user)->create([
+        'title' => 'finish english homework',
+    ]);
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'schedule my impossible ghost task for tomorrow');
+
+    expect($decision->flow)->toBe('schedule');
+    expect($decision->clarificationNeeded)->toBeFalse();
+    expect($decision->constraints['target_entities'])->toBe([]);
+});
+
+test('ambiguous named task clarification question uses deterministic candidate ordering', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    \App\Models\Task::factory()->for($user)->create(['title' => 'zz 5km run extended']);
+    \App\Models\Task::factory()->for($user)->create(['title' => 'aa 5km run']);
+    \App\Models\Task::factory()->for($user)->create(['title' => 'mm 5km run tempo']);
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'schedule my 5km run tomorrow');
+
+    expect($decision->flow)->toBe('schedule');
+    expect($decision->clarificationNeeded)->toBeTrue();
+    expect((string) $decision->clarificationQuestion)->toContain('aa 5km run, mm 5km run tempo, zz 5km run extended');
+});
+
 test('pending schedule context plus edit-like prompt shortcircuits to schedule', function (): void {
     config()->set('task-assistant.intent.use_llm', false);
 
