@@ -19,7 +19,13 @@ final class SchoolClassBusyIntervalResolver
     ) {}
 
     /**
-     * @return list<array{school_class_id:int,start:string,end:string,source:string}>
+     * @return list<array{
+     *   school_class_id:int,
+     *   title:string,
+     *   start:string,
+     *   end:string,
+     *   source:string
+     * }>
      */
     public function resolveForUser(
         User $user,
@@ -157,7 +163,13 @@ final class SchoolClassBusyIntervalResolver
     /**
      * @param  Collection<int, SchoolClassException>|null  $preloadedExceptions
      * @param  Collection<int, SchoolClassInstance>  $preloadedInstances
-     * @return list<array{school_class_id:int,start:string,end:string,source:string}>
+     * @return list<array{
+     *   school_class_id:int,
+     *   title:string,
+     *   start:string,
+     *   end:string,
+     *   source:string
+     * }>
      */
     private function resolveRecurringIntervals(
         SchoolClass $schoolClass,
@@ -219,7 +231,13 @@ final class SchoolClassBusyIntervalResolver
     }
 
     /**
-     * @return array{school_class_id:int,start:string,end:string,source:string}|null
+     * @return array{
+     *   school_class_id:int,
+     *   title:string,
+     *   start:string,
+     *   end:string,
+     *   source:string
+     * }|null
      */
     private function resolveSingleInterval(
         SchoolClass $schoolClass,
@@ -240,6 +258,7 @@ final class SchoolClassBusyIntervalResolver
 
         return $this->buildBufferedInterval(
             schoolClassId: (int) $schoolClass->id,
+            title: (string) ($schoolClass->subject_name ?? 'School class'),
             start: $start,
             end: $end,
             bufferMinutes: $bufferMinutes,
@@ -250,7 +269,13 @@ final class SchoolClassBusyIntervalResolver
     }
 
     /**
-     * @return array{school_class_id:int,start:string,end:string,source:string}|null
+     * @return array{
+     *   school_class_id:int,
+     *   title:string,
+     *   start:string,
+     *   end:string,
+     *   source:string
+     * }|null
      */
     private function resolveOccurrenceInterval(
         SchoolClass $schoolClass,
@@ -280,6 +305,7 @@ final class SchoolClassBusyIntervalResolver
 
         return $this->buildBufferedInterval(
             schoolClassId: (int) $schoolClass->id,
+            title: (string) ($schoolClass->subject_name ?? 'School class'),
             start: $start,
             end: $end,
             bufferMinutes: $bufferMinutes,
@@ -316,10 +342,17 @@ final class SchoolClassBusyIntervalResolver
     }
 
     /**
-     * @return array{school_class_id:int,start:string,end:string,source:string}|null
+     * @return array{
+     *   school_class_id:int,
+     *   title:string,
+     *   start:string,
+     *   end:string,
+     *   source:string
+     * }|null
      */
     private function buildBufferedInterval(
         int $schoolClassId,
+        string $title,
         CarbonImmutable $start,
         CarbonImmutable $end,
         int $bufferMinutes,
@@ -346,6 +379,7 @@ final class SchoolClassBusyIntervalResolver
 
         return [
             'school_class_id' => $schoolClassId,
+            'title' => trim($title) !== '' ? trim($title) : 'School class',
             'start' => $clampedStart->toIso8601String(),
             'end' => $clampedEnd->toIso8601String(),
             'source' => $source,

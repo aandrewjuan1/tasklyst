@@ -195,6 +195,7 @@ final class TaskAssistantFlowExecutionEngine
                 'items' => [],
                 'blocks' => [],
                 'schedule_variant' => (string) ($payload['schedule_variant'] ?? 'daily'),
+                'explanation_meta' => [],
                 'window_selection_explanation' => '',
                 'ordering_rationale' => [],
                 'blocking_reasons' => [],

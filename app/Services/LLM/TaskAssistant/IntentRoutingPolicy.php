@@ -746,9 +746,18 @@ final class IntentRoutingPolicy
         $hasScheduleVerb = preg_match('/\b(schedule|plan|organi[sz]e|map\s*out|line\s*up)\b/u', $normalized) === 1;
         $hasBatchCue = preg_match('/\b(top|first|next|\d+|two|three|four|five|six|seven|eight|nine|ten)\b/u', $normalized) === 1;
         $hasPluralScope = preg_match('/\b(tasks?|items?|priorities)\b/u', $normalized) === 1;
+        $hasSingularOwnedTaskScope = preg_match('/\b(my|our)\b(?:\s+[#\w]+){0,4}\s+task\b/u', $normalized) === 1;
+        $hasRankedSingleCue = preg_match(
+            '/(?:\btop\b|\bfirst\b|\bmost important\b|\bhighest priority\b|\bnumber\s*1\b|\bno\.?\s*1\b|#\s*1\b|\bpriority\s*1\b)/u',
+            $normalized
+        ) === 1;
         $hasTimeWindowCue = preg_match('/\b(today|tomorrow|this week|next week|later|morning|afternoon|evening|tonight)\b/u', $normalized) === 1;
 
-        return $hasScheduleVerb && $hasPluralScope && ($hasBatchCue || $hasTimeWindowCue);
+        return $hasScheduleVerb
+            && (
+                ($hasPluralScope && ($hasBatchCue || $hasTimeWindowCue))
+                || ($hasSingularOwnedTaskScope && $hasRankedSingleCue && $hasTimeWindowCue)
+            );
     }
 
     /**
@@ -759,6 +768,17 @@ final class IntentRoutingPolicy
         $targets = is_array($constraints['target_entities'] ?? null) ? $constraints['target_entities'] : [];
         if ($targets !== []) {
             return false;
+        }
+
+        $isRankedSingleTaskPrompt = preg_match('/\b(schedule|plan|organi[sz]e|map\s*out|line\s*up)\b/u', $normalized) === 1
+            && preg_match('/\b(my|our)\b(?:\s+[#\w]+){0,4}\s+task\b/u', $normalized) === 1
+            && preg_match(
+                '/(?:\btop\b|\bfirst\b|\bmost important\b|\bhighest priority\b|\bnumber\s*1\b|\bno\.?\s*1\b|#\s*1\b|\bpriority\s*1\b)/u',
+                $normalized
+            ) === 1
+            && preg_match('/\b(later|today|tomorrow|this week|next week|morning|afternoon|evening|tonight)\b/u', $normalized) === 1;
+        if ($isRankedSingleTaskPrompt) {
+            return true;
         }
 
         if (preg_match('/\b(my|our)\s+(tasks?|items?|priorities)\b/u', $normalized) !== 1) {

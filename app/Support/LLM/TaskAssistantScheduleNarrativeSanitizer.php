@@ -77,6 +77,7 @@ final class TaskAssistantScheduleNarrativeSanitizer
             '/\byour\s+snapshot\b/iu' => 'your tasks',
             '/\bsnapshot\s+data\b/iu' => 'task data',
             '/\bsnapshot\b/iu' => 'task list',
+            '/\bearlier\s+requested\s+window\b/iu' => 'the earlier time you asked for',
             '/\brequested\s+window\b/iu' => 'the time you asked for',
             '/\brequest\s+was\s+made\s+explicitly\s+by\s+the\s+user\b/iu' => 'you asked for this plan directly',
             '/\bhorizon\s+dates?\b/iu' => 'date range',

@@ -408,6 +408,8 @@
         <x-workspace.school-class-hours-selection
             :initial-summary="$schoolClassHoursInitialSummary"
             :initial-has-value="$startTimeInitial !== null && $endTimeInitial !== null"
+            start-model="$data.schoolClassTimeStart"
+            end-model="$data.schoolClassTimeEnd"
         />
     </div>
 </div>

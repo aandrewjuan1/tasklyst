@@ -11,6 +11,7 @@ use App\Models\TaskAssistantThread;
 use App\Services\LLM\Prioritization\AssistantCandidateProvider;
 use App\Services\LLM\Prioritization\TaskAssistantTaskChoiceConstraintsExtractor;
 use App\Services\LLM\Prioritization\TaskPrioritizationService;
+use App\Services\LLM\Scheduling\DeterministicScheduleExplanationService;
 use App\Services\LLM\Scheduling\PlacementDigestRebuilder;
 use App\Services\LLM\Scheduling\ScheduleDraftMetadataNormalizer;
 use App\Services\LLM\Scheduling\ScheduleDraftMutationService;
@@ -81,6 +82,7 @@ final class TaskAssistantService
         private readonly ScheduleProposalReferenceService $scheduleProposalReferenceService,
         private readonly ScheduleFallbackConfirmationService $scheduleFallbackConfirmationService,
         private readonly ScheduleFallbackReasonExplainer $scheduleFallbackReasonExplainer,
+        private readonly DeterministicScheduleExplanationService $deterministicScheduleExplanationService,
         private readonly TaskAssistantFlowHandlerRegistry $flowHandlerRegistry,
         private readonly TaskAssistantProcessingGuard $processingGuard,
         private readonly ScheduleFallbackPolicy $scheduleFallbackPolicy,
@@ -3143,24 +3145,19 @@ final class TaskAssistantService
             'reason_details' => $reasonDetails,
             'nearest_available_window' => $nearestAvailableWindow,
         ];
-        $narrative = $this->generateFallbackConfirmationNarrative(
-            thread: $thread,
-            userMessageContent: $userMessageContent,
-            reasonCode: $reasonCode,
-            requestedCount: $requestedCount,
-            proposalsCount: $proposalsCount,
-            requestedCountSource: $requestedCountSource,
-            requestedWindowLabel: $requestedWindowLabel,
-            strictDate: $strictDate,
-            reasonMessage: $reasonMessage,
-            prompt: $prompt,
-            options: $options,
-            reasonDetails: $reasonDetails,
-            scheduleData: $scheduleData,
-        );
+        $narrative = $this->deterministicScheduleExplanationService->composeConfirmation([
+            'reason_code' => $reasonCode,
+            'requested_count' => $requestedCount,
+            'placed_count' => $proposalsCount,
+            'requested_window_label' => $requestedWindowLabel,
+            'reason_message' => $reasonMessage,
+            'prompt' => $prompt,
+            'reason_details' => $reasonDetails,
+        ]);
         $scheduleData['framing'] = $narrative['framing'];
         $scheduleData['reasoning'] = $narrative['reasoning'];
         $scheduleData['confirmation'] = $narrative['confirmation'];
+        $scheduleData['explanation_meta'] = is_array($narrative['explanation_meta'] ?? null) ? $narrative['explanation_meta'] : [];
         $scheduleData['confirmation_context']['reason_message'] = $narrative['reason_message'];
         $scheduleData['reasoning'] = $this->compactFallbackReasoning((string) $scheduleData['reasoning']);
         $scheduleData['confirmation_context']['reason_message'] = $this->compactFallbackReasoning(

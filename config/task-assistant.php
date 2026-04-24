@@ -174,6 +174,8 @@ return [
         ],
         // Deterministic confirmation copy is faster and stable; enable LLM narration only when explicitly needed.
         'confirmation_use_llm_narrative' => (bool) env('TASK_ASSISTANT_SCHEDULE_CONFIRMATION_USE_LLM_NARRATIVE', false),
+        // Deterministic explanations are primary; optional LLM polish can be enabled explicitly.
+        'narrative_use_llm_polish' => (bool) env('TASK_ASSISTANT_SCHEDULE_NARRATIVE_USE_LLM_POLISH', false),
         /**
          * When the user gives a vague schedule request (horizon label default_today), search this many
          * consecutive local days starting from today, capped by max_horizon_days.

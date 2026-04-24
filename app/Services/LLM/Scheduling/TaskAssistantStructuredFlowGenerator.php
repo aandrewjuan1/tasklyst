@@ -26,6 +26,7 @@ final class TaskAssistantStructuredFlowGenerator
         private readonly TaskAssistantHybridNarrativeService $hybridNarrative,
         private readonly TaskAssistantWindowPlacementService $windowPlacementService,
         private readonly ScheduleConfirmationSignalsBuilder $confirmationSignalsBuilder,
+        private readonly DeterministicScheduleExplanationService $deterministicExplanationService,
     ) {}
 
     /**
@@ -104,26 +105,7 @@ final class TaskAssistantStructuredFlowGenerator
         $items = $this->buildScheduleItemsFromProposals($proposals);
         $deterministicSummary = $this->buildDeterministicSummary($context, $contextualSnapshot);
 
-        $blocksJson = json_encode($blocks, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-
         $isEmptyPlacement = $this->isScheduleEmptyPlacement($proposals);
-        $schedulableProposalCount = $this->countSchedulableProposals($proposals);
-
-        $placementDigestJson = json_encode($placementDigest, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '{}';
-
-        $narrative = $this->hybridNarrative->refineDailySchedule(
-            $historyMessages,
-            $promptData,
-            $userMessageContent,
-            (string) $blocksJson,
-            $deterministicSummary,
-            $thread->id,
-            $user->id,
-            $isEmptyPlacement,
-            $schedulableProposalCount,
-            'schedule_narrative',
-            $placementDigestJson,
-        );
 
         $horizon = $contextualSnapshot['schedule_horizon'] ?? null;
         $scheduleVariant = 'daily';
@@ -140,6 +122,30 @@ final class TaskAssistantStructuredFlowGenerator
             digest: $placementDigest,
             scheduleOptions: $options,
         );
+        $narrative = $this->buildDeterministicNarrative(
+            flowSource: is_string($options['schedule_source'] ?? null) ? (string) $options['schedule_source'] : 'schedule',
+            context: $context,
+            snapshot: $contextualSnapshot,
+            scheduleExplainability: $scheduleExplainability,
+            placementDigest: $placementDigest,
+            proposals: $proposals,
+            options: $options,
+        );
+
+        if ((bool) config('task-assistant.schedule.narrative_use_llm_polish', false)) {
+            $narrative = $this->maybePolishNarrativeWithLlm(
+                narrative: $narrative,
+                historyMessages: $historyMessages,
+                promptData: $promptData,
+                userMessageContent: $userMessageContent,
+                deterministicSummary: $deterministicSummary,
+                threadId: $thread->id,
+                userId: $user->id,
+                proposals: $proposals,
+                blocks: $blocks,
+                placementDigest: $placementDigest,
+            );
+        }
 
         $data = [
             'schema_version' => self::SCHEDULE_SCHEMA_VERSION,
@@ -153,6 +159,7 @@ final class TaskAssistantStructuredFlowGenerator
             'framing' => $narrative['framing'],
             'reasoning' => $narrative['reasoning'],
             'confirmation' => $narrative['confirmation'],
+            'explanation_meta' => is_array($narrative['explanation_meta'] ?? null) ? $narrative['explanation_meta'] : [],
             'schedule_empty_placement' => $isEmptyPlacement,
             'placement_digest' => $placementDigest,
             'requested_horizon_label' => (string) ($scheduleExplainability['requested_horizon_label'] ?? 'your requested window'),
@@ -359,28 +366,8 @@ final class TaskAssistantStructuredFlowGenerator
         $blocks = $this->buildLegacyBlocksFromProposals($proposals, $timezoneName);
         $items = $this->buildScheduleItemsFromProposals($proposals);
         $deterministicSummary = $this->buildDeterministicSummary($context, $contextualSnapshot);
-        $blocksJson = json_encode($blocks, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
         $isEmptyPlacement = $this->isScheduleEmptyPlacement($proposals);
-        $schedulableProposalCount = $this->countSchedulableProposals($proposals);
-
-        $digestForNarrative = ($digestForPrompt !== [])
-            ? (json_encode($digestForPrompt, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: null)
-            : null;
-
-        $narrative = $this->hybridNarrative->refineDailySchedule(
-            $historyMessages,
-            $promptData,
-            $userMessageContent,
-            (string) $blocksJson,
-            $deterministicSummary,
-            $thread->id,
-            $user->id,
-            $isEmptyPlacement,
-            $schedulableProposalCount,
-            $narrativeGenerationRoute,
-            $digestForNarrative,
-        );
 
         $horizon = $contextualSnapshot['schedule_horizon'] ?? null;
         $scheduleVariant = 'daily';
@@ -397,6 +384,34 @@ final class TaskAssistantStructuredFlowGenerator
             digest: $digestForPrompt,
             scheduleOptions: [],
         );
+        $flowSource = is_string($context['schedule_source'] ?? null)
+            ? (string) $context['schedule_source']
+            : 'schedule';
+        $narrative = $this->buildDeterministicNarrative(
+            flowSource: $flowSource,
+            context: $context,
+            snapshot: $contextualSnapshot,
+            scheduleExplainability: $scheduleExplainability,
+            placementDigest: $digestForPrompt,
+            proposals: $proposals,
+            options: ['schedule_source' => $flowSource]
+        );
+
+        if ((bool) config('task-assistant.schedule.narrative_use_llm_polish', false)) {
+            $narrative = $this->maybePolishNarrativeWithLlm(
+                narrative: $narrative,
+                historyMessages: $historyMessages,
+                promptData: $promptData,
+                userMessageContent: $userMessageContent,
+                deterministicSummary: $deterministicSummary,
+                threadId: $thread->id,
+                userId: $user->id,
+                proposals: $proposals,
+                blocks: $blocks,
+                placementDigest: $digestForPrompt,
+                generationRoute: $narrativeGenerationRoute,
+            );
+        }
 
         $data = [
             'schema_version' => self::SCHEDULE_SCHEMA_VERSION,
@@ -410,6 +425,7 @@ final class TaskAssistantStructuredFlowGenerator
             'framing' => $narrative['framing'],
             'reasoning' => $narrative['reasoning'],
             'confirmation' => $narrative['confirmation'],
+            'explanation_meta' => is_array($narrative['explanation_meta'] ?? null) ? $narrative['explanation_meta'] : [],
             'schedule_empty_placement' => $isEmptyPlacement,
             'placement_digest' => $digestForPrompt,
             'requested_horizon_label' => (string) ($scheduleExplainability['requested_horizon_label'] ?? 'your requested window'),
@@ -844,7 +860,12 @@ final class TaskAssistantStructuredFlowGenerator
 
     /**
      * @param  array<string, mixed>  $snapshot
-     * @return list<array{title:string,blocked_window:string,reason:string}>
+     * @return list<array{
+     *   title:string,
+     *   blocked_window:string,
+     *   reason:string,
+     *   source_type:string
+     * }>
      */
     private function collectRequestedWindowBusyBlockers(array $snapshot): array
     {
@@ -886,6 +907,7 @@ final class TaskAssistantStructuredFlowGenerator
                 'title' => $title !== '' ? $title : 'Busy event',
                 'blocked_window' => $windowLabel,
                 'reason' => 'This event overlaps your requested time window.',
+                'source_type' => 'event',
             ];
             if (count($out) >= 4) {
                 break;
@@ -911,10 +933,15 @@ final class TaskAssistantStructuredFlowGenerator
             if ($startDt->format('Y-m-d') !== $day && $endDt->format('Y-m-d') !== $day) {
                 continue;
             }
+            $classTitle = trim((string) ($interval['title'] ?? $interval['subject_name'] ?? $interval['name'] ?? ''));
+            if ($classTitle === '') {
+                $classTitle = 'School class';
+            }
             $out[] = [
-                'title' => 'School class',
+                'title' => $classTitle,
                 'blocked_window' => $startDt->format('g:i A').'-'.$endDt->format('g:i A'),
                 'reason' => 'This class window overlaps your requested time.',
+                'source_type' => 'class',
             ];
             if (count($out) >= 6) {
                 break;
@@ -3421,5 +3448,140 @@ final class TaskAssistantStructuredFlowGenerator
         }
 
         return $blocks;
+    }
+
+    /**
+     * @param  array<string, mixed>  $context
+     * @param  array<string, mixed>  $snapshot
+     * @param  array<string, mixed>  $scheduleExplainability
+     * @param  array<string, mixed>  $placementDigest
+     * @param  array<int, array<string, mixed>>  $proposals
+     * @param  array<string, mixed>  $options
+     * @return array{framing:string,reasoning:string,confirmation:string,explanation_meta:array<string,mixed>}
+     */
+    private function buildDeterministicNarrative(
+        string $flowSource,
+        array $context,
+        array $snapshot,
+        array $scheduleExplainability,
+        array $placementDigest,
+        array $proposals,
+        array $options = [],
+    ): array {
+        $triggers = is_array(data_get($placementDigest, 'confirmation_signals.triggers')) ? data_get($placementDigest, 'confirmation_signals.triggers') : [];
+        $requestedCount = max(0, (int) ($placementDigest['requested_count'] ?? 0));
+        $placedCount = count(array_values(array_filter($proposals, static function (mixed $proposal): bool {
+            if (! is_array($proposal)) {
+                return false;
+            }
+
+            return trim((string) ($proposal['title'] ?? '')) !== 'No schedulable items found';
+        })));
+        $unplacedCount = count(is_array($placementDigest['unplaced_units'] ?? null) ? $placementDigest['unplaced_units'] : []);
+        $requestedWindowLabel = (string) ($scheduleExplainability['requested_window_display_label'] ?? 'your requested window');
+        $explicitRequestedWindow = (bool) ($scheduleExplainability['has_explicit_clock_time'] ?? false)
+            || trim((string) ($options['time_window_hint'] ?? '')) !== '';
+        $requestedWindowHonored = ! in_array('requested_window_unsatisfied', $triggers, true)
+            && ! in_array('hinted_window_unsatisfied', $triggers, true)
+            && $explicitRequestedWindow;
+
+        $todayRaw = trim((string) ($snapshot['today'] ?? ''));
+        $daysUsed = is_array($placementDigest['days_used'] ?? null) ? $placementDigest['days_used'] : [];
+        $autoRollToTomorrow = false;
+        if ($todayRaw !== '' && is_string($daysUsed[0] ?? null)) {
+            try {
+                $today = CarbonImmutable::parse($todayRaw)->startOfDay();
+                $firstDay = CarbonImmutable::parse((string) $daysUsed[0])->startOfDay();
+                $autoRollToTomorrow = $firstDay->equalTo($today->addDay())
+                    && in_array((string) ($options['time_window_hint'] ?? ''), ['later', 'later_today', 'later afternoon', 'later evening'], true);
+            } catch (\Throwable) {
+                $autoRollToTomorrow = false;
+            }
+        }
+
+        $firstItem = is_array($proposals[0] ?? null) ? $proposals[0] : [];
+        $chosenTimeLabel = '';
+        if (is_string($firstItem['start_datetime'] ?? null) && trim((string) $firstItem['start_datetime']) !== '') {
+            try {
+                $chosenTimeLabel = CarbonImmutable::parse((string) $firstItem['start_datetime'])->format('g:i A');
+            } catch (\Throwable) {
+                $chosenTimeLabel = '';
+            }
+        }
+
+        return $this->deterministicExplanationService->composeNormal([
+            'flow_source' => $flowSource,
+            'schedule_scope' => $flowSource === 'prioritize_schedule' ? 'tasks_only' : 'all_entities',
+            'requested_window_label' => $requestedWindowLabel,
+            'requested_count' => $requestedCount,
+            'placed_count' => $placedCount,
+            'unplaced_count' => $unplacedCount,
+            'trigger_list' => $triggers,
+            'strict_window_requested' => (bool) ($context['time_window_strict'] ?? false),
+            'auto_roll_to_tomorrow' => $autoRollToTomorrow,
+            'explicit_requested_window' => $explicitRequestedWindow,
+            'requested_window_honored' => $requestedWindowHonored,
+            'fallback_mode' => (string) ($placementDigest['fallback_mode'] ?? ''),
+            'nearest_window_label' => (string) data_get($placementDigest, 'confirmation_signals.nearest_available_window.display_label', ''),
+            'chosen_time_label' => $chosenTimeLabel,
+            'blocking_reasons' => is_array($scheduleExplainability['blocking_reasons'] ?? null) ? $scheduleExplainability['blocking_reasons'] : [],
+        ]);
+    }
+
+    /**
+     * @param  array{framing:string,reasoning:string,confirmation:string,explanation_meta:array<string,mixed>}  $narrative
+     * @param  Collection<int, mixed>  $historyMessages
+     * @param  array<string, mixed>  $promptData
+     * @param  array<int, array<string, mixed>>  $proposals
+     * @param  array<int, array<string, mixed>>  $blocks
+     * @param  array<string, mixed>  $placementDigest
+     * @return array{framing:string,reasoning:string,confirmation:string,explanation_meta:array<string,mixed>}
+     */
+    private function maybePolishNarrativeWithLlm(
+        array $narrative,
+        Collection $historyMessages,
+        array $promptData,
+        string $userMessageContent,
+        string $deterministicSummary,
+        int $threadId,
+        int $userId,
+        array $proposals,
+        array $blocks,
+        array $placementDigest,
+        string $generationRoute = 'schedule_narrative',
+    ): array {
+        try {
+            $blocksJson = json_encode($blocks, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            $placementDigestJson = json_encode($placementDigest, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '{}';
+            $polished = $this->hybridNarrative->refineDailySchedule(
+                $historyMessages,
+                $promptData,
+                $userMessageContent,
+                (string) $blocksJson,
+                $deterministicSummary,
+                $threadId,
+                $userId,
+                $this->isScheduleEmptyPlacement($proposals),
+                $this->countSchedulableProposals($proposals),
+                $generationRoute,
+                $placementDigestJson,
+            );
+
+            $framing = trim((string) ($polished['framing'] ?? ''));
+            $reasoning = trim((string) ($polished['reasoning'] ?? ''));
+            $confirmation = trim((string) ($polished['confirmation'] ?? ''));
+            if ($framing === '' || $reasoning === '' || $confirmation === '') {
+                return $narrative;
+            }
+
+            $narrative['framing'] = $framing;
+            $narrative['reasoning'] = $reasoning;
+            $narrative['confirmation'] = $confirmation;
+            $narrative['explanation_meta']['llm_polished'] = true;
+
+            return $narrative;
+        } catch (\Throwable) {
+            return $narrative;
+        }
     }
 }

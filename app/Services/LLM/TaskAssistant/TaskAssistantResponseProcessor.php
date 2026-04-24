@@ -777,6 +777,9 @@ final class TaskAssistantResponseProcessor
         if (! array_key_exists('fallback_choice_explanation', $data)) {
             $data['fallback_choice_explanation'] = null;
         }
+        if (! is_array($data['explanation_meta'] ?? null)) {
+            $data['explanation_meta'] = [];
+        }
 
         $maxFraming = TaskAssistantPrioritizeOutputDefaults::maxFramingChars();
         $maxReasoning = TaskAssistantPrioritizeOutputDefaults::maxReasoningChars();
@@ -884,6 +887,23 @@ final class TaskAssistantResponseProcessor
             'blocking_reasons_struct.*.reason_facts.*.key' => ['required_with:blocking_reasons_struct.*.reason_facts', 'string', 'max:64'],
             'blocking_reasons_struct.*.reason_facts.*.value' => ['required_with:blocking_reasons_struct.*.reason_facts', 'string', 'max:180'],
             'fallback_choice_explanation' => ['nullable', 'string', 'max:320'],
+            'explanation_meta' => ['nullable', 'array'],
+            'explanation_meta.mode' => ['nullable', 'string', 'in:normal,confirmation'],
+            'explanation_meta.scenario_key' => ['nullable', 'string', 'max:120'],
+            'explanation_meta.flow_source' => ['nullable', 'string', 'in:schedule,prioritize_schedule'],
+            'explanation_meta.schedule_scope' => ['nullable', 'string', 'in:all_entities,tasks_only'],
+            'explanation_meta.requested_window' => ['nullable', 'string', 'max:160'],
+            'explanation_meta.chosen_window' => ['nullable', 'string', 'max:120'],
+            'explanation_meta.blocker_titles_used' => ['nullable', 'array', 'max:8'],
+            'explanation_meta.blocker_titles_used.*' => ['string', 'max:200'],
+            'explanation_meta.trigger_list' => ['nullable', 'array', 'max:16'],
+            'explanation_meta.trigger_list.*' => ['string', 'max:120'],
+            'explanation_meta.fallback_applied' => ['nullable', 'boolean'],
+            'explanation_meta.strict_window_requested' => ['nullable', 'boolean'],
+            'explanation_meta.coaching_tone_key' => ['nullable', 'string', 'max:80'],
+            'explanation_meta.requested_count' => ['nullable', 'integer', 'min:0', 'max:10'],
+            'explanation_meta.placed_count' => ['nullable', 'integer', 'min:0', 'max:200'],
+            'explanation_meta.unplaced_count' => ['nullable', 'integer', 'min:0', 'max:200'],
             'confirmation_required' => ['nullable', 'boolean'],
             'awaiting_user_decision' => ['nullable', 'boolean'],
             'confirmation_context' => ['nullable', 'array'],

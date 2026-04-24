@@ -1,6 +1,8 @@
 @props([
     'initialSummary' => null,
     'initialHasValue' => false,
+    'startModel' => 'schoolClassTimeStart',
+    'endModel' => 'schoolClassTimeEnd',
 ])
 
 {{-- Popover state on item-creation root (toggleClassHoursPopover); time rows use schoolClassTimeStart / schoolClassTimeEnd. --}}
@@ -58,12 +60,12 @@
         aria-label="{{ __('Class hours') }}"
     >
         <div wire:ignore class="flex flex-col gap-3 px-3">
-            <div x-data="schoolClassTimeStart" class="flex flex-col gap-1.5">
+            <div x-data="{{ $startModel }}" class="flex flex-col gap-1.5">
                 <span class="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{{ __('Starts') }}</span>
                 @include('components.partials.time-12h-controls')
             </div>
             <div class="border-t border-border/60 pt-2 dark:border-border/50"></div>
-            <div x-data="schoolClassTimeEnd" class="flex flex-col gap-1.5">
+            <div x-data="{{ $endModel }}" class="flex flex-col gap-1.5">
                 <span class="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{{ __('Ends') }}</span>
                 @include('components.partials.time-12h-controls')
             </div>
