@@ -638,3 +638,103 @@ ICS;
 
     expect(Task::query()->where('source_id', 'feed-specific-months@example.com')->exists())->toBeTrue();
 });
+
+it('strips brightspace trailing status labels from imported titles', function () {
+    $user = User::factory()->create();
+
+    /** @var CalendarFeed $feed */
+    $feed = CalendarFeed::query()->create([
+        'user_id' => $user->id,
+        'name' => 'Brightspace – All Courses',
+        'feed_url' => 'https://example.test/calendar.ics',
+        'source' => 'brightspace',
+        'sync_enabled' => true,
+    ]);
+
+    $start = now()->utc()->addDays(7)->setTime(10, 0, 0);
+    $end = $start->copy()->addHour();
+
+    $ics = <<<ICS
+BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:due-title@example.com
+SUMMARY:Algorithm and Complexity Group Activity Hybrid Sorting - Due
+DTSTART:{$start->format('Ymd\\THis\\Z')}
+DTEND:{$end->format('Ymd\\THis\\Z')}
+END:VEVENT
+BEGIN:VEVENT
+UID:availability-ends-title@example.com
+SUMMARY:PQUIZ 2: Lesson 2 - Availability Ends
+DTSTART:{$start->copy()->addDay()->format('Ymd\\THis\\Z')}
+DTEND:{$end->copy()->addDay()->format('Ymd\\THis\\Z')}
+END:VEVENT
+BEGIN:VEVENT
+UID:available-title@example.com
+SUMMARY:PQUIZ 3: Lesson 3 - Available
+DTSTART:{$start->copy()->addDays(2)->format('Ymd\\THis\\Z')}
+DTEND:{$end->copy()->addDays(2)->format('Ymd\\THis\\Z')}
+END:VEVENT
+END:VCALENDAR
+ICS;
+
+    Http::fake([
+        $feed->feed_url => Http::response($ics, 200),
+    ]);
+
+    $service = app(CalendarFeedSyncService::class);
+    $service->sync($feed);
+
+    expect(Task::query()->where('source_id', 'due-title@example.com')->first()?->title)
+        ->toBe('Algorithm and Complexity Group Activity Hybrid Sorting');
+
+    expect(Task::query()->where('source_id', 'availability-ends-title@example.com')->first()?->title)
+        ->toBe('PQUIZ 2: Lesson 2');
+
+    expect(Task::query()->where('source_id', 'available-title@example.com')->first()?->title)
+        ->toBe('PQUIZ 3: Lesson 3');
+});
+
+it('stores utc feed datetimes in app timezone wall time', function () {
+    $user = User::factory()->create();
+
+    /** @var CalendarFeed $feed */
+    $feed = CalendarFeed::query()->create([
+        'user_id' => $user->id,
+        'name' => 'Brightspace – All Courses',
+        'feed_url' => 'https://example.test/calendar.ics',
+        'source' => 'brightspace',
+        'sync_enabled' => true,
+    ]);
+
+    $utcDue = now()->utc()->addDays(2)->setTime(15, 59, 0);
+    $expectedLocalDue = $utcDue->copy()->setTimezone(config('app.timezone'))->format('Y-m-d H:i');
+
+    $ics = <<<ICS
+BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:timezone-shift@example.com
+SUMMARY:Timezone Validation
+DTSTART:{$utcDue->format('Ymd\\THis\\Z')}
+DTEND:{$utcDue->format('Ymd\\THis\\Z')}
+END:VEVENT
+END:VCALENDAR
+ICS;
+
+    Http::fake([
+        $feed->feed_url => Http::response($ics, 200),
+    ]);
+
+    $service = app(CalendarFeedSyncService::class);
+    $service->sync($feed);
+
+    /** @var Task $task */
+    $task = Task::query()
+        ->where('user_id', $user->id)
+        ->where('source_id', 'timezone-shift@example.com')
+        ->first();
+
+    expect($task)->not->toBeNull();
+    expect($task->end_datetime)->not->toBeNull();
+    expect($task->start_datetime)->toBeNull();
+    expect($task->end_datetime?->format('Y-m-d H:i'))->toBe($expectedLocalDue);
+});

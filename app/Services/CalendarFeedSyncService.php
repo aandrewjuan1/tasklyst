@@ -133,6 +133,7 @@ class CalendarFeedSyncService
             $description = $event['description'] ?? null;
             $location = $event['location'] ?? null;
             $sourceUrl = $this->extractUrlFromDescription($description);
+            $normalizedTitle = $this->normalizeBrightspaceTitle($summary);
 
             $start = $event['dtstart'] ?? null;
             $end = $event['dtend'] ?? null;
@@ -174,7 +175,7 @@ class CalendarFeedSyncService
 
             $rows[] = [
                 'source_id' => $uid,
-                'title' => $summary !== null && trim($summary) !== '' ? $summary : __('Untitled'),
+                'title' => $normalizedTitle !== '' ? $normalizedTitle : __('Untitled'),
                 'description' => null,
                 'teacher_name' => $teacherName,
                 'subject_name' => $subjectName,
@@ -271,7 +272,9 @@ class CalendarFeedSyncService
 
     private function formatDateTimeForStorage(?\Carbon\CarbonInterface $dateTime): ?string
     {
-        return $dateTime?->format('Y-m-d H:i:s');
+        return $dateTime?->copy()
+            ->setTimezone(config('app.timezone'))
+            ->format('Y-m-d H:i:s');
     }
 
     private function notifyUserOfSuccessfulSync(CalendarFeed $feed, CalendarFeedSyncResult $result, bool $notifyUserOnSuccess): void
@@ -475,5 +478,27 @@ class CalendarFeedSyncService
         $url = rtrim($url, ".,);]>\"'");
 
         return $url !== '' ? $url : null;
+    }
+
+    private function normalizeBrightspaceTitle(?string $summary): string
+    {
+        if ($summary === null) {
+            return '';
+        }
+
+        $title = trim($summary);
+        if ($title === '') {
+            return '';
+        }
+
+        // Brightspace often appends status-like labels to SUMMARY.
+        // Strip only known trailing labels to keep the original title intact.
+        $title = (string) preg_replace(
+            '/\s*-\s*(Due|Availability\s+Ends|Available)\s*$/i',
+            '',
+            $title
+        );
+
+        return trim($title);
     }
 }

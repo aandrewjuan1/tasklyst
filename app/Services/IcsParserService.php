@@ -93,7 +93,7 @@ class IcsParserService
             foreach ($params as $param) {
                 $kv = explode('=', $param, 2);
                 if (count($kv) === 2) {
-                    $paramMap[strtoupper($kv[0])] = strtoupper($kv[1]);
+                    $paramMap[strtoupper($kv[0])] = $kv[1];
                 }
             }
 
@@ -143,7 +143,8 @@ class IcsParserService
      */
     private function parseDateTime(string $value, array $params): array
     {
-        $isAllDay = isset($params['VALUE']) && $params['VALUE'] === 'DATE';
+        $isAllDay = isset($params['VALUE']) && strtoupper($params['VALUE']) === 'DATE';
+        $timezone = $params['TZID'] ?? config('app.timezone');
 
         try {
             if ($isAllDay) {
@@ -155,12 +156,12 @@ class IcsParserService
             }
 
             if (str_ends_with($value, 'Z')) {
-                $dt = Carbon::parse($value)->utc();
+                $dt = Carbon::parse($value, 'UTC')->utc();
 
                 return ['value' => $dt, 'all_day' => false];
             }
 
-            $dt = Carbon::parse($value);
+            $dt = Carbon::parse($value, $timezone);
 
             return ['value' => $dt, 'all_day' => false];
         } catch (\Throwable) {

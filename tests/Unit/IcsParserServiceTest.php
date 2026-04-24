@@ -60,3 +60,30 @@ ICS;
     expect($event['dtstart'])->toBeInstanceOf(Carbon::class);
     expect($event['dtstart']->toDateString())->toBe('2026-12-25');
 });
+
+it('parses timezone-aware vevent fields using tzid', function () {
+    $ics = <<<'ICS'
+BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:tzid@example.com
+SUMMARY:Timezone Event
+DTSTART;TZID=Asia/Manila:20251127T235900
+DTEND;TZID=Asia/Manila:20251128T005900
+END:VEVENT
+END:VCALENDAR
+ICS;
+
+    $service = new IcsParserService;
+
+    $events = $service->parse($ics);
+
+    expect($events)->toHaveCount(1);
+
+    $event = $events[0];
+
+    expect($event['dtstart'])->toBeInstanceOf(Carbon::class);
+    expect($event['dtend'])->toBeInstanceOf(Carbon::class);
+    expect($event['dtstart']->format('Y-m-d H:i'))->toBe('2025-11-27 23:59');
+    expect($event['dtend']->format('Y-m-d H:i'))->toBe('2025-11-28 00:59');
+    expect($event['dtstart']->timezoneName)->toBe('Asia/Manila');
+});
