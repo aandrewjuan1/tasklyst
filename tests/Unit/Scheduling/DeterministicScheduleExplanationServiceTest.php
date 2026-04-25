@@ -182,3 +182,54 @@ it('uses daypart reference wording for morning slot with afternoon classes', fun
     expect((string) ($out['reasoning'] ?? ''))->toContain('afternoon classes');
     expect((string) ($out['reasoning'] ?? ''))->not->toContain('occupied your earlier requested window');
 });
+
+it('builds warmer targeted schedule coaching for later windows', function (): void {
+    $service = new DeterministicScheduleExplanationService;
+
+    $out = $service->composeNormal([
+        'flow_source' => 'targeted_schedule',
+        'schedule_scope' => 'all_entities',
+        'requested_window_label' => 'today',
+        'requested_count' => 1,
+        'placed_count' => 1,
+        'unplaced_count' => 0,
+        'trigger_list' => [],
+        'strict_window_requested' => false,
+        'explicit_requested_window' => true,
+        'requested_window_honored' => true,
+        'is_targeted_schedule' => true,
+        'targeted_entity_title' => '10KM RUN',
+        'time_window_hint_source' => 'later',
+        'blocking_reasons' => [],
+        'chosen_time_label' => '5:30 PM',
+    ]);
+
+    expect((string) data_get($out, 'explanation_meta.flow_source'))->toBe('targeted_schedule');
+    expect((bool) data_get($out, 'explanation_meta.targeted_schedule'))->toBeTrue();
+    expect((string) ($out['framing'] ?? ''))->toContain('10KM RUN');
+    expect((string) ($out['reasoning'] ?? ''))->toContain('5:30 PM');
+    expect((string) ($out['reasoning'] ?? ''))->toContain('Start gently');
+    expect((string) ($out['reasoning'] ?? ''))->toContain('stopping point');
+    expect((string) ($out['confirmation'] ?? ''))->toContain('5:30 PM');
+});
+
+it('appends all-day overlap note into reasoning when provided', function (): void {
+    $service = new DeterministicScheduleExplanationService;
+
+    $out = $service->composeNormal([
+        'flow_source' => 'schedule',
+        'schedule_scope' => 'all_entities',
+        'requested_window_label' => 'today',
+        'requested_count' => 1,
+        'placed_count' => 1,
+        'unplaced_count' => 0,
+        'trigger_list' => [],
+        'strict_window_requested' => false,
+        'blocking_reasons' => [],
+        'chosen_time_label' => '6:00 PM',
+        'all_day_overlap_note' => 'Heads up: you also have all-day events on these dates: Campus Festival (2026-04-24).',
+    ]);
+
+    expect((string) ($out['reasoning'] ?? ''))->toContain('all-day events');
+    expect((string) data_get($out, 'explanation_meta.all_day_overlap_note'))->toContain('Campus Festival');
+});

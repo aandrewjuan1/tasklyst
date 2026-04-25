@@ -38,10 +38,14 @@ final class DeterministicScheduleExplanationService
         $fallbackMode = trim((string) ($payload['fallback_mode'] ?? ''));
         $nearestLabel = trim((string) ($payload['nearest_window_label'] ?? ''));
         $chosenTimeLabel = trim((string) ($payload['chosen_time_label'] ?? ''));
+        $isTargetedSchedule = (bool) ($payload['is_targeted_schedule'] ?? false);
+        $targetedEntityTitle = trim((string) ($payload['targeted_entity_title'] ?? ''));
+        $timeWindowHintSource = trim((string) ($payload['time_window_hint_source'] ?? ''));
         $chosenDaypart = trim((string) ($payload['chosen_daypart'] ?? ''));
         if ($chosenDaypart === '') {
             $chosenDaypart = $this->resolveDaypartFromChosenTimeLabel($chosenTimeLabel);
         }
+        $allDayOverlapNote = trim((string) ($payload['all_day_overlap_note'] ?? ''));
 
         $selectedBlockers = $this->selectBlockers(
             is_array($payload['blocking_reasons'] ?? null) ? $payload['blocking_reasons'] : []
@@ -72,6 +76,9 @@ final class DeterministicScheduleExplanationService
             scheduleScope: $scheduleScope,
             requestedWindowLabel: $requestedWindowLabel,
             chosenDaypart: $chosenDaypart,
+            chosenTimeLabel: $chosenTimeLabel,
+            isTargetedSchedule: $isTargetedSchedule,
+            targetedEntityTitle: $targetedEntityTitle,
         );
         $reasoning = $this->buildReasoning(
             scenarioKey: $scenarioKey,
@@ -86,16 +93,25 @@ final class DeterministicScheduleExplanationService
             hasBlockerTitles: $blockerTitles !== [],
             chosenDaypart: $chosenDaypart,
             explicitRequestedWindow: $explicitRequestedWindow,
+            isTargetedSchedule: $isTargetedSchedule,
+            targetedEntityTitle: $targetedEntityTitle,
+            timeWindowHintSource: $timeWindowHintSource,
         );
         $confirmation = $this->buildConfirmation(
             scenarioKey: $scenarioKey,
             unplacedCount: $unplacedCount,
+            isTargetedSchedule: $isTargetedSchedule,
+            chosenTimeLabel: $chosenTimeLabel,
+            targetedEntityTitle: $targetedEntityTitle,
         );
 
         $toneKey = $this->resolveCoachingToneKey($scenarioKey, $chosenDaypart, $chosenTimeLabel, $selectedBlockers);
         $coachLine = $this->coachingLineForToneKey($toneKey);
         if ($coachLine !== '' && ! str_contains(mb_strtolower($reasoning), mb_strtolower($coachLine))) {
             $reasoning = trim($reasoning.' '.$coachLine);
+        }
+        if ($allDayOverlapNote !== '' && ! str_contains(mb_strtolower($reasoning), mb_strtolower($allDayOverlapNote))) {
+            $reasoning = trim($reasoning.' '.$allDayOverlapNote);
         }
 
         return [
@@ -117,6 +133,10 @@ final class DeterministicScheduleExplanationService
                 'requested_count' => $requestedCount,
                 'placed_count' => $placedCount,
                 'unplaced_count' => $unplacedCount,
+                'targeted_schedule' => $isTargetedSchedule,
+                'targeted_entity_title' => $targetedEntityTitle,
+                'time_window_hint_source' => $timeWindowHintSource,
+                'all_day_overlap_note' => $allDayOverlapNote,
             ],
         ];
     }
@@ -251,9 +271,21 @@ final class DeterministicScheduleExplanationService
         string $scheduleScope,
         string $requestedWindowLabel,
         string $chosenDaypart,
+        string $chosenTimeLabel,
+        bool $isTargetedSchedule,
+        string $targetedEntityTitle,
     ): string {
         if ($scenarioKey === 'FLOW_PRIORITIZE_SCHEDULE_TASKS_ONLY' || ($flowSource === 'prioritize_schedule' && $scheduleScope === 'tasks_only')) {
             return 'I scheduled your top-ranked tasks first, then placed them in realistic open windows.';
+        }
+        if ($isTargetedSchedule) {
+            return $this->buildTargetedFraming(
+                scenarioKey: $scenarioKey,
+                requestedWindowLabel: $requestedWindowLabel,
+                chosenDaypart: $chosenDaypart,
+                chosenTimeLabel: $chosenTimeLabel,
+                targetedEntityTitle: $targetedEntityTitle,
+            );
         }
 
         return match ($scenarioKey) {
@@ -285,6 +317,9 @@ final class DeterministicScheduleExplanationService
         bool $hasBlockerTitles,
         string $chosenDaypart,
         bool $explicitRequestedWindow,
+        bool $isTargetedSchedule,
+        string $targetedEntityTitle,
+        string $timeWindowHintSource,
     ): string {
         $blockersText = $this->joinBlockersWithWindows($selectedBlockers);
         $dayContext = $this->buildDayContextReasoning(
@@ -293,6 +328,18 @@ final class DeterministicScheduleExplanationService
             selectedBlockers: $selectedBlockers,
             explicitRequestedWindow: $explicitRequestedWindow,
         );
+        if ($isTargetedSchedule) {
+            return $this->buildTargetedReasoning(
+                scenarioKey: $scenarioKey,
+                requestedWindowLabel: $requestedWindowLabel,
+                chosenTimeLabel: $chosenTimeLabel,
+                selectedBlockers: $selectedBlockers,
+                hasBlockerTitles: $hasBlockerTitles,
+                chosenDaypart: $chosenDaypart,
+                targetedEntityTitle: $targetedEntityTitle,
+                timeWindowHintSource: $timeWindowHintSource,
+            );
+        }
 
         return match ($scenarioKey) {
             'STRICT_WINDOW_NO_FIT' => $hasBlockerTitles
@@ -324,8 +371,22 @@ final class DeterministicScheduleExplanationService
         };
     }
 
-    private function buildConfirmation(string $scenarioKey, int $unplacedCount): string
-    {
+    private function buildConfirmation(
+        string $scenarioKey,
+        int $unplacedCount,
+        bool $isTargetedSchedule,
+        string $chosenTimeLabel,
+        string $targetedEntityTitle,
+    ): string {
+        if ($isTargetedSchedule) {
+            $taskLabel = $targetedEntityTitle !== '' ? $targetedEntityTitle : 'this task';
+            if ($chosenTimeLabel !== '') {
+                return "Do you want to keep {$taskLabel} at {$chosenTimeLabel}, or shift it earlier/later?";
+            }
+
+            return "Do you want to keep this time for {$taskLabel}, or try an earlier/later slot?";
+        }
+
         return match ($scenarioKey) {
             'STRICT_WINDOW_NO_FIT' => 'Do you want me to keep this nearest-slot draft, or should we pick another time window?',
             'TOP_N_SHORTFALL' => 'Do you want to continue with this draft or widen the window to fit more items?',
@@ -335,6 +396,98 @@ final class DeterministicScheduleExplanationService
             'EMPTY_CANDIDATE_LIST' => 'Want me to help you prioritize or adjust filters first so we can schedule right away?',
             default => 'Do these times look workable, or should I shift earlier/later before you finalize?',
         };
+    }
+
+    private function buildTargetedFraming(
+        string $scenarioKey,
+        string $requestedWindowLabel,
+        string $chosenDaypart,
+        string $chosenTimeLabel,
+        string $targetedEntityTitle,
+    ): string {
+        $taskLabel = $targetedEntityTitle !== '' ? $targetedEntityTitle : 'this task';
+        $timePhrase = $chosenTimeLabel !== '' ? " at {$chosenTimeLabel}" : '';
+
+        return match ($scenarioKey) {
+            'STRICT_WINDOW_NO_FIT' => "I could not keep {$taskLabel} strictly inside {$requestedWindowLabel}, so I held the closest workable option{$timePhrase}.",
+            'REQUESTED_WINDOW_HONORED' => "I scheduled {$taskLabel}{$timePhrase} and kept it inside {$requestedWindowLabel}.",
+            'BLOCKED_WINDOW_SHIFTED', 'MISSING_BLOCKER_TITLES' => "I moved {$taskLabel}{$timePhrase} to the next clean opening.",
+            default => $chosenDaypart !== ''
+                ? "I scheduled {$taskLabel}{$timePhrase} in your {$chosenDaypart} window."
+                : "I scheduled {$taskLabel}{$timePhrase} in the closest feasible window.",
+        };
+    }
+
+    /**
+     * @param  list<array{title:string,blocked_window:string}>  $selectedBlockers
+     */
+    private function buildTargetedReasoning(
+        string $scenarioKey,
+        string $requestedWindowLabel,
+        string $chosenTimeLabel,
+        array $selectedBlockers,
+        bool $hasBlockerTitles,
+        string $chosenDaypart,
+        string $targetedEntityTitle,
+        string $timeWindowHintSource,
+    ): string {
+        $taskLabel = $targetedEntityTitle !== '' ? $targetedEntityTitle : 'this task';
+        $blockersText = $this->joinBlockersWithWindows($selectedBlockers);
+        $timeContext = $chosenTimeLabel !== '' ? " at {$chosenTimeLabel}" : '';
+        $tips = $this->targetedCoachingTips($chosenDaypart, $timeWindowHintSource);
+        $tipsText = $tips !== [] ? ' '.implode(' ', array_slice($tips, 0, 2)) : '';
+
+        $base = match ($scenarioKey) {
+            'STRICT_WINDOW_NO_FIT' => $hasBlockerTitles
+                ? "Your original {$requestedWindowLabel} request was blocked by {$blockersText}, so I used the nearest open slot{$timeContext} for {$taskLabel}."
+                : "Your original {$requestedWindowLabel} request was too tight, so I used the nearest open slot{$timeContext} for {$taskLabel}.",
+            'BLOCKED_WINDOW_SHIFTED', 'MISSING_BLOCKER_TITLES' => $hasBlockerTitles
+                ? "I placed {$taskLabel}{$timeContext} where it avoids conflicts with {$blockersText}."
+                : "I placed {$taskLabel}{$timeContext} where your earlier window is no longer crowded.",
+            'REQUESTED_WINDOW_HONORED' => "That window stayed open, so {$taskLabel} could stay{$timeContext} without adding pressure.",
+            default => "This slot{$timeContext} gives {$taskLabel} a focused block that is realistic for the rest of your day.",
+        };
+
+        return trim($base.$tipsText);
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function targetedCoachingTips(string $chosenDaypart, string $timeWindowHintSource): array
+    {
+        $daypart = mb_strtolower(trim($chosenDaypart));
+        $hint = mb_strtolower(trim($timeWindowHintSource));
+
+        if (str_contains($hint, 'later')) {
+            return [
+                'Start gently for the first few minutes so this block feels sustainable.',
+                'Set a clear stopping point so you finish with energy left for tomorrow.',
+            ];
+        }
+        if ($daypart === 'morning') {
+            return [
+                'Try a quick 5-minute setup first so momentum starts early.',
+                'Leave a short buffer after this block so delays do not spill into the rest of your morning.',
+            ];
+        }
+        if ($daypart === 'afternoon') {
+            return [
+                'Use a short reset before this block so you can re-focus quickly.',
+                'Keep one small next step ready right after this slot to maintain momentum.',
+            ];
+        }
+        if ($daypart === 'evening') {
+            return [
+                'Start gently for the first few minutes so this block feels sustainable.',
+                'Set a clear stopping point so you finish with energy left for tomorrow.',
+            ];
+        }
+
+        return [
+            'Treat this as a protected focus block and avoid context switching during it.',
+            'If it runs long, trim scope instead of extending the block so your day stays realistic.',
+        ];
     }
 
     /**

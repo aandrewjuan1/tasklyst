@@ -374,21 +374,34 @@ final class TaskAssistantConversationStateService
     }
 
     /**
-     * @param  list<array{entity_type: string, entity_id: int, title: string}>  $candidates
+     * @param  list<array{
+     *   phrase: string,
+     *   candidates: list<array{entity_type: string, entity_id: int, title: string}>
+     * }>  $ambiguousGroups
+     * @param  list<array{entity_type: string, entity_id: int, title: string}>  $resolvedTargets
+     * @param  list<string>  $unresolvedPhrases
      */
     public function rememberPendingNamedTaskClarification(
         TaskAssistantThread $thread,
         string $initialUserMessage,
         string $question,
         string $flow,
-        array $candidates,
+        array $ambiguousGroups,
+        array $resolvedTargets = [],
+        array $unresolvedPhrases = [],
     ): void {
         $state = $this->get($thread);
+        $firstGroupCandidates = is_array($ambiguousGroups[0]['candidates'] ?? null)
+            ? $ambiguousGroups[0]['candidates']
+            : [];
         $state['pending_named_task_clarification'] = [
             'initial_user_message' => $initialUserMessage,
             'question' => $question,
             'flow' => $flow,
-            'candidates' => $candidates,
+            'candidates' => $firstGroupCandidates,
+            'ambiguous_groups' => $ambiguousGroups,
+            'resolved_targets' => $resolvedTargets,
+            'unresolved_phrases' => $unresolvedPhrases,
             'created_at' => now()->toIso8601String(),
         ];
         $this->put($thread, $state);
@@ -400,6 +413,12 @@ final class TaskAssistantConversationStateService
      *   question: string,
      *   flow: string,
      *   candidates: list<array{entity_type: string, entity_id: int, title: string}>,
+     *   ambiguous_groups: list<array{
+     *     phrase: string,
+     *     candidates: list<array{entity_type: string, entity_id: int, title: string}>
+     *   }>,
+     *   resolved_targets: list<array{entity_type: string, entity_id: int, title: string}>,
+     *   unresolved_phrases: list<string>,
      *   created_at?: string
      * }|null
      */
@@ -414,26 +433,56 @@ final class TaskAssistantConversationStateService
         $question = trim((string) ($pending['question'] ?? ''));
         $flow = trim((string) ($pending['flow'] ?? ''));
         $initialUserMessage = trim((string) ($pending['initial_user_message'] ?? ''));
-        $candidates = is_array($pending['candidates'] ?? null) ? $pending['candidates'] : [];
-        $normalizedCandidates = [];
-        foreach ($candidates as $candidate) {
-            if (! is_array($candidate)) {
+        $normalizedGroups = [];
+        $rawGroups = is_array($pending['ambiguous_groups'] ?? null) ? $pending['ambiguous_groups'] : [];
+        foreach ($rawGroups as $group) {
+            if (! is_array($group)) {
                 continue;
             }
-            $type = trim((string) ($candidate['entity_type'] ?? ''));
-            $id = (int) ($candidate['entity_id'] ?? 0);
-            $title = trim((string) ($candidate['title'] ?? ''));
-            if ($type === '' || $id <= 0 || $title === '') {
+            $phrase = trim((string) ($group['phrase'] ?? ''));
+            if ($phrase === '') {
                 continue;
             }
-            $normalizedCandidates[] = [
-                'entity_type' => $type,
-                'entity_id' => $id,
-                'title' => $title,
+            $rows = is_array($group['candidates'] ?? null) ? $group['candidates'] : [];
+            $normalizedRows = [];
+            foreach ($rows as $candidate) {
+                if (! is_array($candidate)) {
+                    continue;
+                }
+                $type = trim((string) ($candidate['entity_type'] ?? ''));
+                $id = (int) ($candidate['entity_id'] ?? 0);
+                $title = trim((string) ($candidate['title'] ?? ''));
+                if ($type === '' || $id <= 0 || $title === '') {
+                    continue;
+                }
+                $normalizedRows[] = [
+                    'entity_type' => $type,
+                    'entity_id' => $id,
+                    'title' => $title,
+                ];
+            }
+            if ($normalizedRows === []) {
+                continue;
+            }
+            $normalizedGroups[] = [
+                'phrase' => $phrase,
+                'candidates' => $normalizedRows,
             ];
         }
+        $normalizedCandidates = is_array($normalizedGroups[0]['candidates'] ?? null)
+            ? $normalizedGroups[0]['candidates']
+            : [];
+        $normalizedResolvedTargets = $this->normalizeNamedTaskEntities(
+            is_array($pending['resolved_targets'] ?? null) ? $pending['resolved_targets'] : []
+        );
+        $unresolvedPhrases = is_array($pending['unresolved_phrases'] ?? null)
+            ? array_values(array_filter(array_map(
+                static fn (mixed $row): string => trim((string) $row),
+                $pending['unresolved_phrases']
+            ), static fn (string $row): bool => $row !== ''))
+            : [];
 
-        if ($question === '' || $flow === '' || $normalizedCandidates === []) {
+        if ($question === '' || $flow === '' || $normalizedGroups === []) {
             return null;
         }
 
@@ -442,6 +491,9 @@ final class TaskAssistantConversationStateService
             'question' => $question,
             'flow' => $flow,
             'candidates' => $normalizedCandidates,
+            'ambiguous_groups' => $normalizedGroups,
+            'resolved_targets' => $normalizedResolvedTargets,
+            'unresolved_phrases' => $unresolvedPhrases,
             'created_at' => is_string($pending['created_at'] ?? null) ? $pending['created_at'] : null,
         ];
     }
@@ -451,6 +503,33 @@ final class TaskAssistantConversationStateService
         $state = $this->get($thread);
         unset($state['pending_named_task_clarification']);
         $this->put($thread, $state);
+    }
+
+    /**
+     * @param  list<mixed>  $entities
+     * @return list<array{entity_type: string, entity_id: int, title: string}>
+     */
+    private function normalizeNamedTaskEntities(array $entities): array
+    {
+        $normalized = [];
+        foreach ($entities as $entity) {
+            if (! is_array($entity)) {
+                continue;
+            }
+            $type = trim((string) ($entity['entity_type'] ?? ''));
+            $id = (int) ($entity['entity_id'] ?? 0);
+            $title = trim((string) ($entity['title'] ?? ''));
+            if ($type === '' || $id <= 0 || $title === '') {
+                continue;
+            }
+            $normalized[] = [
+                'entity_type' => $type,
+                'entity_id' => $id,
+                'title' => $title,
+            ];
+        }
+
+        return $normalized;
     }
 
     /**

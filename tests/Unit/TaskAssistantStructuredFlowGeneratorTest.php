@@ -416,7 +416,7 @@ it('uses explicit task datetime ranges for unplaced blocker rows', function (): 
         ->toContain('11:00 AM');
 });
 
-it('collects busy blockers across the entire requested range window', function (): void {
+it('does not include busy blockers when there are no placed proposal days', function (): void {
     $generator = app(TaskAssistantStructuredFlowGenerator::class);
     $method = new ReflectionMethod(TaskAssistantStructuredFlowGenerator::class, 'buildScheduleExplainability');
     $method->setAccessible(true);
@@ -436,8 +436,45 @@ it('collects busy blockers across the entire requested range window', function (
     $result = $method->invoke($generator, $snapshot, [], [], ['unplaced_units' => []], []);
     $blocking = is_array($result['blocking_reasons'] ?? null) ? $result['blocking_reasons'] : [];
 
-    expect($blocking)->not->toBe([]);
-    expect((string) ($blocking[0]['title'] ?? ''))->toBe('Day 3 blocked lecture');
+    expect($blocking)->toBe([]);
+});
+
+it('includes busy blockers only from selected proposal day windows', function (): void {
+    $generator = app(TaskAssistantStructuredFlowGenerator::class);
+    $method = new ReflectionMethod(TaskAssistantStructuredFlowGenerator::class, 'buildScheduleExplainability');
+    $method->setAccessible(true);
+
+    $snapshot = [
+        'timezone' => 'UTC',
+        'time_window' => ['start' => '08:00', 'end' => '10:00'],
+        'schedule_horizon' => ['start_date' => '2026-04-22', 'end_date' => '2026-04-24', 'label' => 'this week'],
+        'events_for_busy' => [
+            [
+                'id' => 7001,
+                'title' => 'Day 2 blocked lecture',
+                'starts_at' => '2026-04-23T08:30:00+00:00',
+                'ends_at' => '2026-04-23T09:30:00+00:00',
+            ],
+            [
+                'id' => 7002,
+                'title' => 'Day 3 blocked lecture',
+                'starts_at' => '2026-04-24T08:30:00+00:00',
+                'ends_at' => '2026-04-24T09:30:00+00:00',
+            ],
+        ],
+    ];
+    $proposals = [[
+        'title' => 'Focus task',
+        'start_datetime' => '2026-04-24T08:45:00+00:00',
+        'end_datetime' => '2026-04-24T09:45:00+00:00',
+    ]];
+
+    $result = $method->invoke($generator, $snapshot, [], $proposals, ['unplaced_units' => []], []);
+    $blocking = is_array($result['blocking_reasons'] ?? null) ? $result['blocking_reasons'] : [];
+    $titles = array_map(static fn (array $row): string => (string) ($row['title'] ?? ''), $blocking);
+
+    expect($titles)->toContain('Day 3 blocked lecture');
+    expect($titles)->not->toContain('Day 2 blocked lecture');
 });
 
 it('does not truncate too far when the available same-day window is too small', function (): void {
@@ -580,6 +617,142 @@ it('default asap mode prefers same-day feasible slot over tomorrow morning', fun
 
     expect($proposals)->toHaveCount(1);
     expect(str_starts_with((string) ($proposals[0]['start_datetime'] ?? ''), '2026-04-12T'))->toBeTrue();
+    expect((string) ($proposals[0]['start_datetime'] ?? ''))->toContain('T17:00:00');
+});
+
+it('default asap mode applies prep lead before proposing same-day slot', function (): void {
+    config()->set('task-assistant.schedule.default_asap_prep_minutes', 30);
+    config()->set('task-assistant.schedule.default_asap_rounding_minutes', 15);
+
+    $generator = app(TaskAssistantStructuredFlowGenerator::class);
+    $method = new ReflectionMethod(TaskAssistantStructuredFlowGenerator::class, 'generateProposalsChunkedSpill');
+    $method->setAccessible(true);
+
+    $snapshot = [
+        'timezone' => 'UTC',
+        'today' => '2026-04-12',
+        'now' => '2026-04-12T17:03:00+00:00',
+        'time_window' => ['start' => '08:00', 'end' => '22:00:00'],
+        'schedule_horizon' => [
+            'mode' => 'range',
+            'start_date' => '2026-04-12',
+            'end_date' => '2026-04-13',
+            'label' => 'default_asap_spread',
+        ],
+        'tasks' => [[
+            'id' => 70,
+            'title' => 'Most important task',
+            'priority' => 'urgent',
+            'duration_minutes' => 60,
+            'ends_at' => null,
+            'is_recurring' => false,
+            'complexity' => 'high',
+        ]],
+        'events' => [],
+        'events_for_busy' => [],
+        'projects' => [],
+    ];
+
+    $context = [
+        'schedule_horizon' => $snapshot['schedule_horizon'],
+        'default_asap_mode' => true,
+    ];
+
+    [$proposals] = $method->invoke($generator, $snapshot, $context, 1);
+
+    expect($proposals)->toHaveCount(1);
+    expect((string) ($proposals[0]['start_datetime'] ?? ''))->toContain('2026-04-12T17:45:00');
+});
+
+it('applies lead-time buffer for explicit today requests without clock time', function (): void {
+    config()->set('task-assistant.schedule.implicit_later_prep_minutes', 30);
+    config()->set('task-assistant.schedule.implicit_later_rounding_minutes', 15);
+
+    $generator = app(TaskAssistantStructuredFlowGenerator::class);
+    $method = new ReflectionMethod(TaskAssistantStructuredFlowGenerator::class, 'generateProposalsChunkedSpill');
+    $method->setAccessible(true);
+
+    $snapshot = [
+        'timezone' => 'UTC',
+        'today' => '2026-04-12',
+        'now' => '2026-04-12T17:03:00+00:00',
+        'time_window' => ['start' => '08:00', 'end' => '22:00:00'],
+        'schedule_horizon' => [
+            'mode' => 'single_day',
+            'start_date' => '2026-04-12',
+            'end_date' => '2026-04-12',
+            'label' => 'today',
+        ],
+        'tasks' => [[
+            'id' => 71,
+            'title' => 'Today intent task',
+            'priority' => 'urgent',
+            'duration_minutes' => 60,
+            'ends_at' => null,
+            'is_recurring' => false,
+            'complexity' => 'high',
+        ]],
+        'events' => [],
+        'events_for_busy' => [],
+        'projects' => [],
+    ];
+
+    $context = [
+        'schedule_horizon' => $snapshot['schedule_horizon'],
+        'time_constraint' => 'today',
+        'has_explicit_clock_time' => false,
+        'default_asap_mode' => false,
+    ];
+
+    [$proposals] = $method->invoke($generator, $snapshot, $context, 1);
+
+    expect($proposals)->toHaveCount(1);
+    expect((string) ($proposals[0]['start_datetime'] ?? ''))->toContain('2026-04-12T17:45:00');
+});
+
+it('applies lead-time buffer for single-day default_today context without explicit time', function (): void {
+    config()->set('task-assistant.schedule.implicit_later_prep_minutes', 30);
+    config()->set('task-assistant.schedule.implicit_later_rounding_minutes', 15);
+
+    $generator = app(TaskAssistantStructuredFlowGenerator::class);
+    $method = new ReflectionMethod(TaskAssistantStructuredFlowGenerator::class, 'generateProposalsChunkedSpill');
+    $method->setAccessible(true);
+
+    $snapshot = [
+        'timezone' => 'UTC',
+        'today' => '2026-04-12',
+        'now' => '2026-04-12T17:03:00+00:00',
+        'time_window' => ['start' => '08:00', 'end' => '22:00:00'],
+        'schedule_horizon' => [
+            'mode' => 'single_day',
+            'start_date' => '2026-04-12',
+            'end_date' => '2026-04-12',
+            'label' => 'default_today',
+        ],
+        'tasks' => [[
+            'id' => 72,
+            'title' => 'Single day default today task',
+            'priority' => 'high',
+            'duration_minutes' => 60,
+            'ends_at' => null,
+            'is_recurring' => false,
+            'complexity' => 'medium',
+        ]],
+        'events' => [],
+        'events_for_busy' => [],
+        'projects' => [],
+    ];
+
+    $context = [
+        'schedule_horizon' => $snapshot['schedule_horizon'],
+        'has_explicit_clock_time' => false,
+        'default_asap_mode' => false,
+    ];
+
+    [$proposals] = $method->invoke($generator, $snapshot, $context, 1);
+
+    expect($proposals)->toHaveCount(1);
+    expect((string) ($proposals[0]['start_datetime'] ?? ''))->toContain('2026-04-12T17:45:00');
 });
 
 it('default asap mode falls back to tomorrow when today has no feasible window', function (): void {
@@ -1430,6 +1603,66 @@ it('treats events with missing end time as busy using fallback duration', functi
 
     expect($proposals)->not->toBe([]);
     expect((string) ($proposals[0]['start_datetime'] ?? ''))->toContain('T19:00:00');
+});
+
+it('does not treat all-day events as busy blockers for placement windows', function (): void {
+    $generator = app(TaskAssistantStructuredFlowGenerator::class);
+    $method = new ReflectionMethod(TaskAssistantStructuredFlowGenerator::class, 'generateProposalsChunkedSpill');
+    $method->setAccessible(true);
+
+    $snapshot = [
+        'timezone' => 'UTC',
+        'today' => '2026-04-10',
+        'time_window' => ['start' => '18:00', 'end' => '22:00'],
+        'schedule_horizon' => [
+            'mode' => 'single_day',
+            'start_date' => '2026-04-10',
+            'end_date' => '2026-04-10',
+            'label' => 'today',
+        ],
+        'tasks' => [
+            ['id' => 1, 'title' => 'All-day overlap check', 'priority' => 'high', 'duration_minutes' => 60, 'ends_at' => null, 'is_recurring' => false],
+        ],
+        'events' => [],
+        'events_for_busy' => [
+            ['id' => 7001, 'title' => 'Campus festival', 'starts_at' => '2026-04-10T00:00:00+00:00', 'ends_at' => null, 'all_day' => true],
+        ],
+        'projects' => [],
+    ];
+
+    $context = ['schedule_horizon' => $snapshot['schedule_horizon']];
+
+    [$proposals] = $method->invoke($generator, $snapshot, $context, 1);
+
+    expect($proposals)->not->toBe([]);
+    expect((string) ($proposals[0]['start_datetime'] ?? ''))->toContain('T18:00:00');
+});
+
+it('captures all-day overlap notes only for placed proposal dates', function (): void {
+    $generator = app(TaskAssistantStructuredFlowGenerator::class);
+    $method = new ReflectionMethod(TaskAssistantStructuredFlowGenerator::class, 'buildScheduleExplainability');
+    $method->setAccessible(true);
+
+    $snapshot = [
+        'timezone' => 'UTC',
+        'time_window' => ['start' => '08:00', 'end' => '10:00'],
+        'schedule_horizon' => ['start_date' => '2026-04-22', 'end_date' => '2026-04-24', 'label' => 'this week'],
+        'events_for_busy' => [
+            ['id' => 1, 'title' => 'All-day on placement day', 'starts_at' => '2026-04-24T00:00:00+00:00', 'ends_at' => null, 'all_day' => true],
+            ['id' => 2, 'title' => 'All-day other day', 'starts_at' => '2026-04-23T00:00:00+00:00', 'ends_at' => null, 'all_day' => true],
+        ],
+    ];
+    $proposals = [[
+        'title' => 'Focus task',
+        'start_datetime' => '2026-04-24T08:45:00+00:00',
+        'end_datetime' => '2026-04-24T09:45:00+00:00',
+    ]];
+
+    $result = $method->invoke($generator, $snapshot, [], $proposals, ['unplaced_units' => []], []);
+    $note = (string) ($result['all_day_overlap_note'] ?? '');
+
+    expect($note)->toContain('All-day on placement day');
+    expect($note)->not->toContain('All-day other day');
 });
 
 it('allows scheduling through lunch when lunch block is disabled in user preferences', function (): void {

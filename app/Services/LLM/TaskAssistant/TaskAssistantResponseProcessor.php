@@ -890,7 +890,7 @@ final class TaskAssistantResponseProcessor
             'explanation_meta' => ['nullable', 'array'],
             'explanation_meta.mode' => ['nullable', 'string', 'in:normal,confirmation'],
             'explanation_meta.scenario_key' => ['nullable', 'string', 'max:120'],
-            'explanation_meta.flow_source' => ['nullable', 'string', 'in:schedule,prioritize_schedule'],
+            'explanation_meta.flow_source' => ['nullable', 'string', 'in:schedule,prioritize_schedule,targeted_schedule'],
             'explanation_meta.schedule_scope' => ['nullable', 'string', 'in:all_entities,tasks_only'],
             'explanation_meta.requested_window' => ['nullable', 'string', 'max:160'],
             'explanation_meta.chosen_window' => ['nullable', 'string', 'max:120'],

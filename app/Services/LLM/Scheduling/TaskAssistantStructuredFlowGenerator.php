@@ -183,6 +183,13 @@ final class TaskAssistantStructuredFlowGenerator
             'confirmation_context' => null,
             'fallback_preview' => null,
         ];
+        $namedTargetResolutionSummary = $this->buildNamedTargetResolutionSummary($options);
+        if ($namedTargetResolutionSummary !== null) {
+            $data['named_target_resolution'] = $namedTargetResolutionSummary;
+            $explanationMeta = is_array($data['explanation_meta'] ?? null) ? $data['explanation_meta'] : [];
+            $explanationMeta['named_target_resolution'] = $namedTargetResolutionSummary;
+            $data['explanation_meta'] = $explanationMeta;
+        }
 
         $horizonLog = $contextualSnapshot['schedule_horizon'] ?? null;
         Log::info('task-assistant.structured_generation', [
@@ -208,6 +215,47 @@ final class TaskAssistantStructuredFlowGenerator
             'valid' => true,
             'data' => $data,
             'errors' => [],
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $scheduleOptions
+     * @return array{
+     *   status: string,
+     *   resolved_count: int,
+     *   unresolved_phrases: list<string>
+     * }|null
+     */
+    private function buildNamedTargetResolutionSummary(array $scheduleOptions): ?array
+    {
+        $resolution = is_array($scheduleOptions['named_task_resolution'] ?? null)
+            ? $scheduleOptions['named_task_resolution']
+            : [];
+        $status = trim((string) ($resolution['status'] ?? ''));
+        if ($status === '' || $status === 'none') {
+            return null;
+        }
+
+        $targets = is_array($resolution['target_entities'] ?? null)
+            ? $resolution['target_entities']
+            : [];
+        $resolvedCount = 0;
+        foreach ($targets as $target) {
+            if (is_array($target) && (int) ($target['entity_id'] ?? 0) > 0) {
+                $resolvedCount++;
+            }
+        }
+        $unresolvedPhrases = is_array($resolution['unresolved_phrases'] ?? null)
+            ? array_values(array_filter(array_map(
+                static fn (mixed $row): string => trim((string) $row),
+                $resolution['unresolved_phrases']
+            ), static fn (string $row): bool => $row !== ''))
+            : [];
+
+        return [
+            'status' => $status,
+            'resolved_count' => $resolvedCount,
+            'unresolved_phrases' => array_slice($unresolvedPhrases, 0, 3),
         ];
     }
 
@@ -515,6 +563,13 @@ final class TaskAssistantStructuredFlowGenerator
         $horizonEnd = is_string($horizon['end_date'] ?? null) ? (string) $horizon['end_date'] : '';
         $meaningfulWindow = $windowStart !== '' && $windowEnd !== '' && ! ($windowStart === '00:00' && $windowEnd === '23:59');
         $narrativeFacts = $this->buildScheduleNarrativeFacts($proposals, $requestedHorizonLabel);
+        $proposalDays = $this->collectProposalPlacementDates($proposals);
+        $timezoneName = is_string($snapshot['timezone'] ?? null) && trim((string) $snapshot['timezone']) !== ''
+            ? (string) $snapshot['timezone']
+            : (string) config('app.timezone', 'Asia/Manila');
+        $timezone = new \DateTimeZone($timezoneName);
+        $allDayOverlaps = $this->collectAllDayEventOverlaps($snapshot, $proposalDays, $timezone);
+        $allDayOverlapNote = $this->formatAllDayOverlapNote($allDayOverlaps);
         $isPlacementMultiDay = (bool) ($narrativeFacts['is_multi_day'] ?? false);
 
         $windowSelectionExplanation = ($meaningfulWindow && $hasExplicitClockTime)
@@ -598,7 +653,7 @@ final class TaskAssistantStructuredFlowGenerator
             ];
         }
 
-        $busyBlockers = $this->collectRequestedWindowBusyBlockers($snapshot);
+        $busyBlockers = $this->collectRequestedWindowBusyBlockers($snapshot, $proposals);
         foreach ($busyBlockers as $blocker) {
             $blockingReasons[] = $blocker;
         }
@@ -634,6 +689,8 @@ final class TaskAssistantStructuredFlowGenerator
             'ordering_rationale_struct' => $orderingRationaleStruct,
             'blocking_reasons_struct' => $blockingReasonsStruct,
             'narrative_facts' => $narrativeFacts,
+            'all_day_overlaps' => $allDayOverlaps,
+            'all_day_overlap_note' => $allDayOverlapNote,
         ];
     }
 
@@ -871,7 +928,7 @@ final class TaskAssistantStructuredFlowGenerator
      *   source_type:string
      * }>
      */
-    private function collectRequestedWindowBusyBlockers(array $snapshot): array
+    private function collectRequestedWindowBusyBlockers(array $snapshot, array $proposals): array
     {
         $window = is_array($snapshot['time_window'] ?? null) ? $snapshot['time_window'] : [];
         $windowStart = is_string($window['start'] ?? null) ? trim((string) $window['start']) : '';
@@ -879,10 +936,8 @@ final class TaskAssistantStructuredFlowGenerator
         if ($windowStart === '' || $windowEnd === '' || ($windowStart === '00:00' && $windowEnd === '23:59')) {
             return [];
         }
-        $horizon = is_array($snapshot['schedule_horizon'] ?? null) ? $snapshot['schedule_horizon'] : [];
-        $rangeStartDate = is_string($horizon['start_date'] ?? null) ? (string) $horizon['start_date'] : '';
-        $rangeEndDate = is_string($horizon['end_date'] ?? null) ? (string) $horizon['end_date'] : $rangeStartDate;
-        if ($rangeStartDate === '' || $rangeEndDate === '') {
+        $proposalDays = $this->collectProposalPlacementDates($proposals);
+        if ($proposalDays === []) {
             return [];
         }
         $timezoneName = is_string($snapshot['timezone'] ?? null) && trim((string) $snapshot['timezone']) !== ''
@@ -894,6 +949,9 @@ final class TaskAssistantStructuredFlowGenerator
         $events = is_array($snapshot['events_for_busy'] ?? null) ? $snapshot['events_for_busy'] : [];
         foreach ($events as $event) {
             if (! is_array($event)) {
+                continue;
+            }
+            if ((bool) ($event['all_day'] ?? false)) {
                 continue;
             }
             $title = trim((string) ($event['title'] ?? 'Busy event'));
@@ -908,11 +966,10 @@ final class TaskAssistantStructuredFlowGenerator
             } catch (\Throwable) {
                 continue;
             }
-            if (! $this->intervalOverlapsRequestedWindow(
+            if (! $this->intervalOverlapsProposalDaysWindow(
                 $startDt,
                 $endDt,
-                $rangeStartDate,
-                $rangeEndDate,
+                $proposalDays,
                 $windowStart,
                 $windowEnd,
                 $timezone
@@ -947,11 +1004,10 @@ final class TaskAssistantStructuredFlowGenerator
             } catch (\Throwable) {
                 continue;
             }
-            if (! $this->intervalOverlapsRequestedWindow(
+            if (! $this->intervalOverlapsProposalDaysWindow(
                 $startDt,
                 $endDt,
-                $rangeStartDate,
-                $rangeEndDate,
+                $proposalDays,
                 $windowStart,
                 $windowEnd,
                 $timezone
@@ -976,27 +1032,141 @@ final class TaskAssistantStructuredFlowGenerator
         return $out;
     }
 
-    private function intervalOverlapsRequestedWindow(
+    /**
+     * @param  list<string>  $proposalDays
+     */
+    private function intervalOverlapsProposalDaysWindow(
         \DateTimeImmutable $intervalStart,
         \DateTimeImmutable $intervalEnd,
-        string $rangeStartDate,
-        string $rangeEndDate,
+        array $proposalDays,
         string $windowStart,
         string $windowEnd,
         \DateTimeZone $timezone
     ): bool {
-        try {
-            $rangeStart = new \DateTimeImmutable($rangeStartDate.' '.$windowStart, $timezone);
-            $rangeEnd = new \DateTimeImmutable($rangeEndDate.' '.$windowEnd, $timezone);
-        } catch (\Throwable) {
-            return false;
+        foreach ($proposalDays as $day) {
+            try {
+                $dayStart = new \DateTimeImmutable($day.' '.$windowStart, $timezone);
+                $dayEnd = new \DateTimeImmutable($day.' '.$windowEnd, $timezone);
+            } catch (\Throwable) {
+                continue;
+            }
+
+            if ($dayEnd <= $dayStart) {
+                continue;
+            }
+
+            if ($intervalStart < $dayEnd && $intervalEnd > $dayStart) {
+                return true;
+            }
         }
 
-        if ($rangeEnd <= $rangeStart) {
-            return false;
+        return false;
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $proposals
+     * @return list<string>
+     */
+    private function collectProposalPlacementDates(array $proposals): array
+    {
+        $dates = [];
+        foreach ($proposals as $proposal) {
+            if (! is_array($proposal)) {
+                continue;
+            }
+            $startRaw = trim((string) ($proposal['start_datetime'] ?? ''));
+            if ($startRaw === '') {
+                continue;
+            }
+            try {
+                $start = new \DateTimeImmutable($startRaw);
+            } catch (\Throwable) {
+                continue;
+            }
+            $dates[$start->format('Y-m-d')] = true;
         }
 
-        return $intervalStart < $rangeEnd && $intervalEnd > $rangeStart;
+        $out = array_keys($dates);
+        sort($out);
+
+        return array_values($out);
+    }
+
+    /**
+     * @param  array<string, mixed>  $snapshot
+     * @param  list<string>  $proposalDays
+     * @return list<array{title:string,date:string}>
+     */
+    private function collectAllDayEventOverlaps(array $snapshot, array $proposalDays, \DateTimeZone $timezone): array
+    {
+        if ($proposalDays === []) {
+            return [];
+        }
+
+        $proposalDaySet = array_fill_keys($proposalDays, true);
+        $events = is_array($snapshot['events_for_busy'] ?? null) ? $snapshot['events_for_busy'] : [];
+        $overlaps = [];
+        $seen = [];
+        foreach ($events as $event) {
+            if (! is_array($event) || ! (bool) ($event['all_day'] ?? false)) {
+                continue;
+            }
+
+            $startRaw = trim((string) ($event['starts_at'] ?? ''));
+            if ($startRaw === '') {
+                continue;
+            }
+
+            try {
+                $start = new \DateTimeImmutable($startRaw, $timezone);
+            } catch (\Throwable) {
+                continue;
+            }
+
+            $day = $start->format('Y-m-d');
+            if (! isset($proposalDaySet[$day])) {
+                continue;
+            }
+
+            $title = trim((string) ($event['title'] ?? 'All-day event'));
+            if ($title === '') {
+                $title = 'All-day event';
+            }
+            $dedupeKey = mb_strtolower($day.'|'.$title);
+            if (isset($seen[$dedupeKey])) {
+                continue;
+            }
+            $seen[$dedupeKey] = true;
+
+            $overlaps[] = [
+                'title' => $title,
+                'date' => $day,
+            ];
+            if (count($overlaps) >= 5) {
+                break;
+            }
+        }
+
+        return $overlaps;
+    }
+
+    /**
+     * @param  list<array{title:string,date:string}>  $allDayOverlaps
+     */
+    private function formatAllDayOverlapNote(array $allDayOverlaps): string
+    {
+        if ($allDayOverlaps === []) {
+            return '';
+        }
+
+        $labels = array_values(array_map(static function (array $row): string {
+            $title = trim((string) ($row['title'] ?? 'All-day event'));
+            $date = trim((string) ($row['date'] ?? ''));
+
+            return $date !== '' ? "{$title} ({$date})" : $title;
+        }, $allDayOverlaps));
+
+        return 'Heads up: you also have all-day events on these dates: '.implode(', ', $labels).'.';
     }
 
     /**
@@ -1469,6 +1639,7 @@ final class TaskAssistantStructuredFlowGenerator
         $windowStart = is_string($window['start'] ?? null) ? $window['start'] : '00:00';
         $windowEnd = is_string($window['end'] ?? null) ? $window['end'] : '23:59:59';
         $defaultAsapMode = (bool) ($context['default_asap_mode'] ?? false);
+        $applyTodayLeadBuffer = $this->shouldApplyTodayLeadBuffer($context, $snapshot);
 
         $todayStr = is_string($snapshot['today'] ?? null) ? trim((string) $snapshot['today']) : '';
         $nowStr = is_string($snapshot['now'] ?? null) ? trim((string) $snapshot['now']) : '';
@@ -1513,7 +1684,19 @@ final class TaskAssistantStructuredFlowGenerator
                 }
 
                 if ($nowInstant > $dayStart && $nowInstant < $dayEnd) {
-                    $dayStart = $nowInstant;
+                    $effectiveNowStart = $this->resolveEffectiveNowStartForTodayWindow(
+                        nowInstant: $nowInstant,
+                        dayStart: $dayStart,
+                        dayEnd: $dayEnd,
+                        defaultAsapMode: $defaultAsapMode,
+                        applyTodayLeadBuffer: $applyTodayLeadBuffer,
+                    );
+                    if ($effectiveNowStart >= $dayEnd) {
+                        $windowsByDay[$day] = [];
+
+                        continue;
+                    }
+                    $dayStart = $effectiveNowStart;
                 }
             }
 
@@ -2959,6 +3142,9 @@ final class TaskAssistantStructuredFlowGenerator
             if (! is_array($event)) {
                 continue;
             }
+            if ((bool) ($event['all_day'] ?? false)) {
+                continue;
+            }
 
             $start = $this->safeDateTime($event['starts_at'] ?? null, $timezone);
             $end = $this->resolveEventEnd($event, $start, $dayStart, $dayEnd, $timezone);
@@ -3345,6 +3531,93 @@ final class TaskAssistantStructuredFlowGenerator
         return $remainingMinutes < $minimumRemainingMinutes;
     }
 
+    private function resolveEffectiveNowStartForTodayWindow(
+        \DateTimeImmutable $nowInstant,
+        \DateTimeImmutable $dayStart,
+        \DateTimeImmutable $dayEnd,
+        bool $defaultAsapMode,
+        bool $applyTodayLeadBuffer,
+    ): \DateTimeImmutable {
+        if (! $defaultAsapMode && ! $applyTodayLeadBuffer) {
+            return $nowInstant;
+        }
+
+        if ($defaultAsapMode) {
+            $prepMinutes = max(
+                0,
+                (int) config(
+                    'task-assistant.schedule.default_asap_prep_minutes',
+                    (int) config('task-assistant.schedule.implicit_later_prep_minutes', 30)
+                )
+            );
+            $roundingMinutes = max(
+                1,
+                (int) config(
+                    'task-assistant.schedule.default_asap_rounding_minutes',
+                    (int) config('task-assistant.schedule.implicit_later_rounding_minutes', 15)
+                )
+            );
+        } else {
+            $prepMinutes = max(0, (int) config('task-assistant.schedule.implicit_later_prep_minutes', 30));
+            $roundingMinutes = max(1, (int) config('task-assistant.schedule.implicit_later_rounding_minutes', 15));
+        }
+
+        $candidate = $nowInstant->add(new \DateInterval('PT'.$prepMinutes.'M'));
+        $minute = (int) $candidate->format('i');
+        $mod = $minute % $roundingMinutes;
+        if ($mod !== 0) {
+            $candidate = $candidate->add(new \DateInterval('PT'.($roundingMinutes - $mod).'M'));
+        }
+        $candidate = $candidate->setTime(
+            (int) $candidate->format('H'),
+            (int) $candidate->format('i'),
+            0
+        );
+
+        if ($candidate < $dayStart) {
+            return $dayStart;
+        }
+        if ($candidate > $dayEnd) {
+            return $dayEnd;
+        }
+
+        return $candidate;
+    }
+
+    /**
+     * "Today" requests without an explicit clock time should not be placed at the exact current minute.
+     * Reuse implicit-later prep + rounding so proposals feel intentional instead of immediate.
+     *
+     * @param  array<string, mixed>  $context
+     * @param  array<string, mixed>  $snapshot
+     */
+    private function shouldApplyTodayLeadBuffer(array $context, array $snapshot): bool
+    {
+        if ((bool) ($context['default_asap_mode'] ?? false)) {
+            return false;
+        }
+
+        if ((bool) ($context['has_explicit_clock_time'] ?? false)) {
+            return false;
+        }
+
+        if ((string) ($context['time_constraint'] ?? 'none') === 'today') {
+            return true;
+        }
+
+        $horizon = is_array($context['schedule_horizon'] ?? null) ? $context['schedule_horizon'] : [];
+        $horizonLabel = (string) ($horizon['label'] ?? '');
+        if ($horizonLabel === 'today') {
+            return true;
+        }
+
+        $todayStr = is_string($snapshot['today'] ?? null) ? trim((string) $snapshot['today']) : '';
+        $startDate = is_string($horizon['start_date'] ?? null) ? trim((string) $horizon['start_date']) : '';
+        $endDate = is_string($horizon['end_date'] ?? null) ? trim((string) $horizon['end_date']) : '';
+
+        return $todayStr !== '' && $startDate === $todayStr && $endDate === $todayStr;
+    }
+
     private function findFirstFittingWindow(array $windows, int $requiredMinutes): ?array
     {
         foreach ($windows as $index => $window) {
@@ -3675,6 +3948,10 @@ final class TaskAssistantStructuredFlowGenerator
             }
         }
 
+        $isTargetedSchedule = $flowSource === 'targeted_schedule';
+        $targetedEntityTitle = trim((string) ($firstItem['title'] ?? ''));
+        $timeWindowHintSource = trim((string) ($options['time_window_hint'] ?? ''));
+
         return $this->deterministicExplanationService->composeNormal([
             'flow_source' => $flowSource,
             'schedule_scope' => $flowSource === 'prioritize_schedule' ? 'tasks_only' : 'all_entities',
@@ -3690,7 +3967,12 @@ final class TaskAssistantStructuredFlowGenerator
             'fallback_mode' => (string) ($placementDigest['fallback_mode'] ?? ''),
             'nearest_window_label' => (string) data_get($placementDigest, 'confirmation_signals.nearest_available_window.display_label', ''),
             'chosen_time_label' => $chosenTimeLabel,
+            'is_targeted_schedule' => $isTargetedSchedule,
+            'targeted_entity_title' => $targetedEntityTitle,
+            'time_window_hint_source' => $timeWindowHintSource,
             'blocking_reasons' => is_array($scheduleExplainability['blocking_reasons'] ?? null) ? $scheduleExplainability['blocking_reasons'] : [],
+            'all_day_overlap_note' => (string) ($scheduleExplainability['all_day_overlap_note'] ?? ''),
+            'all_day_overlaps' => is_array($scheduleExplainability['all_day_overlaps'] ?? null) ? $scheduleExplainability['all_day_overlaps'] : [],
         ]);
     }
 

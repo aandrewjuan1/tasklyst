@@ -67,8 +67,9 @@
     </button>
 
     @if ($panelOpen)
+        @teleport('body')
         <div
-            class="fixed right-3 top-14 z-[500] flex w-96 max-h-[calc(100dvh-4rem)] max-w-[min(24rem,calc(100vw-1.5rem))] origin-top-right flex-col rounded-xl border border-zinc-200 bg-white shadow-lg ring-1 ring-black/5 sm:right-4 lg:top-4 lg:max-h-[calc(100dvh-2rem)] dark:border-zinc-600 dark:bg-zinc-800 dark:ring-white/10"
+            class="fixed right-3 top-14 z-[2147483647] flex w-96 max-h-[calc(100dvh-4rem)] max-w-[min(24rem,calc(100vw-1.5rem))] origin-top-right flex-col rounded-xl border border-zinc-200 bg-white shadow-lg ring-1 ring-black/5 sm:right-4 lg:top-4 lg:max-h-[calc(100dvh-2rem)] dark:border-zinc-600 dark:bg-zinc-800 dark:ring-white/10"
             role="region"
             aria-label="{{ __('Notifications') }}"
         >
@@ -338,5 +339,6 @@
                 </div>
             @endif
         </div>
+        @endteleport
     @endif
 </div>

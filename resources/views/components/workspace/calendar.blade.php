@@ -202,11 +202,11 @@
                         {{-- Adjacent month: muted day number (aligns grid visually) --}}
                         <div
                             x-show="!alpineReady"
-                            class="flex aspect-square min-h-12 min-w-0 w-full items-center justify-center rounded-lg border border-border/20 dark:border-zinc-600/35 sm:min-h-14"
+                            class="flex aspect-square min-h-12 min-w-0 w-full items-center justify-center rounded-lg border border-border/15 bg-muted/35 dark:border-zinc-600/25 dark:bg-zinc-900/35 sm:min-h-14"
                             style="display: flex;"
                             aria-hidden="true"
                         >
-                            <span class="text-[10px] font-medium tabular-nums text-muted-foreground/50 sm:text-[11px] dark:text-zinc-500/80">{{ $dayData['day'] }}</span>
+                            <span class="text-[10px] font-medium tabular-nums text-muted-foreground/40 blur-[0.6px] sm:text-[11px] dark:text-zinc-500/60">{{ $dayData['day'] }}</span>
                         </div>
                     @else
                         {{-- Current Month Days (Clickable) --}}
@@ -278,11 +278,11 @@
                         {{-- Grid padding only (no adjacent-month day labels) --}}
                         <div
                             x-show="dayData.month !== 'current'"
-                            class="flex aspect-square h-full w-full min-w-0 items-center justify-center rounded-lg border border-border/20 dark:border-zinc-600/35"
+                            class="flex aspect-square h-full w-full min-w-0 items-center justify-center rounded-lg border border-border/15 bg-muted/35 dark:border-zinc-600/25 dark:bg-zinc-900/35"
                             aria-hidden="true"
                         >
                             <span
-                                class="text-[10px] font-medium tabular-nums text-muted-foreground/50 sm:text-[11px] dark:text-zinc-500/80"
+                                class="text-[10px] font-medium tabular-nums text-muted-foreground/40 blur-[0.6px] sm:text-[11px] dark:text-zinc-500/60"
                                 x-text="dayData.day"
                             ></span>
                         </div>
@@ -396,7 +396,7 @@
                 </div>
             </div>
 
-            <div class="max-h-48 space-y-2 overflow-y-auto pr-1 sm:max-h-56 md:max-h-[22rem] lg:max-h-80">
+            <div class="max-h-48 space-y-2 overflow-y-auto pr-1 sm:max-h-56 md:max-h-88 lg:max-h-80">
                 @if (!empty($selectedDayAgenda['overdueTasks'] ?? []))
                     <div data-testid="calendar-agenda-overdue-tasks">
                         <p class="mb-2 text-[10px] font-semibold uppercase tracking-wide text-red-600 dark:text-red-400">{{ __('Overdue tasks') }}</p>

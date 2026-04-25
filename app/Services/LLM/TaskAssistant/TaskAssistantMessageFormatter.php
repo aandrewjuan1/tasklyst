@@ -747,12 +747,12 @@ final class TaskAssistantMessageFormatter
         $assumptions = is_array($data['assumptions'] ?? null) ? $data['assumptions'] : [];
         $whyPlanLines = [];
         if ($windowSelectionExplanation !== '') {
-            $whyPlanLines[] = '• '.$windowSelectionExplanation;
+            $whyPlanLines[] = $windowSelectionExplanation;
         } elseif ($windowSelectionStruct !== []) {
             $windowMode = trim((string) ($windowSelectionStruct['window_mode'] ?? ''));
             $reasonCode = trim((string) ($windowSelectionStruct['reason_code_primary'] ?? ''));
             if ($windowMode !== '' || $reasonCode !== '') {
-                $whyPlanLines[] = '• '.$this->scheduleWindowReasonFromStruct($windowMode, $reasonCode);
+                $whyPlanLines[] = $this->scheduleWindowReasonFromStruct($windowMode, $reasonCode);
             }
         }
         if (! $hasSuccessfulProposals && $orderingRationaleStruct !== [] && $orderingRationale === []) {
@@ -767,7 +767,7 @@ final class TaskAssistantMessageFormatter
                     continue;
                 }
                 $prefix = $rank > 0 ? "#{$rank} {$title}" : $title;
-                $whyPlanLines[] = '• '.$prefix.': '.$this->scheduleFitReasonFromCode($fitReasonCode);
+                $whyPlanLines[] = $prefix.': '.$this->scheduleFitReasonFromCode($fitReasonCode);
             }
         }
         if (! $hasSuccessfulProposals) {
@@ -776,14 +776,14 @@ final class TaskAssistantMessageFormatter
                 if ($text === '') {
                     continue;
                 }
-                $whyPlanLines[] = '• '.$text;
+                $whyPlanLines[] = $text;
             }
         }
         if ($fallbackChoiceExplanation !== '') {
-            $whyPlanLines[] = '• '.$fallbackChoiceExplanation;
+            $whyPlanLines[] = $fallbackChoiceExplanation;
         }
         if ($whyPlanLines !== []) {
-            $paragraphs[] = "Why this plan:\n".implode("\n", $whyPlanLines);
+            $paragraphs[] = $this->renderScheduleExplainabilityAsSentenceChain($whyPlanLines);
         }
         if (! $hasSuccessfulProposals) {
             $blockingSectionTitle = $this->resolveBlockingSectionTitle($data);
@@ -869,6 +869,57 @@ final class TaskAssistantMessageFormatter
             'window_conflict' => 'overlaps your requested window constraints.',
             default => 'no free slot was available inside your requested window.',
         };
+    }
+
+    /**
+     * @param  list<string>  $lines
+     */
+    private function renderScheduleExplainabilityAsSentenceChain(array $lines): string
+    {
+        $clean = array_values(array_filter(array_map(
+            static function (mixed $line): string {
+                $value = trim((string) $line);
+                if ($value === '') {
+                    return '';
+                }
+
+                // Strip legacy bullet prefixes if any older payload still includes them.
+                $value = ltrim($value, "• \t");
+
+                return trim($value);
+            },
+            $lines
+        ), static fn (string $line): bool => $line !== ''));
+
+        if ($clean === []) {
+            return '';
+        }
+        if (count($clean) === 1) {
+            return $clean[0];
+        }
+
+        $chain = [];
+        foreach ($clean as $index => $line) {
+            if ($index === 0) {
+                $chain[] = $line;
+
+                continue;
+            }
+
+            $connector = match ($index) {
+                1 => 'Also, ',
+                2 => 'And ',
+                default => 'Additionally, ',
+            };
+            $lineNormalized = preg_replace('/^[A-Z][a-z]+,\s+/u', '', $line) ?? $line;
+            $lineNormalized = trim($lineNormalized);
+            if ($lineNormalized === '') {
+                continue;
+            }
+            $chain[] = $connector.$lineNormalized;
+        }
+
+        return implode(' ', $chain);
     }
 
     /**

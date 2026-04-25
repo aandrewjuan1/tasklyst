@@ -631,6 +631,35 @@ class TaskAssistantMessageFormatterTest extends TestCase
         $this->assertStringContainsString('6:00 PM–7:30 PM', $out);
     }
 
+    public function test_daily_schedule_targeted_copy_preserves_warm_time_aware_coaching(): void
+    {
+        $out = $this->formatter->format('daily_schedule', [
+            'schedule_source' => 'targeted_schedule',
+            'framing' => 'I scheduled your 10KM RUN at 5:30 PM and kept it inside today.',
+            'reasoning' => 'That slot gives you a focused hour for 10KM RUN. Start gently for the first few minutes so this block feels sustainable. Set a clear stopping point so you finish with energy left for tomorrow.',
+            'confirmation' => 'Do you want to keep 10KM RUN at 5:30 PM, or shift it earlier/later?',
+            'blocks' => [[
+                'start_time' => '17:30',
+                'end_time' => '18:30',
+                'label' => '10KM RUN',
+                'task_id' => 1,
+            ]],
+            'items' => [[
+                'title' => '10KM RUN',
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'start_datetime' => '2026-04-25T17:30:00+08:00',
+                'end_datetime' => '2026-04-25T18:30:00+08:00',
+                'duration_minutes' => 60,
+            ]],
+        ]);
+
+        $this->assertStringContainsString('10KM RUN', $out);
+        $this->assertStringContainsString('5:30 PM', $out);
+        $this->assertStringContainsString('Start gently', $out);
+        $this->assertStringContainsString('stopping point', $out);
+    }
+
     public function test_daily_schedule_message_sorts_rows_chronologically_for_student_clarity(): void
     {
         $out = $this->formatter->format('daily_schedule', [
@@ -1164,7 +1193,7 @@ class TaskAssistantMessageFormatterTest extends TestCase
         $this->assertStringContainsString('morning', mb_strtolower($out));
     }
 
-    public function test_daily_schedule_renders_why_this_plan_and_blocking_reasons_sections(): void
+    public function test_daily_schedule_renders_prose_explainability_without_why_heading_or_bullets(): void
     {
         $out = $this->formatter->format('daily_schedule', [
             'proposals' => [[
@@ -1205,13 +1234,17 @@ class TaskAssistantMessageFormatterTest extends TestCase
             'fallback_choice_explanation' => 'I kept this as the closest feasible fit.',
         ]);
 
-        $this->assertStringContainsString('Why this plan:', $out);
+        $this->assertStringNotContainsString('Why this plan:', $out);
+        $this->assertStringContainsString('I used your morning window first.', $out);
+        $this->assertStringContainsString('Also, I kept this as the closest feasible fit.', $out);
+        $this->assertStringNotContainsString('• I used your morning window first.', $out);
+        $this->assertStringNotContainsString('• I kept this as the closest feasible fit.', $out);
         $this->assertStringNotContainsString('These items are already scheduled for tomorrow:', $out);
         $this->assertStringNotContainsString('Chemistry lab (9:30 AM-11:00 AM)', $out);
         $this->assertStringNotContainsString('#1 Math worksheet: early slot keeps momentum.', $out);
     }
 
-    public function test_daily_schedule_uses_structured_explainability_when_legacy_text_fields_are_empty(): void
+    public function test_daily_schedule_uses_structured_explainability_as_sentence_chain_when_legacy_text_fields_are_empty(): void
     {
         $out = $this->formatter->format('daily_schedule', [
             'proposals' => [[
@@ -1259,7 +1292,8 @@ class TaskAssistantMessageFormatterTest extends TestCase
             ]],
         ]);
 
-        $this->assertStringContainsString('Why this plan:', $out);
+        $this->assertStringNotContainsString('Why this plan:', $out);
+        $this->assertStringContainsString('I kept this plan aligned with the availability window you asked for.', $out);
         $this->assertStringNotContainsString('These items are already scheduled in your requested window:', $out);
         $this->assertStringNotContainsString('Chemistry lab (9:30 AM-11:00 AM)', $out);
         $this->assertStringNotContainsString('placed in the strongest fit window', $out);

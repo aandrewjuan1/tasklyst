@@ -1495,6 +1495,133 @@ test('schedule my most important task defaults to same-day placement when a slot
     CarbonImmutable::setTestNow();
 });
 
+test('default scheduling without time window applies prep buffer before same-day proposal start', function (): void {
+    config(['task-assistant.intent.use_llm' => false]);
+
+    $timezone = (string) config('app.timezone', 'UTC');
+    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-04-25 17:03:00', $timezone));
+
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => 'I scheduled your run in the next feasible slot.',
+                'reasoning' => 'I used the earliest realistic opening.',
+                'confirmation' => 'Want this adjusted?',
+            ])
+            ->withUsage(new Usage(5, 10)),
+    ]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    Task::factory()->for($user)->create([
+        'title' => '10KM RUN',
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::High,
+        'start_datetime' => null,
+        'end_datetime' => CarbonImmutable::parse('2026-04-27 10:00:00', $timezone),
+        'duration' => 60,
+    ]);
+
+    $userMessage = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'schedule my 10km run',
+    ]);
+    $assistantMessage = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
+    $assistantMessage->refresh();
+
+    $proposal = $assistantMessage->metadata['schedule']['proposals'][0] ?? [];
+    $digest = is_array($assistantMessage->metadata['schedule']['placement_digest'] ?? null)
+        ? $assistantMessage->metadata['schedule']['placement_digest']
+        : [];
+    expect($proposal)->toBeArray()->not->toBeEmpty();
+    expect((bool) ($digest['default_asap_mode'] ?? false))->toBeTrue();
+
+    $startRaw = (string) ($proposal['start_datetime'] ?? '');
+    expect($startRaw)->not->toBe('');
+
+    $start = CarbonImmutable::parse($startRaw, $timezone);
+    $expectedMinStart = CarbonImmutable::parse('2026-04-25 17:30:00', $timezone);
+    expect($start->greaterThanOrEqualTo($expectedMinStart))->toBeTrue();
+    expect(((int) $start->format('i')) % 15)->toBe(0);
+
+    CarbonImmutable::setTestNow();
+});
+
+test('default scheduling does not mention blockers from non-proposal days in explanation', function (): void {
+    config(['task-assistant.intent.use_llm' => false]);
+
+    $timezone = (string) config('app.timezone', 'UTC');
+    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-04-25 17:03:00', $timezone));
+
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => 'I scheduled your run in the next feasible slot.',
+                'reasoning' => 'I used the earliest realistic opening.',
+                'confirmation' => 'Want this adjusted?',
+            ])
+            ->withUsage(new Usage(5, 10)),
+    ]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    Task::factory()->for($user)->create([
+        'title' => '10KM RUN',
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::High,
+        'start_datetime' => null,
+        'end_datetime' => CarbonImmutable::parse('2026-04-27 10:00:00', $timezone),
+        'duration' => 60,
+    ]);
+
+    SchoolClass::factory()->for($user)->create([
+        'subject_name' => 'ELECTIVE 3',
+        'start_datetime' => CarbonImmutable::parse('2026-04-26 13:45:00', $timezone),
+        'end_datetime' => CarbonImmutable::parse('2026-04-26 18:15:00', $timezone),
+        'start_time' => '13:45:00',
+        'end_time' => '18:15:00',
+    ]);
+    SchoolClass::factory()->for($user)->create([
+        'subject_name' => 'YES',
+        'start_datetime' => CarbonImmutable::parse('2026-04-26 12:45:00', $timezone),
+        'end_datetime' => CarbonImmutable::parse('2026-04-26 14:15:00', $timezone),
+        'start_time' => '12:45:00',
+        'end_time' => '14:15:00',
+    ]);
+
+    $userMessage = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'schedule my 10km run',
+    ]);
+    $assistantMessage = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
+    $assistantMessage->refresh();
+
+    $proposal = is_array($assistantMessage->metadata['schedule']['proposals'][0] ?? null)
+        ? $assistantMessage->metadata['schedule']['proposals'][0]
+        : [];
+    expect($proposal)->not->toBe([]);
+    $start = CarbonImmutable::parse((string) ($proposal['start_datetime'] ?? ''), $timezone);
+    expect($start->toDateString())->toBe('2026-04-25');
+
+    $content = (string) ($assistantMessage->content ?? '');
+    expect($content)->not->toContain('ELECTIVE 3');
+    expect($content)->not->toContain('YES');
+
+    CarbonImmutable::setTestNow();
+});
+
 test('schedule my most important task falls back to tomorrow when today is fully blocked', function (): void {
     config(['task-assistant.intent.use_llm' => false]);
     $timezone = (string) config('app.timezone', 'UTC');
@@ -2504,7 +2631,7 @@ test('ambiguous named scheduling prompt returns clarification and skips schedule
     $assistantMessage->refresh();
 
     expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('general_guidance');
-    expect((string) ($assistantMessage->metadata['general_guidance']['message'] ?? ''))->toContain('Which one should I schedule');
+    expect((string) ($assistantMessage->metadata['general_guidance']['message'] ?? ''))->toContain('Please reply with the exact title');
     expect($assistantMessage->metadata['schedule'] ?? null)->toBeNull();
 });
 
@@ -2571,6 +2698,129 @@ test('numeric reply resolves pending named task clarification and schedules sele
     expect($thread->metadata['conversation_state']['pending_named_task_clarification'] ?? null)->toBeNull();
     expect((array) ($thread->metadata['conversation_state']['last_schedule']['target_entities'] ?? []))->toHaveCount(1);
     expect((int) ($thread->metadata['conversation_state']['last_schedule']['target_entities'][0]['entity_id'] ?? 0))->toBe($expectedSecondOptionId);
+});
+
+test('schedules multiple specifically named tasks in a single prompt (up to three)', function (): void {
+    config(['task-assistant.intent.use_llm' => false]);
+
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => 'I scheduled your selected tasks for today.',
+                'reasoning' => 'These fit your requested window.',
+                'confirmation' => 'Want me to adjust any time blocks?',
+            ])
+            ->withUsage(new Usage(3, 7)),
+    ]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $math = Task::factory()->for($user)->create([
+        'title' => 'math assignment',
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::High,
+        'duration' => 60,
+    ]);
+    $run = Task::factory()->for($user)->create([
+        'title' => '5km run',
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::Medium,
+        'duration' => 45,
+    ]);
+    $review = Task::factory()->for($user)->create([
+        'title' => 'review notes',
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::Medium,
+        'duration' => 30,
+    ]);
+
+    $userMessage = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'schedule my math assignment, 5km run, and review notes today',
+    ]);
+    $assistantMessage = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
+    $assistantMessage->refresh();
+    $thread->refresh();
+
+    expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('schedule');
+    expect((string) ($assistantMessage->metadata['schedule']['named_target_resolution']['status'] ?? ''))->toBe('multi');
+    expect((int) ($assistantMessage->metadata['schedule']['named_target_resolution']['resolved_count'] ?? 0))->toBe(3);
+});
+
+test('named task clarification keeps pre-resolved targets and selected ambiguous target', function (): void {
+    config(['task-assistant.intent.use_llm' => false]);
+
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => 'I scheduled the chosen tasks for tomorrow.',
+                'reasoning' => 'This matches your requested timing.',
+                'confirmation' => 'Need a different time window?',
+            ])
+            ->withUsage(new Usage(3, 7)),
+    ]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $math = Task::factory()->for($user)->create([
+        'title' => 'math assignment',
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::High,
+        'duration' => 60,
+    ]);
+    Task::factory()->for($user)->create([
+        'title' => 'morning 5km run',
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::Medium,
+        'duration' => 45,
+    ]);
+    Task::factory()->for($user)->create([
+        'title' => 'evening 5km run',
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::Medium,
+        'duration' => 60,
+    ]);
+
+    $firstUser = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'schedule my math assignment and 5km run tomorrow',
+    ]);
+    $firstAssistant = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $firstUser->id, $firstAssistant->id);
+    $firstAssistant->refresh();
+    $thread->refresh();
+
+    expect($firstAssistant->metadata['structured']['flow'] ?? null)->toBe('general_guidance');
+    expect((array) ($thread->metadata['conversation_state']['pending_named_task_clarification']['resolved_targets'] ?? []))->toHaveCount(1);
+    expect((int) ($thread->metadata['conversation_state']['pending_named_task_clarification']['resolved_targets'][0]['entity_id'] ?? 0))->toBe($math->id);
+
+    $secondUser = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'morning 5km run',
+    ]);
+    $secondAssistant = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $secondUser->id, $secondAssistant->id);
+    $secondAssistant->refresh();
+    $thread->refresh();
+
+    expect($secondAssistant->metadata['structured']['flow'] ?? null)->toBe('schedule');
+    expect((string) ($secondAssistant->metadata['schedule']['named_target_resolution']['status'] ?? ''))->toBe('multi');
+    expect((int) ($secondAssistant->metadata['schedule']['named_target_resolution']['resolved_count'] ?? 0))->toBe(2);
 });
 
 test('pending schedule fallback decline asks for alternate window and clears pending state', function (): void {

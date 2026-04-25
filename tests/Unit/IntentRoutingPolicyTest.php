@@ -956,6 +956,55 @@ test('schedule named task resolves explicit target entity from user tasks', func
     expect((int) $decision->constraints['target_entities'][0]['entity_id'])->toBe($target->id);
 });
 
+test('schedule multiple named tasks resolves up to three explicit targets', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $math = \App\Models\Task::factory()->for($user)->create(['title' => 'math assignment']);
+    $run = \App\Models\Task::factory()->for($user)->create(['title' => '5km run']);
+    $review = \App\Models\Task::factory()->for($user)->create(['title' => 'review notes']);
+    \App\Models\Task::factory()->for($user)->create(['title' => 'extra task']);
+
+    $decision = app(IntentRoutingPolicy::class)->decide(
+        $thread,
+        'schedule my math assignment, 5km run, and review notes today'
+    );
+
+    expect($decision->flow)->toBe('schedule');
+    expect($decision->clarificationNeeded)->toBeFalse();
+    expect($decision->constraints['target_entities'])->toHaveCount(3);
+    expect(array_map(
+        static fn (array $row): int => (int) ($row['entity_id'] ?? 0),
+        $decision->constraints['target_entities']
+    ))->toContain($math->id, $run->id, $review->id);
+    expect($decision->constraints['count_limit'])->toBe(3);
+});
+
+test('schedule multi named task ambiguity triggers clarification with resolved carryover', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $math = \App\Models\Task::factory()->for($user)->create(['title' => 'math assignment']);
+    \App\Models\Task::factory()->for($user)->create(['title' => 'morning 5km run']);
+    \App\Models\Task::factory()->for($user)->create(['title' => 'evening 5km run']);
+
+    $decision = app(IntentRoutingPolicy::class)->decide(
+        $thread,
+        'schedule my math assignment and 5km run today'
+    );
+
+    expect($decision->flow)->toBe('schedule');
+    expect($decision->clarificationNeeded)->toBeTrue();
+    expect((string) $decision->clarificationQuestion)->toContain('5km run');
+    expect($decision->constraints['target_entities'])->toHaveCount(1);
+    expect((int) ($decision->constraints['target_entities'][0]['entity_id'] ?? 0))->toBe($math->id);
+    expect(is_array(data_get($decision->constraints, 'named_task_resolution.ambiguous_groups')))->toBeTrue();
+});
+
 test('schedule named task ambiguity requires clarification', function (): void {
     config()->set('task-assistant.intent.use_llm', false);
 

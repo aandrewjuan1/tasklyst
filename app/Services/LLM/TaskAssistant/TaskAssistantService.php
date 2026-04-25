@@ -2021,7 +2021,7 @@ final class TaskAssistantService
         $namedTaskResolution = is_array($plan->constraints['named_task_resolution'] ?? null)
             ? $plan->constraints['named_task_resolution']
             : [];
-        $scheduleSource = (($namedTaskResolution['status'] ?? 'none') === 'single')
+        $scheduleSource = in_array((string) ($namedTaskResolution['status'] ?? 'none'), ['single', 'multi', 'partial'], true)
             ? 'targeted_schedule'
             : 'schedule';
         $explicitRequestedCount = $this->extractExplicitRequestedCount($content);
@@ -2051,6 +2051,7 @@ final class TaskAssistantService
                     'explicit_requested_count' => $explicitRequestedCount,
                     'is_strict_set_contract' => (bool) ($plan->constraints['is_strict_set_contract'] ?? false),
                     'schedule_user_id' => $thread->user_id,
+                    'named_task_resolution' => $namedTaskResolution,
                     'refinement_anchor_date' => is_string($plan->constraints['refinement_anchor_date'] ?? null)
                         ? (string) $plan->constraints['refinement_anchor_date']
                         : null,
@@ -4357,6 +4358,9 @@ final class TaskAssistantService
         $namedResolution = is_array($plan->constraints['named_task_resolution'] ?? null)
             ? $plan->constraints['named_task_resolution']
             : [];
+        $ambiguousGroups = is_array($namedResolution['ambiguous_groups'] ?? null)
+            ? array_values(array_filter($namedResolution['ambiguous_groups'], static fn (mixed $row): bool => is_array($row)))
+            : [];
         $candidateTitles = is_array($namedResolution['candidates'] ?? null)
             ? array_values(array_filter(array_map(
                 static fn (mixed $candidate): string => is_array($candidate)
@@ -4366,6 +4370,14 @@ final class TaskAssistantService
             ), static fn (string $title): bool => $title !== ''))
             : [];
 
+        if ($candidateTitles === [] && is_array($ambiguousGroups[0]['candidates'] ?? null)) {
+            $candidateTitles = array_values(array_filter(array_map(
+                static fn (mixed $candidate): string => is_array($candidate)
+                    ? trim((string) ($candidate['title'] ?? ''))
+                    : '',
+                $ambiguousGroups[0]['candidates']
+            ), static fn (string $title): bool => $title !== ''));
+        }
         $candidateTitles = array_slice($candidateTitles, 0, 3);
         $numberedChoices = [];
         foreach ($candidateTitles as $index => $title) {
@@ -4391,13 +4403,25 @@ final class TaskAssistantService
         $candidates = is_array($namedResolution['candidates'] ?? null)
             ? array_values(array_filter($namedResolution['candidates'], static fn (mixed $row): bool => is_array($row)))
             : [];
-        if ($candidates !== []) {
+        if ($ambiguousGroups !== [] || $candidates !== []) {
             $this->conversationState->rememberPendingNamedTaskClarification(
                 thread: $thread,
                 initialUserMessage: $userMessageContent,
                 question: $question,
                 flow: $plan->flow,
-                candidates: $candidates,
+                ambiguousGroups: $ambiguousGroups !== [] ? $ambiguousGroups : [[
+                    'phrase' => (string) ($namedResolution['matched_phrase'] ?? 'task'),
+                    'candidates' => $candidates,
+                ]],
+                resolvedTargets: is_array($namedResolution['target_entities'] ?? null)
+                    ? array_values(array_filter($namedResolution['target_entities'], static fn (mixed $row): bool => is_array($row)))
+                    : [],
+                unresolvedPhrases: is_array($namedResolution['unresolved_phrases'] ?? null)
+                    ? array_values(array_filter(array_map(
+                        static fn (mixed $row): string => trim((string) $row),
+                        $namedResolution['unresolved_phrases']
+                    ), static fn (string $row): bool => $row !== ''))
+                    : [],
             );
         }
 
@@ -4424,6 +4448,12 @@ final class TaskAssistantService
      *   question: string,
      *   flow: string,
      *   candidates: list<array{entity_type: string, entity_id: int, title: string}>,
+     *   ambiguous_groups: list<array{
+     *     phrase: string,
+     *     candidates: list<array{entity_type: string, entity_id: int, title: string}>
+     *   }>,
+     *   resolved_targets: list<array{entity_type: string, entity_id: int, title: string}>,
+     *   unresolved_phrases: list<string>,
      *   created_at?: string
      * }  $pendingState
      */
@@ -4434,8 +4464,13 @@ final class TaskAssistantService
         string $userMessageContent,
         array $pendingState,
     ): bool {
-        $selected = $this->resolvePendingNamedTaskSelection($userMessageContent, $pendingState['candidates']);
-        if ($selected === null) {
+        $selectionResult = $this->resolvePendingNamedTaskSelection(
+            $userMessageContent,
+            is_array($pendingState['ambiguous_groups'] ?? null) ? $pendingState['ambiguous_groups'] : [],
+            is_array($pendingState['candidates'] ?? null) ? $pendingState['candidates'] : []
+        );
+        $selectedTargets = is_array($selectionResult['targets'] ?? null) ? $selectionResult['targets'] : [];
+        if ($selectedTargets === []) {
             if (preg_match('/^\s*\d+\s*$/u', $userMessageContent) === 1) {
                 $this->publishNamedTaskChoiceReminder($thread, $assistantMessage, $pendingState);
 
@@ -4458,13 +4493,26 @@ final class TaskAssistantService
             ? (string) $pendingState['flow']
             : 'schedule';
         $forcedConstraints = $this->routingPolicy->extractConstraintsForFlow($thread, $composedMessage, $flow);
-        $forcedConstraints['target_entities'] = [$selected];
+        $resolvedTargets = is_array($pendingState['resolved_targets'] ?? null)
+            ? array_values(array_filter($pendingState['resolved_targets'], static fn (mixed $row): bool => is_array($row)))
+            : [];
+        $mergedTargets = $this->mergeNamedTaskTargets(array_merge($resolvedTargets, $selectedTargets));
+        $forcedConstraints['target_entities'] = $mergedTargets;
+        $forcedCount = count($mergedTargets);
+        if ($forcedCount > 0) {
+            $forcedConstraints['count_limit'] = min(3, $forcedCount);
+        }
         $forcedConstraints['named_task_resolution'] = [
-            'status' => 'single',
+            'status' => $forcedCount > 1 ? 'multi' : 'single',
             'matched_phrase' => null,
-            'target_entity' => $selected,
+            'target_entity' => $mergedTargets[0] ?? null,
             'clarification_question' => null,
-            'candidates' => [$selected],
+            'candidates' => [],
+            'target_entities' => $mergedTargets,
+            'ambiguous_groups' => [],
+            'unresolved_phrases' => is_array($pendingState['unresolved_phrases'] ?? null)
+                ? $pendingState['unresolved_phrases']
+                : [],
         ];
 
         $forcedTimeWindowHint = is_string($forcedConstraints['time_window_hint'] ?? null)
@@ -4477,9 +4525,9 @@ final class TaskAssistantService
             clarificationQuestion: null,
             reasonCodes: ['named_task_clarification_selection'],
             constraints: $forcedConstraints,
-            targetEntities: [$selected],
+            targetEntities: $mergedTargets,
             timeWindowHint: $forcedTimeWindowHint,
-            countLimit: 1,
+            countLimit: max(1, min($forcedCount > 0 ? $forcedCount : 1, 3)),
             generationProfile: 'schedule',
         );
 
@@ -4497,40 +4545,71 @@ final class TaskAssistantService
     }
 
     /**
-     * @param  list<array{entity_type: string, entity_id: int, title: string}>  $candidates
-     * @return array{entity_type: string, entity_id: int, title: string}|null
+     * @param  list<array{
+     *   phrase: string,
+     *   candidates: list<array{entity_type: string, entity_id: int, title: string}>
+     * }>  $ambiguousGroups
+     * @param  list<array{entity_type: string, entity_id: int, title: string}>  $fallbackCandidates
+     * @return array{
+     *   targets: list<array{entity_type: string, entity_id: int, title: string}>
+     * }
      */
-    private function resolvePendingNamedTaskSelection(string $content, array $candidates): ?array
+    private function resolvePendingNamedTaskSelection(string $content, array $ambiguousGroups, array $fallbackCandidates = []): array
     {
         $trimmed = trim($content);
         if ($trimmed === '') {
-            return null;
+            return ['targets' => []];
         }
 
-        if (preg_match('/^\s*(\d+)\s*$/u', $trimmed, $matches) === 1) {
-            $index = ((int) ($matches[1] ?? 0)) - 1;
-            if ($index >= 0 && isset($candidates[$index])) {
-                return $candidates[$index];
-            }
-
-            return null;
+        if ($ambiguousGroups === [] && $fallbackCandidates !== []) {
+            $ambiguousGroups = [[
+                'phrase' => 'task',
+                'candidates' => $fallbackCandidates,
+            ]];
         }
 
+        $selectedTargets = [];
         $normalized = mb_strtolower(trim(preg_replace('/\s+/u', ' ', $trimmed) ?? $trimmed));
-        foreach ($candidates as $candidate) {
-            $title = mb_strtolower(trim((string) ($candidate['title'] ?? '')));
-            if ($title !== '' && str_contains($normalized, $title)) {
-                return $candidate;
+        foreach ($ambiguousGroups as $groupIndex => $group) {
+            if (! is_array($group)) {
+                continue;
+            }
+            $candidates = is_array($group['candidates'] ?? null)
+                ? array_values(array_filter($group['candidates'], static fn (mixed $row): bool => is_array($row)))
+                : [];
+            if ($candidates === []) {
+                continue;
+            }
+
+            if (preg_match('/^\s*(\d+)\s*$/u', $trimmed, $matches) === 1 && $groupIndex === 0) {
+                $index = ((int) ($matches[1] ?? 0)) - 1;
+                if ($index >= 0 && isset($candidates[$index])) {
+                    $selectedTargets[] = $candidates[$index];
+                }
+
+                continue;
+            }
+
+            foreach ($candidates as $candidate) {
+                $title = mb_strtolower(trim((string) ($candidate['title'] ?? '')));
+                if ($title !== '' && str_contains($normalized, $title)) {
+                    $selectedTargets[] = $candidate;
+                    break;
+                }
             }
         }
 
-        return null;
+        return ['targets' => $this->mergeNamedTaskTargets($selectedTargets)];
     }
 
     /**
      * @param  array{
      *   question: string,
-     *   candidates: list<array{entity_type: string, entity_id: int, title: string}>
+     *   candidates: list<array{entity_type: string, entity_id: int, title: string}>,
+     *   ambiguous_groups?: list<array{
+     *     phrase: string,
+     *     candidates: list<array{entity_type: string, entity_id: int, title: string}>
+     *   }>
      * }  $pendingState
      */
     private function publishNamedTaskChoiceReminder(
@@ -4584,6 +4663,33 @@ final class TaskAssistantService
             flow: 'general_guidance',
             execution: $execution
         );
+    }
+
+    /**
+     * @param  list<array{entity_type: string, entity_id: int, title: string}>  $targets
+     * @return list<array{entity_type: string, entity_id: int, title: string}>
+     */
+    private function mergeNamedTaskTargets(array $targets): array
+    {
+        $unique = [];
+        foreach ($targets as $target) {
+            if (! is_array($target)) {
+                continue;
+            }
+            $type = trim((string) ($target['entity_type'] ?? ''));
+            $id = (int) ($target['entity_id'] ?? 0);
+            $title = trim((string) ($target['title'] ?? ''));
+            if ($type === '' || $id <= 0 || $title === '') {
+                continue;
+            }
+            $unique[$type.'#'.$id] = [
+                'entity_type' => $type,
+                'entity_id' => $id,
+                'title' => $title,
+            ];
+        }
+
+        return array_values(array_slice(array_values($unique), 0, 3));
     }
 
     private function runListingFollowupFlow(
@@ -4750,6 +4856,9 @@ final class TaskAssistantService
                     'explicit_requested_count' => $explicitRequestedCount,
                     'is_strict_set_contract' => (bool) ($plan->constraints['is_strict_set_contract'] ?? false),
                     'schedule_user_id' => $thread->user_id,
+                    'named_task_resolution' => is_array($plan->constraints['named_task_resolution'] ?? null)
+                        ? $plan->constraints['named_task_resolution']
+                        : [],
                 ]
             );
         }

@@ -499,6 +499,59 @@ class TaskAssistantResponseProcessorTest extends TestCase
         $this->assertSame([], $result['errors']);
     }
 
+    public function test_daily_schedule_validation_accepts_targeted_schedule_flow_source_in_explanation_meta(): void
+    {
+        $processor = app(TaskAssistantResponseProcessor::class);
+
+        $result = $processor->processResponse('daily_schedule', [
+            'proposals' => [[
+                'proposal_id' => 'p1',
+                'status' => 'pending',
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'title' => '10KM RUN',
+                'start_datetime' => '2026-03-29T17:30:00+08:00',
+                'end_datetime' => '2026-03-29T18:30:00+08:00',
+                'duration_minutes' => 60,
+                'apply_payload' => [
+                    'action' => 'update_task',
+                    'arguments' => ['taskId' => 1, 'updates' => []],
+                ],
+            ]],
+            'items' => [[
+                'title' => '10KM RUN',
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'start_datetime' => '2026-03-29T17:30:00+08:00',
+                'end_datetime' => '2026-03-29T18:30:00+08:00',
+                'duration_minutes' => 60,
+            ]],
+            'blocks' => [[
+                'start_time' => '17:30',
+                'end_time' => '18:30',
+                'label' => '10KM RUN',
+                'task_id' => 1,
+                'event_id' => null,
+                'note' => null,
+            ]],
+            'schedule_variant' => 'daily',
+            'framing' => 'I scheduled your 10KM RUN for later today at 5:30 PM.',
+            'reasoning' => 'This slot is open and gives you a focused hour before the evening gets busy.',
+            'confirmation' => 'Do you want to keep this time, or shift it earlier/later?',
+            'explanation_meta' => [
+                'flow_source' => 'targeted_schedule',
+                'schedule_scope' => 'all_entities',
+            ],
+        ], [
+            'tasks' => [['id' => 1]],
+            'events' => [],
+            'projects' => [],
+        ]);
+
+        $this->assertTrue($result['valid']);
+        $this->assertSame([], $result['errors']);
+    }
+
     public function test_daily_schedule_confirmation_is_condensed_instead_of_hard_failing_when_verbose(): void
     {
         $processor = app(TaskAssistantResponseProcessor::class);

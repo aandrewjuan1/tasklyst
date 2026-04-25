@@ -26,6 +26,22 @@ test('authenticated user sees task assistant flyout trigger and can open chat', 
     $response->assertDontSee('wire:click="applyQuickPromptChip', false);
 });
 
+test('workspace task row includes ai quick schedule trigger', function (): void {
+    $user = User::factory()->create();
+    assert($user instanceof User);
+    $this->actingAs($user);
+
+    Task::factory()->for($user)->create([
+        'title' => 'Chemistry worksheet',
+        'status' => \App\Enums\TaskStatus::ToDo,
+    ]);
+
+    $response = $this->get(route('workspace'));
+    $response->assertSuccessful();
+    $response->assertSee('AI Schedule');
+    $response->assertSee('quick-prompt-append', false);
+});
+
 test('chat flyout help modal describes hosted model and assistant scope', function () {
     $user = User::factory()->create();
     assert($user instanceof User);

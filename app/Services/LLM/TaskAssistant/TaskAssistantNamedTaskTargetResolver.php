@@ -9,10 +9,16 @@ final class TaskAssistantNamedTaskTargetResolver
 {
     /**
      * @return array{
-     *   status: 'none'|'single'|'ambiguous',
+     *   status: 'none'|'single'|'multi'|'partial'|'ambiguous',
      *   matched_phrase: string|null,
      *   target_entity: array{entity_type: string, entity_id: int, title: string}|null,
      *   candidates: list<array{entity_type: string, entity_id: int, title: string}>,
+     *   target_entities: list<array{entity_type: string, entity_id: int, title: string}>,
+     *   ambiguous_groups: list<array{
+     *     phrase: string,
+     *     candidates: list<array{entity_type: string, entity_id: int, title: string}>
+     *   }>,
+     *   unresolved_phrases: list<string>,
      *   clarification_question: string|null
      * }
      */
@@ -23,39 +29,71 @@ final class TaskAssistantNamedTaskTargetResolver
             return $this->none();
         }
 
-        $phraseCandidates = $this->extractTaskPhraseCandidates($content, $normalized);
+        $phraseCandidates = array_slice($this->extractTaskPhraseCandidates($content, $normalized), 0, 3);
+        if ($phraseCandidates === []) {
+            return $this->none();
+        }
+
+        $resolvedTargets = [];
+        $ambiguousGroups = [];
+        $unresolvedPhrases = [];
+
         foreach ($phraseCandidates as $phrase) {
             $targets = $this->matchTargetsForPhrase($thread, $phrase);
             if ($targets === []) {
+                $unresolvedPhrases[] = $phrase;
+
                 continue;
             }
 
             if (count($targets) === 1) {
-                return [
-                    'status' => 'single',
-                    'matched_phrase' => $phrase,
-                    'target_entity' => $targets[0],
-                    'candidates' => $targets,
-                    'clarification_question' => null,
-                ];
+                $target = $targets[0];
+                $key = $target['entity_type'].'#'.$target['entity_id'];
+                $resolvedTargets[$key] = $target;
+
+                continue;
             }
 
-            $targets = $this->sortTargetsForClarification($targets, $phrase);
-            $titles = array_map(
-                static fn (array $target): string => $target['title'],
-                array_slice($targets, 0, 4)
-            );
-
-            return [
-                'status' => 'ambiguous',
-                'matched_phrase' => $phrase,
-                'target_entity' => null,
-                'candidates' => $targets,
-                'clarification_question' => $this->buildClarificationQuestion($titles),
+            $ambiguousGroups[] = [
+                'phrase' => $phrase,
+                'candidates' => $this->sortTargetsForClarification($targets, $phrase),
             ];
         }
 
-        return $this->none();
+        $resolvedTargets = array_values($resolvedTargets);
+        if ($resolvedTargets === [] && $ambiguousGroups === []) {
+            return $this->none();
+        }
+
+        $status = 'none';
+        if ($ambiguousGroups !== []) {
+            $status = 'ambiguous';
+        } elseif (count($resolvedTargets) === 1 && $unresolvedPhrases === []) {
+            $status = 'single';
+        } elseif (count($resolvedTargets) > 1 && $unresolvedPhrases === []) {
+            $status = 'multi';
+        } elseif ($resolvedTargets !== []) {
+            $status = 'partial';
+        }
+
+        /** @var array{entity_type: string, entity_id: int, title: string}|null $firstResolved */
+        $firstResolved = $resolvedTargets[0] ?? null;
+        $firstAmbiguousCandidates = is_array($ambiguousGroups[0]['candidates'] ?? null)
+            ? $ambiguousGroups[0]['candidates']
+            : [];
+
+        return [
+            'status' => $status,
+            'matched_phrase' => $phraseCandidates[0] ?? null,
+            'target_entity' => $firstResolved,
+            'candidates' => $firstAmbiguousCandidates,
+            'target_entities' => array_slice($resolvedTargets, 0, 3),
+            'ambiguous_groups' => $ambiguousGroups,
+            'unresolved_phrases' => $unresolvedPhrases,
+            'clarification_question' => $ambiguousGroups !== []
+                ? $this->buildConsolidatedClarificationQuestion($ambiguousGroups)
+                : null,
+        ];
     }
 
     private function containsScheduleCue(string $normalized): bool
@@ -82,10 +120,12 @@ final class TaskAssistantNamedTaskTargetResolver
         if (preg_match('/\b(?:schedule|plan|put|slot)\b\s+(?:my|the)?\s*(.+)$/iu', $normalized, $tailMatch) === 1) {
             $tail = trim((string) ($tailMatch[1] ?? ''));
             if ($tail !== '') {
-                $tail = $this->stripSchedulingWindowTail($tail);
-                $phrase = $this->normalizeTaskPhrase($tail);
-                if ($this->isViableTaskPhrase($phrase)) {
-                    $candidates[] = $phrase;
+                foreach ($this->splitTaskPhrases($tail) as $segment) {
+                    $segment = $this->stripSchedulingWindowTail($segment);
+                    $phrase = $this->normalizeTaskPhrase($segment);
+                    if ($this->isViableTaskPhrase($phrase)) {
+                        $candidates[] = $phrase;
+                    }
                 }
             }
         }
@@ -100,7 +140,10 @@ final class TaskAssistantNamedTaskTargetResolver
 
         $candidates = array_values(array_unique($candidates));
 
-        return array_values(array_filter($candidates, fn (string $phrase): bool => mb_strlen($phrase) >= 3));
+        return array_values(array_slice(array_filter(
+            $candidates,
+            fn (string $phrase): bool => mb_strlen($phrase) >= 3
+        ), 0, 3));
     }
 
     private function normalizeTaskPhrase(string $raw): string
@@ -109,6 +152,7 @@ final class TaskAssistantNamedTaskTargetResolver
         $phrase = trim((string) preg_replace('/^[\s\p{P}]+|[\s\p{P}]+$/u', '', $phrase));
         $phrase = preg_replace('/\s+/u', ' ', $phrase) ?? $phrase;
         $phrase = preg_replace('/^(my|the)\s+/u', '', $phrase) ?? $phrase;
+        $phrase = preg_replace('/^(and|plus)\s+/u', '', $phrase) ?? $phrase;
         $phrase = preg_replace('/^(task|tasks)\s+(called|named)\s+/u', '', $phrase) ?? $phrase;
         $phrase = preg_replace('/^(task|tasks)\s+/u', '', $phrase) ?? $phrase;
         $phrase = trim((string) preg_replace('/\b(task|tasks)\b$/u', '', $phrase));
@@ -161,21 +205,33 @@ final class TaskAssistantNamedTaskTargetResolver
     }
 
     /**
-     * @param  list<string>  $titles
+     * @param  list<array{
+     *   phrase: string,
+     *   candidates: list<array{entity_type: string, entity_id: int, title: string}>
+     * }>  $ambiguousGroups
      */
-    private function buildClarificationQuestion(array $titles): string
+    private function buildConsolidatedClarificationQuestion(array $ambiguousGroups): string
     {
-        $titles = array_values(array_filter(array_map(
-            static fn (string $title): string => trim($title),
-            $titles
-        ), static fn (string $title): bool => $title !== ''));
-        $titles = array_slice($titles, 0, 3);
-
-        if ($titles === []) {
-            return 'I found multiple tasks with similar names. Which one should I schedule?';
+        $segments = [];
+        foreach (array_slice($ambiguousGroups, 0, 3) as $group) {
+            $phrase = trim((string) ($group['phrase'] ?? 'that task'));
+            $candidates = is_array($group['candidates'] ?? null) ? $group['candidates'] : [];
+            $titles = array_values(array_filter(array_map(
+                static fn (array $row): string => trim((string) ($row['title'] ?? '')),
+                array_slice($candidates, 0, 3)
+            ), static fn (string $title): bool => $title !== ''));
+            if ($titles === []) {
+                continue;
+            }
+            $segments[] = '"'.$phrase.'": '.implode(', ', $titles);
         }
 
-        return 'I found multiple matching tasks: '.implode(', ', $titles).'. Which one should I schedule?';
+        if ($segments === []) {
+            return 'I found multiple matching tasks. Which one should I schedule?';
+        }
+
+        return 'I found multiple matches for these task names. Please reply with the exact title for each: '
+            .implode(' | ', $segments);
     }
 
     /**
@@ -184,6 +240,12 @@ final class TaskAssistantNamedTaskTargetResolver
      *   matched_phrase: null,
      *   target_entity: null,
      *   candidates: list<array{entity_type: string, entity_id: int, title: string}>,
+     *   target_entities: list<array{entity_type: string, entity_id: int, title: string}>,
+     *   ambiguous_groups: list<array{
+     *     phrase: string,
+     *     candidates: list<array{entity_type: string, entity_id: int, title: string}>
+     *   }>,
+     *   unresolved_phrases: list<string>,
      *   clarification_question: null
      * }
      */
@@ -194,8 +256,32 @@ final class TaskAssistantNamedTaskTargetResolver
             'matched_phrase' => null,
             'target_entity' => null,
             'candidates' => [],
+            'target_entities' => [],
+            'ambiguous_groups' => [],
+            'unresolved_phrases' => [],
             'clarification_question' => null,
         ];
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function splitTaskPhrases(string $tail): array
+    {
+        $normalized = trim($tail);
+        if ($normalized === '') {
+            return [];
+        }
+
+        $parts = preg_split('/\s*(?:,|\+| and )\s*/iu', $normalized, -1, PREG_SPLIT_NO_EMPTY);
+        if (! is_array($parts) || $parts === []) {
+            return [$normalized];
+        }
+
+        return array_values(array_map(
+            static fn (string $part): string => trim($part),
+            $parts
+        ));
     }
 
     private function stripSchedulingWindowTail(string $tail): string

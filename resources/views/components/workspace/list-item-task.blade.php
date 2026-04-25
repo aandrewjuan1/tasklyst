@@ -184,6 +184,19 @@
             }
             window.dispatchEvent(new CustomEvent(name, { bubbles: true, detail }));
         },
+        triggerQuickSchedule() {
+            const taskTitle = (this.itemTitle ?? '').toString().trim();
+            if (taskTitle === '') {
+                return;
+            }
+
+            const prompt = 'Schedule my task ' + taskTitle + ' for today.';
+            this.dispatchWindowEvent('assistant-chat-open-requested', {});
+            this.dispatchWindowEvent('quick-prompt-append', { value: prompt });
+            if (typeof $flux !== 'undefined' && typeof $flux.modal === 'function') {
+                $flux.modal('task-assistant-chat').show();
+            }
+        },
         syncDatePickersFromTaskState() {
             if (!this.embedInFocusModal) {
                 return;
@@ -935,7 +948,7 @@
                 <div
                     x-show="status !== 'done' && (!listItemCard || (!listItemCard.isFocused && !listItemCard.isBreakFocused))"
                     @if($hideFocusButtonInitiallyDone) style="display: none;" @endif
-                    class="shrink-0"
+                    class="flex shrink-0 items-center gap-2"
                 >
                     <flux:tooltip :content="__('Start focus mode')">
                         <button
@@ -946,6 +959,16 @@
                         >
                             <flux:icon name="bolt" class="size-4 shrink-0" />
                             <span>{{ __('Focus') }}</span>
+                        </button>
+                    </flux:tooltip>
+                    <flux:tooltip :content="__('Append AI schedule prompt')">
+                        <button
+                            type="button"
+                            @click.stop="triggerQuickSchedule()"
+                            class="inline-flex items-center gap-1.5 rounded-full border border-violet-500/60 bg-violet-500/15 px-3 py-1 text-xs font-semibold text-violet-700 transition hover:bg-violet-500/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/50 dark:border-violet-400/60 dark:bg-violet-400/20 dark:text-violet-200 dark:hover:bg-violet-400/30 dark:focus-visible:ring-violet-400/60"
+                        >
+                            <flux:icon name="sparkles" class="size-4 shrink-0" />
+                            <span>{{ __('AI Schedule') }}</span>
                         </button>
                     </flux:tooltip>
                 </div>
@@ -1289,17 +1312,29 @@
                 x-show="status !== 'done' && (!listItemCard || (!listItemCard.isFocused && !listItemCard.isBreakFocused))"
                 @if($hideFocusButtonInitiallyDone) style="display: none;" @endif
             >
-                <flux:tooltip :content="__('Start focus mode')">
-                    <button
-                        type="button"
-                        x-ref="focusTrigger"
-                        @click.stop="listItemCard && listItemCard.enterFocusReady()"
-                        class="workspace-focus-trigger"
-                    >
-                        <flux:icon name="bolt" class="size-4 shrink-0" />
-                        <span>{{ __('Focus') }}</span>
-                    </button>
-                </flux:tooltip>
+                <div class="flex items-center gap-2">
+                    <flux:tooltip :content="__('Start focus mode')">
+                        <button
+                            type="button"
+                            x-ref="focusTrigger"
+                            @click.stop="listItemCard && listItemCard.enterFocusReady()"
+                            class="workspace-focus-trigger"
+                        >
+                            <flux:icon name="bolt" class="size-4 shrink-0" />
+                            <span>{{ __('Focus') }}</span>
+                        </button>
+                    </flux:tooltip>
+                    <flux:tooltip :content="__('Append AI schedule prompt')">
+                        <button
+                            type="button"
+                            @click.stop="triggerQuickSchedule()"
+                            class="inline-flex items-center gap-1.5 rounded-full border border-violet-500/60 bg-violet-500/15 px-3 py-1 text-xs font-semibold text-violet-700 transition hover:bg-violet-500/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/50 dark:border-violet-400/60 dark:bg-violet-400/20 dark:text-violet-200 dark:hover:bg-violet-400/30 dark:focus-visible:ring-violet-400/60"
+                        >
+                            <flux:icon name="sparkles" class="size-4 shrink-0" />
+                            <span>{{ __('AI Schedule') }}</span>
+                        </button>
+                    </flux:tooltip>
+                </div>
             </div>
             @endif
             <div

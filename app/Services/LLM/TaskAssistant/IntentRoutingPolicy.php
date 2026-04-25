@@ -448,17 +448,23 @@ final class IntentRoutingPolicy
             'target_entity' => null,
             'clarification_question' => null,
             'candidates' => [],
+            'target_entities' => [],
+            'ambiguous_groups' => [],
+            'unresolved_phrases' => [],
         ];
         if (
             in_array($resolvedFlow, ['schedule', 'prioritize_schedule'], true)
             && $targetEntities === []
         ) {
             $namedTaskResolution = $this->namedTaskTargetResolver->resolve($thread, $content);
-            if (($namedTaskResolution['status'] ?? 'none') === 'single') {
-                $singleTarget = $namedTaskResolution['target_entity'] ?? null;
-                if (is_array($singleTarget)) {
-                    $targetEntities = [$singleTarget];
-                }
+            $resolvedNamedTargets = is_array($namedTaskResolution['target_entities'] ?? null)
+                ? array_values(array_filter(
+                    $namedTaskResolution['target_entities'],
+                    static fn (mixed $row): bool => is_array($row)
+                ))
+                : [];
+            if ($resolvedNamedTargets !== []) {
+                $targetEntities = array_slice($resolvedNamedTargets, 0, 3);
             }
         }
 
@@ -1319,7 +1325,10 @@ final class IntentRoutingPolicy
             ? $constraints['named_task_resolution']
             : [];
         $status = (string) ($resolution['status'] ?? 'none');
-        if ($status !== 'ambiguous') {
+        $ambiguousGroups = is_array($resolution['ambiguous_groups'] ?? null)
+            ? $resolution['ambiguous_groups']
+            : [];
+        if ($status !== 'ambiguous' || $ambiguousGroups === []) {
             return [false, null];
         }
 
