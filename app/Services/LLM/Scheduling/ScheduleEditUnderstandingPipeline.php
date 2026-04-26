@@ -127,6 +127,16 @@ final class ScheduleEditUnderstandingPipeline
             $ops[] = ['op' => 'shift_minutes', 'proposal_index' => $targetIndex, 'proposal_uuid' => $targetUuid, 'delta_minutes' => -1 * (int) $m[1]];
         }
 
+        if ($ops === [] && $targetIndex !== null && is_int($targetIndex) && $this->looksLikeBareLaterOrEarlierRefinement($normalized)) {
+            $deltaMinutes = str_contains($normalized, 'earlier') ? -30 : 30;
+            $ops[] = [
+                'op' => 'shift_minutes',
+                'proposal_index' => $targetIndex,
+                'proposal_uuid' => $targetUuid,
+                'delta_minutes' => $deltaMinutes,
+            ];
+        }
+
         if (preg_match('/\b(make|set)\b[^.]*\b(\d+)\s*(min|mins|minute|minutes)\b/u', $normalized, $m) === 1) {
             $ops[] = ['op' => 'set_duration_minutes', 'proposal_index' => $targetIndex, 'proposal_uuid' => $targetUuid, 'duration_minutes' => (int) $m[2]];
         }
@@ -308,5 +318,23 @@ final class ScheduleEditUnderstandingPipeline
         }
 
         return 'unresolved target';
+    }
+
+    private function looksLikeBareLaterOrEarlierRefinement(string $normalized): bool
+    {
+        $hasDirectionCue = preg_match('/\b(later|earlier)\b/u', $normalized) === 1;
+        if (! $hasDirectionCue) {
+            return false;
+        }
+
+        $hasExplicitClockTime = preg_match('/\b(at\s+)?\d{1,2}(:\d{2})?\s*(am|pm)\b/u', $normalized) === 1;
+        $hasDaypartCue = preg_match('/\b(morning|afternoon|evening|night|tonight)\b/u', $normalized) === 1;
+        $hasExplicitMinutesShift = preg_match('/\b\d+\s*(min|mins|minute|minutes)\b/u', $normalized) === 1;
+        $hasExplicitDateCue = preg_match('/\b(today|tomorrow|tmrw|next week)\b/u', $normalized) === 1;
+
+        return ! $hasExplicitClockTime
+            && ! $hasDaypartCue
+            && ! $hasExplicitMinutesShift
+            && ! $hasExplicitDateCue;
     }
 }

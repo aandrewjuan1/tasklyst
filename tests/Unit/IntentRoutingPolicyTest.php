@@ -516,6 +516,30 @@ test('mixed off-topic plus task keywords still routes to general guidance when t
     expect($decision->reasonCodes)->toContain('intent_off_topic');
 });
 
+test('crud prompt routes to general guidance with crud out-of-scope reason code', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'create a task for me');
+
+    expect($decision->flow)->toBe('general_guidance');
+    expect($decision->reasonCodes)->toContain(TaskAssistantReasonCodes::INTENT_CRUD_OUT_OF_SCOPE);
+});
+
+test('manage prompt routes to general guidance with manage out-of-scope reason code', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'archive this task');
+
+    expect($decision->flow)->toBe('general_guidance');
+    expect($decision->reasonCodes)->toContain(TaskAssistantReasonCodes::INTENT_MANAGE_OUT_OF_SCOPE);
+});
+
 test('vague help prompt short-circuits to general guidance', function (): void {
     config()->set('task-assistant.intent.use_llm', false);
 
@@ -1137,6 +1161,27 @@ test('pending schedule context plus implicit edit phrase shortcircuits to schedu
     );
 
     $decision = app(IntentRoutingPolicy::class)->decide($thread, 'third one at evening instead');
+
+    expect($decision->flow)->toBe('schedule');
+    expect($decision->reasonCodes)->toContain('schedule_refinement_context_shortcircuit');
+});
+
+test('pending schedule context short temporal followup shortcircuits to schedule refinement route', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    app(\App\Services\LLM\TaskAssistant\TaskAssistantConversationStateService::class)->rememberScheduleContext(
+        $thread,
+        [
+            ['entity_type' => 'task', 'entity_id' => 701, 'title' => 'A'],
+            ['entity_type' => 'task', 'entity_id' => 702, 'title' => 'B'],
+        ],
+        null
+    );
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'evening');
 
     expect($decision->flow)->toBe('schedule');
     expect($decision->reasonCodes)->toContain('schedule_refinement_context_shortcircuit');

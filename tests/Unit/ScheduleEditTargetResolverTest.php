@@ -45,6 +45,31 @@ it('resolves pronoun for single scheduled item without last referenced uuids', f
     expect($result['confidence'])->toBe('high');
 });
 
+it('resolves single-target temporal followup without explicit pronoun', function (): void {
+    $resolver = new ScheduleEditTargetResolver(new ScheduleEditLexicon);
+
+    $result = $resolver->resolvePrimaryTarget('later this evening', [
+        ['proposal_uuid' => 'uuid-a', 'title' => 'Write report'],
+    ]);
+
+    expect($result['ambiguous'])->toBeFalse();
+    expect($result['index'])->toBe(0);
+    expect($result['confidence'])->toBe('high');
+});
+
+it('requires disambiguation for multi-target temporal followup without target signal', function (): void {
+    $resolver = new ScheduleEditTargetResolver(new ScheduleEditLexicon);
+
+    $result = $resolver->resolvePrimaryTarget('later this evening', [
+        ['proposal_uuid' => 'uuid-a', 'title' => 'Write report'],
+        ['proposal_uuid' => 'uuid-b', 'title' => 'Review backlog'],
+    ]);
+
+    expect($result['ambiguous'])->toBeTrue();
+    expect($result['confidence'])->toBe('low');
+    expect((string) $result['reason'])->toContain('multiple scheduled items');
+});
+
 it('picks leftmost positional cue when message contains multiple ordinals', function (): void {
     $resolver = new ScheduleEditTargetResolver(new ScheduleEditLexicon);
 

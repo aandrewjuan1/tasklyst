@@ -213,6 +213,23 @@ final class TaskAssistantDeterministicReplyQualityService
             }
         }
 
+        $isCrudManageBoundary = isset($data['message']) && is_string($data['message'])
+            && preg_match('/\b(workspace)\b/iu', (string) $data['message']) === 1
+            && preg_match('/\b(prioritize|schedule)\b/iu', (string) $data['message']) === 1;
+        if ($isCrudManageBoundary) {
+            $message = (string) ($data['message'] ?? '');
+            $lower = mb_strtolower($message);
+            if (
+                ! str_contains($lower, "can't")
+                && ! str_contains($lower, 'cannot')
+                && ! str_contains($lower, 'can not')
+            ) {
+                $message = "I can't perform that from chat. ".ltrim($message);
+                $data['message'] = trim($message);
+                $corrections['general_guidance_crud_boundary_strengthened'] = true;
+            }
+        }
+
         return ['data' => $data, 'corrections' => $corrections];
     }
 

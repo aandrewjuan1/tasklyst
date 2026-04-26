@@ -275,7 +275,10 @@ final class IntentRoutingPolicy
             );
         }
 
-        if ($this->hasPendingScheduleDraftContext($thread) && $this->isLikelyScheduleRefinementEditPrompt($normalized)) {
+        $hasPendingScheduleDraftContext = $this->hasPendingScheduleDraftContext($thread);
+        $isObviousRefinementFollowup = $hasPendingScheduleDraftContext
+            && $this->isLikelyScheduleRefinementContextFollowup($normalized);
+        if ($hasPendingScheduleDraftContext && ($this->isLikelyScheduleRefinementEditPrompt($normalized) || $isObviousRefinementFollowup)) {
             $constraints = $this->extractConstraintsForFlow($thread, $normalized, 'schedule');
             [$clarificationNeeded, $clarificationQuestion] = $this->resolveClarificationFromConstraints($constraints);
             Log::info('task-assistant.intent.policy', [
@@ -285,6 +288,7 @@ final class IntentRoutingPolicy
                 'assistant_message_id' => app()->bound('task_assistant.message_id') ? app('task_assistant.message_id') : null,
                 'outcome' => 'schedule_refinement_context_shortcircuit',
                 'flow' => 'schedule',
+                'obvious_refinement_followup' => $isObviousRefinementFollowup,
                 'constraints' => [
                     'count_limit' => $constraints['count_limit'] ?? 1,
                     'time_window_hint' => $constraints['time_window_hint'] ?? null,
@@ -309,6 +313,32 @@ final class IntentRoutingPolicy
                 flow: 'general_guidance',
                 confidence: 1.0,
                 reasonCodes: ['general_assistance_prompt_shortcircuit'],
+                constraints: [],
+                clarificationNeeded: false,
+                clarificationQuestion: null,
+            );
+        }
+
+        if ($this->isLikelyCrudOrManagePrompt($normalized)) {
+            $isCrud = $this->isLikelyCrudPrompt($normalized);
+            $reasonCode = $isCrud
+                ? TaskAssistantReasonCodes::INTENT_CRUD_OUT_OF_SCOPE
+                : TaskAssistantReasonCodes::INTENT_MANAGE_OUT_OF_SCOPE;
+
+            Log::info('task-assistant.intent.policy', [
+                'layer' => 'intent_policy',
+                'run_id' => app()->bound('task_assistant.run_id') ? app('task_assistant.run_id') : null,
+                'thread_id' => $thread->id,
+                'assistant_message_id' => app()->bound('task_assistant.message_id') ? app('task_assistant.message_id') : null,
+                'outcome' => 'crud_manage_guardrail_general_guidance',
+                'flow' => 'general_guidance',
+                'reason_code' => $reasonCode,
+            ]);
+
+            return new IntentRoutingDecision(
+                flow: 'general_guidance',
+                confidence: 1.0,
+                reasonCodes: ['crud_manage_guardrail_general_guidance', $reasonCode],
                 constraints: [],
                 clarificationNeeded: false,
                 clarificationQuestion: null,
@@ -1049,7 +1079,7 @@ final class IntentRoutingPolicy
 
         $hasEditVerb = preg_match('/\b(move|set|change|edit|shift|push|swap|reorder|put|make|reschedule|adjust|bring|bump|drag|slide|delay|advance|pull|drop)\b/u', $normalized) === 1;
         $hasScheduleCue = preg_match(
-            '/\b(first|second|third|last|\d+(?:st|nd|rd|th)|item|task|one|it|this|that|same one|before|after|later|earlier|tomorrow|today|tmrw|tomorow|next week|next|at\s+\d{1,2}|am|pm|minute|minutes|duration|shorter|longer)\b/u',
+            '/\b(first|second|third|last|\d+(?:st|nd|rd|th)|item|task|one|it|this|that|same one|before|after|later|earlier|morning|afternoon|evening|night|tonight|tomorrow|today|tmrw|tomorow|next week|next|at\s+\d{1,2}|am|pm|minute|minutes|duration|shorter|longer)\b/u',
             $normalized
         ) === 1;
 
@@ -1069,6 +1099,32 @@ final class IntentRoutingPolicy
         ) === 1;
 
         return ($hasEditVerb && $hasScheduleCue) || $hasStandaloneReorderShape || $implicitEditPhrase || $hasDoIndexedSchedulingPhrase;
+    }
+
+    private function isLikelyScheduleRefinementContextFollowup(string $normalized): bool
+    {
+        if ($normalized === '') {
+            return false;
+        }
+
+        if ($this->isLikelyScheduleRefinementEditPrompt($normalized)) {
+            return true;
+        }
+
+        if ($this->isLikelyOffTopicPrompt($normalized) || $this->isLikelyTimeQuery($normalized)) {
+            return false;
+        }
+
+        $hasTemporalCue = preg_match(
+            '/\b(later|earlier|today|tomorrow|tmrw|tonight|next week|morning|afternoon|evening|night|after lunch|after dinner|onward|onwards)\b/u',
+            $normalized
+        ) === 1;
+        $hasClockCue = preg_match('/\b(at\s+)?\d{1,2}(:\d{2})?\s*(am|pm)\b/u', $normalized) === 1;
+        $hasDurationCue = preg_match('/\b\d+\s*(min|mins|minute|minutes)\b/u', $normalized) === 1;
+        $isShortFollowup = mb_strlen($normalized) <= 48;
+        $isSingleTokenFollowup = preg_match('/^(later|earlier|morning|afternoon|evening|tonight|tomorrow)$/u', $normalized) === 1;
+
+        return ($hasTemporalCue || $hasClockCue || $hasDurationCue) && ($isShortFollowup || $isSingleTokenFollowup);
     }
 
     private function isLikelyPureGreeting(string $normalized): bool
@@ -1233,6 +1289,39 @@ final class IntentRoutingPolicy
         $strongTaskIntentThreshold = 0.72;
 
         return $prioritize < $strongTaskIntentThreshold && $schedule < $strongTaskIntentThreshold;
+    }
+
+    private function isLikelyCrudOrManagePrompt(string $normalized): bool
+    {
+        if ($normalized === '' || $this->isLikelyTimeQuery($normalized)) {
+            return false;
+        }
+
+        return $this->isLikelyCrudPrompt($normalized) || $this->isLikelyManagePrompt($normalized);
+    }
+
+    private function isLikelyCrudPrompt(string $normalized): bool
+    {
+        return preg_match(
+            '/\b(create|add|new|insert|edit|update|rename|delete|remove)\b.{0,40}\b(task|tasks|item|items|todo|to do|project|projects|event|events)\b/u',
+            $normalized
+        ) === 1
+            || preg_match(
+                '/\b(task|tasks|item|items|todo|to do|project|projects|event|events)\b.{0,40}\b(create|add|new|edit|update|rename|delete|remove)\b/u',
+                $normalized
+            ) === 1;
+    }
+
+    private function isLikelyManagePrompt(string $normalized): bool
+    {
+        return preg_match(
+            '/\b(complete|finish|done|mark done|archive|unarchive|restore|duplicate|clone|move|transfer)\b.{0,40}\b(task|tasks|item|items|todo|to do|project|projects|event|events)\b/u',
+            $normalized
+        ) === 1
+            || preg_match(
+                '/\b(task|tasks|item|items|todo|to do|project|projects|event|events)\b.{0,40}\b(complete|finish|done|mark done|archive|unarchive|restore|duplicate|clone|move|transfer)\b/u',
+                $normalized
+            ) === 1;
     }
 
     private function hasMultiturnListingFollowupContext(TaskAssistantThread $thread): bool

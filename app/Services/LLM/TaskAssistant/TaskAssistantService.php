@@ -1903,7 +1903,7 @@ final class TaskAssistantService
             $clarification = implode(' ', array_values(array_unique($partialFailureNotes)));
             $this->publishScheduleClarificationResponse($thread, $assistantMessage, $proposalsBeforeRefinement, $clarification);
             $targets = $this->targetEntitiesFromScheduleProposals($proposalsBeforeRefinement);
-            $this->conversationState->rememberScheduleContext($thread, $targets, $plan->timeWindowHint, $lastReferencedProposalUuids, $assistantMessage->id);
+            $this->conversationState->rememberScheduleContext($thread, $targets, $plan->timeWindowHint, $referencedProposalUuids, $assistantMessage->id);
 
             return;
         }
@@ -2367,6 +2367,12 @@ final class TaskAssistantService
             $userMessage .= "\n\nOFF_TOPIC_GUARDRAIL: This request is off-topic for a task assistant. Acknowledge briefly, refuse to help with the unrelated topic, and suggest task-focused next steps (prioritize tasks or schedule time blocks) while following the current general_guidance schema.";
         }
 
+        $crudManageGuardrail = in_array(TaskAssistantReasonCodes::INTENT_CRUD_OUT_OF_SCOPE, $plan->reasonCodes, true)
+            || in_array(TaskAssistantReasonCodes::INTENT_MANAGE_OUT_OF_SCOPE, $plan->reasonCodes, true);
+        if ($crudManageGuardrail) {
+            $userMessage .= "\n\nCRUD_MANAGE_GUARDRAIL: The user is asking for CRUD/manage actions in chat. Respond with a friendly boundary, redirect them to do those changes in the workspace, and remind them your role is only to prioritize and schedule tasks.";
+        }
+
         if (in_array(TaskAssistantReasonCodes::GENERAL_GUIDANCE_GREETING_ONLY, $plan->reasonCodes, true)) {
             // Greeting-only prompts should not assume tasks exist or pull list details.
             $userMessage .= "\n\nGREETING_GUARDRAIL: The user only greeted (hello/hi/yo). Do not assume they want task suggestions yet. Do not reference their list data, deadlines, priorities, or specific task titles. Introduce TaskLyst, say you can prioritize tasks or schedule time blocks, and offer neutral next actions.";
@@ -2375,7 +2381,9 @@ final class TaskAssistantService
         $guidance = $this->generalGuidanceService->generateGeneralGuidance(
             user: $thread->user,
             userMessage: $userMessage,
-            forcedMode: in_array(TaskAssistantReasonCodes::INTENT_OFF_TOPIC, $plan->reasonCodes, true) ? 'off_topic' : null,
+            forcedMode: $crudManageGuardrail
+                ? 'crud_manage_out_of_scope'
+                : (in_array(TaskAssistantReasonCodes::INTENT_OFF_TOPIC, $plan->reasonCodes, true) ? 'off_topic' : null),
         );
 
         $state = $this->conversationState->get($thread);
@@ -2450,6 +2458,17 @@ final class TaskAssistantService
             'intent' => $intent,
             'suggested_next_actions_count' => count($suggestedNextActions),
         ]);
+        $guardrailCategory = $this->resolveGeneralGuidanceGuardrailCategory($plan->reasonCodes);
+        if ($guardrailCategory !== null) {
+            Log::info('task-assistant.guardrail.telemetry', [
+                'layer' => 'flow',
+                'thread_id' => $thread->id,
+                'assistant_message_id' => $assistantMessage->id,
+                'guardrail_category' => $guardrailCategory,
+                'reason_codes' => $plan->reasonCodes,
+                'intent' => $intent,
+            ]);
+        }
         $this->conversationState->clearPendingGeneralGuidance($thread);
 
         $this->streamFlowEnvelope(
@@ -2670,10 +2689,19 @@ final class TaskAssistantService
             }
         }
 
-        $defaultExamples = [
-            'move second to 8 pm',
-            'move quiz task to tomorrow 8 pm',
-        ];
+        $singleCandidate = count($items) === 1;
+        $singleTitle = $singleCandidate
+            ? trim((string) ($items[0]['title'] ?? 'this item'))
+            : '';
+        $defaultExamples = $singleCandidate
+            ? [
+                'yes, keep this time',
+                'move it to 8 pm',
+            ]
+            : [
+                'move second to 8 pm',
+                'move quiz task to tomorrow 8 pm',
+            ];
         $exampleList = is_array($examples) ? $examples : $defaultExamples;
         $exampleList = array_values(array_filter(array_map(
             static fn (mixed $example): string => trim((string) $example),
@@ -2685,7 +2713,12 @@ final class TaskAssistantService
         if (count($exampleList) === 1) {
             $exampleList[] = $defaultExamples[1];
         }
-        $clarification = $this->applyScheduleClarificationVariation($thread, trim($clarification));
+        $clarification = trim($clarification);
+        if ($singleCandidate) {
+            $resolvedTitle = $singleTitle !== '' ? $singleTitle : 'this item';
+            $clarification = "I am editing {$resolvedTitle}. Confirm if you want to keep this slot, or tell me the new time/day.";
+        }
+        $clarification = $this->applyScheduleClarificationVariation($thread, $clarification);
         $content = trim($clarification).sprintf(
             ' For example: "%s" or "%s".',
             $exampleList[0],
@@ -4342,6 +4375,24 @@ final class TaskAssistantService
             countLimit: $countLimit,
             generationProfile: $generationProfile,
         );
+    }
+
+    /**
+     * @param  list<string>  $reasonCodes
+     */
+    private function resolveGeneralGuidanceGuardrailCategory(array $reasonCodes): ?string
+    {
+        if (in_array(TaskAssistantReasonCodes::INTENT_CRUD_OUT_OF_SCOPE, $reasonCodes, true)) {
+            return 'crud_out_of_scope';
+        }
+        if (in_array(TaskAssistantReasonCodes::INTENT_MANAGE_OUT_OF_SCOPE, $reasonCodes, true)) {
+            return 'manage_out_of_scope';
+        }
+        if (in_array(TaskAssistantReasonCodes::INTENT_OFF_TOPIC, $reasonCodes, true)) {
+            return 'off_topic';
+        }
+
+        return null;
     }
 
     private function runNamedTaskClarificationFlow(

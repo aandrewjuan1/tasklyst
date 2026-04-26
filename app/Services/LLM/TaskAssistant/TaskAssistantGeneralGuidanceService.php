@@ -19,6 +19,8 @@ final class TaskAssistantGeneralGuidanceService
 
     private const MODE_OFF_TOPIC = 'off_topic';
 
+    private const MODE_CRUD_MANAGE_OUT_OF_SCOPE = 'crud_manage_out_of_scope';
+
     private const INTENT_TASK = 'task';
 
     private const INTENT_OUT_OF_SCOPE = 'out_of_scope';
@@ -61,6 +63,10 @@ final class TaskAssistantGeneralGuidanceService
         }
 
         $resolvedMode = $this->resolveGuidanceMode($userMessage, $forcedMode);
+        if ($resolvedMode === self::MODE_CRUD_MANAGE_OUT_OF_SCOPE) {
+            return $this->buildCrudManageGuardrailGuidance($user, $userMessage);
+        }
+
         $resolvedIntent = $this->intentFromMode($resolvedMode);
         $intent = $this->isLikelyEmotionalOffDomain($userMessage)
             ? self::INTENT_OUT_OF_SCOPE
@@ -149,8 +155,106 @@ final class TaskAssistantGeneralGuidanceService
         return match ($normalized) {
             self::MODE_GIBBERISH_UNCLEAR, 'gibberish', 'unclear' => self::MODE_GIBBERISH_UNCLEAR,
             self::MODE_OFF_TOPIC, 'offtopic' => self::MODE_OFF_TOPIC,
+            self::MODE_CRUD_MANAGE_OUT_OF_SCOPE, 'crud_manage_out_of_scope', 'crud', 'manage' => self::MODE_CRUD_MANAGE_OUT_OF_SCOPE,
             default => self::MODE_FRIENDLY_GENERAL,
         };
+    }
+
+    /**
+     * @return array{
+     *   intent: string,
+     *   acknowledgement: string,
+     *   message: string,
+     *   suggested_next_actions: list<string>,
+     *   next_options: string,
+     *   next_options_chip_texts: list<string>
+     * }
+     */
+    private function buildCrudManageGuardrailGuidance(User $user, string $userMessage): array
+    {
+        $templates = [
+            [
+                'acknowledgement' => 'I get what you want to do.',
+                'message' => "I can't create, edit, delete, or manage tasks from chat. Please do that in your workspace first. My role here is to help you prioritize tasks and schedule them.",
+                'next_options' => 'After you update it in your workspace, ask me to prioritize your tasks or schedule your top items.',
+            ],
+            [
+                'acknowledgement' => 'Thanks for the clear request.',
+                'message' => "I can't apply create, update, delete, or status changes in chat. Use your workspace to make that change. My role here is to prioritize tasks and schedule them.",
+                'next_options' => 'Once the workspace update is done, I can rank your next priorities or place them into time blocks.',
+            ],
+            [
+                'acknowledgement' => 'Understood.',
+                'message' => "I can't perform CRUD or management actions from this chat. Please handle that in your workspace. My role here is to prioritize tasks and schedule them.",
+                'next_options' => 'When you are ready, tell me what to prioritize first or which tasks you want scheduled.',
+            ],
+        ];
+
+        $template = $this->selectDeterministicCrudTemplate($user, $userMessage, $templates);
+        $suggestedNextActions = [
+            'Prioritize my tasks.',
+            'Schedule time blocks for my tasks.',
+        ];
+
+        Log::info('task-assistant.general_guidance.generate_deterministic', [
+            'layer' => 'llm_guidance',
+            'user_id' => $user->id,
+            'resolved_mode' => self::MODE_CRUD_MANAGE_OUT_OF_SCOPE,
+            'resolved_intent' => self::INTENT_OUT_OF_SCOPE,
+        ]);
+        Log::info('task-assistant.guardrail.template', [
+            'layer' => 'llm_guidance',
+            'user_id' => $user->id,
+            'guardrail_category' => $this->crudManageGuardrailCategory($userMessage),
+            'template_seed_hash' => hash('sha256', $user->id.'|'.mb_strtolower(trim($userMessage))),
+        ]);
+
+        return [
+            'intent' => self::INTENT_OUT_OF_SCOPE,
+            'acknowledgement' => $this->clampAtSentenceBoundary((string) ($template['acknowledgement'] ?? ''), 220),
+            'message' => $this->clampAtSentenceBoundary((string) ($template['message'] ?? ''), self::MAX_GENERAL_GUIDANCE_MESSAGE_CHARS),
+            'suggested_next_actions' => $suggestedNextActions,
+            'next_options' => $this->finalizeNextOptionsString((string) ($template['next_options'] ?? '')),
+            'next_options_chip_texts' => $this->deterministicGeneralGuidanceChipTexts($user),
+        ];
+    }
+
+    /**
+     * @param  list<array{acknowledgement: string, message: string, next_options: string}>  $templates
+     * @return array{acknowledgement: string, message: string, next_options: string}
+     */
+    private function selectDeterministicCrudTemplate(User $user, string $userMessage, array $templates): array
+    {
+        if ($templates === []) {
+            return [
+                'acknowledgement' => 'Understood.',
+                'message' => "I can't perform CRUD or management actions from this chat. Please handle that in your workspace. My role here is to prioritize tasks and schedule them.",
+                'next_options' => 'After you update your workspace, I can prioritize or schedule your tasks.',
+            ];
+        }
+
+        $seed = $user->id.'|'.mb_strtolower(trim($userMessage));
+        $index = abs(crc32($seed)) % count($templates);
+
+        return $templates[$index];
+    }
+
+    private function crudManageGuardrailCategory(string $userMessage): string
+    {
+        $normalized = mb_strtolower(trim($userMessage));
+        if ($normalized === '') {
+            return 'crud_manage_out_of_scope';
+        }
+
+        if (preg_match('/\b(create|add|new|insert|edit|update|rename|delete|remove)\b/u', $normalized) === 1) {
+            return 'crud_out_of_scope';
+        }
+
+        if (preg_match('/\b(complete|finish|done|mark done|archive|unarchive|restore|duplicate|clone|move|transfer)\b/u', $normalized) === 1) {
+            return 'manage_out_of_scope';
+        }
+
+        return 'crud_manage_out_of_scope';
     }
 
     private function normalizeGeneralGuidanceText(string $value): string

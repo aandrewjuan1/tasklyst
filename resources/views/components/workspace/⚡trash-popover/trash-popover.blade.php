@@ -417,9 +417,34 @@
             this.itemToForceDelete = null;
             $flux.modal('delete-item').close();
         },
+
+        closeOnOutsidePointer(target) {
+            if (!this.open) {
+                return;
+            }
+
+            const panel = this.$refs.panel;
+            const trigger = this.$refs.trigger;
+            const dockAnchor = this.$refs.dockAnchor;
+            if (!panel || !target) {
+                return;
+            }
+
+            if (panel.contains(target)) {
+                return;
+            }
+
+            if (trigger?.contains(target) || dockAnchor?.contains(target)) {
+                return;
+            }
+
+            this.close(dockAnchor || trigger);
+        },
     }"
     @keydown.escape.prevent.stop="close($refs.dockAnchor || $refs.trigger)"
     @focusin.window="($refs.panel && !$refs.panel.contains($event.target)) && close($refs.dockAnchor || $refs.trigger)"
+    @pointerdown.window="closeOnOutsidePointer($event.target)"
+    @touchstart.window.passive="closeOnOutsidePointer($event.target)"
     @workspace-item-trashed.window="addTrashedItem($event.detail)"
     @workspace-item-trashed-rollback.window="removeTrashedItemRollback($event.detail)"
     @resize.window="refreshViewportMode()"
@@ -448,24 +473,39 @@
     @endisset
 
     <template x-teleport="#workspace-trash-portal">
-        <div
-            x-ref="panel"
-            x-show="open"
-            x-transition:enter="transition ease-out duration-100"
-            x-transition:enter-start="opacity-0"
-            x-transition:enter-end="opacity-100"
-            x-transition:leave="transition ease-in duration-75"
-            x-transition:leave-start="opacity-100"
-            x-transition:leave-end="opacity-0"
-            x-cloak
-            @click.outside="(e) => !$refs.trigger?.contains(e.target) && close($refs.dockAnchor || $refs.trigger)"
-            @click.stop
-            :class="panelSurfaceClass"
-            x-bind:style="useViewportSheet ? null : panelDockStyle || null"
-            role="dialog"
-            aria-modal="true"
-            aria-label="{{ __('Trash bin for items') }}"
-        >
+        <div class="contents">
+            <div
+                x-show="open && useViewportSheet"
+                x-transition:enter="transition ease-out duration-100"
+                x-transition:enter-start="opacity-0"
+                x-transition:enter-end="opacity-100"
+                x-transition:leave="transition ease-in duration-75"
+                x-transition:leave-start="opacity-100"
+                x-transition:leave-end="opacity-0"
+                x-cloak
+                class="fixed inset-0 z-[2147483646] bg-black/35 backdrop-blur-[1px]"
+                @click="close($refs.dockAnchor || $refs.trigger)"
+                aria-hidden="true"
+            ></div>
+
+            <div
+                x-ref="panel"
+                x-show="open"
+                x-transition:enter="transition ease-out duration-100"
+                x-transition:enter-start="opacity-0"
+                x-transition:enter-end="opacity-100"
+                x-transition:leave="transition ease-in duration-75"
+                x-transition:leave-start="opacity-100"
+                x-transition:leave-end="opacity-0"
+                x-cloak
+                @click.outside="(e) => !$refs.trigger?.contains(e.target) && close($refs.dockAnchor || $refs.trigger)"
+                @click.stop
+                :class="panelSurfaceClass"
+                x-bind:style="useViewportSheet ? null : panelDockStyle || null"
+                role="dialog"
+                aria-modal="true"
+                aria-label="{{ __('Trash bin for items') }}"
+            >
         <div class="flex items-center justify-between gap-2 border-b border-border/60 px-3 py-2.5">
             <div class="flex items-center gap-2 min-w-0">
                 <div class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
@@ -639,6 +679,7 @@
                 </div>
             </template>
         </div>
+            </div>
         </div>
     </template>
 

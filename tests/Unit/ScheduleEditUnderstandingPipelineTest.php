@@ -161,3 +161,39 @@ it('returns clarification context with parsed time and date signals', function (
     expect($result['clarification_context']['parsed_date_ymd'] ?? null)->not->toBeNull();
     expect($result['clarification_context']['target_summary'] ?? null)->toBe('unresolved target');
 });
+
+it('maps bare later refinement to deterministic 30-minute shift for single target', function (): void {
+    $pipeline = new ScheduleEditUnderstandingPipeline(
+        new ScheduleEditLexicon,
+        new ScheduleEditTargetResolver(new ScheduleEditLexicon),
+        new ScheduleEditTemporalParser,
+    );
+
+    $result = $pipeline->resolve('later', [
+        ['proposal_uuid' => 'a', 'title' => 'Task A'],
+    ], 'UTC');
+
+    expect($result['clarification_required'])->toBeFalse();
+    $shift = collect($result['operations'])->first(
+        fn (mixed $op): bool => is_array($op) && (($op['op'] ?? '') === 'shift_minutes')
+    );
+    expect($shift)->toBeArray();
+    expect((int) ($shift['proposal_index'] ?? -1))->toBe(0);
+    expect((int) ($shift['delta_minutes'] ?? 0))->toBe(30);
+});
+
+it('keeps clarification_required for multi-target bare temporal followup', function (): void {
+    $pipeline = new ScheduleEditUnderstandingPipeline(
+        new ScheduleEditLexicon,
+        new ScheduleEditTargetResolver(new ScheduleEditLexicon),
+        new ScheduleEditTemporalParser,
+    );
+
+    $result = $pipeline->resolve('later', [
+        ['proposal_uuid' => 'a', 'title' => 'Task A'],
+        ['proposal_uuid' => 'b', 'title' => 'Task B'],
+    ], 'UTC');
+
+    expect($result['clarification_required'])->toBeTrue();
+    expect((string) ($result['clarification_message'] ?? ''))->toContain('multiple');
+});

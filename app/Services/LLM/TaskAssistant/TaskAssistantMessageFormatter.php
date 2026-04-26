@@ -660,11 +660,15 @@ final class TaskAssistantMessageFormatter
         }
 
         $proposals = is_array($data['proposals'] ?? null) ? $data['proposals'] : [];
+        $isPendingProposalNarrative = $this->shouldUsePendingProposalNarrative($data, $proposals);
         $hasSuccessfulProposals = count($proposals) > 0;
         $scheduleSource = trim((string) ($data['schedule_source'] ?? 'schedule'));
         $framing = TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy(trim((string) ($data['framing'] ?? '')));
         $reasoning = TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy(trim((string) ($data['reasoning'] ?? '')));
         $confirmation = TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy(trim((string) ($data['confirmation'] ?? '')));
+        $framing = $this->normalizeCommitmentTone($framing, $isPendingProposalNarrative);
+        $reasoning = $this->normalizeCommitmentTone($reasoning, $isPendingProposalNarrative);
+        $confirmation = $this->normalizeCommitmentTone($confirmation, $isPendingProposalNarrative);
         $framing = $this->polishScheduleSentence($framing);
         $reasoning = $this->polishScheduleSentence($reasoning);
         $confirmation = $this->polishScheduleSentence($confirmation);
@@ -976,6 +980,8 @@ final class TaskAssistantMessageFormatter
         $reasonCode = trim((string) ($ctx['reason_code'] ?? ''));
         $reason = TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy(trim((string) ($ctx['reason_message'] ?? '')));
         $prompt = TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy(trim((string) ($ctx['prompt'] ?? '')));
+        $reason = $this->normalizeCommitmentTone($reason, true);
+        $prompt = $this->normalizeCommitmentTone($prompt, true);
         $reason = $this->polishScheduleSentence($reason);
         $prompt = $this->polishScheduleSentence($prompt);
         $preview = is_array($data['fallback_preview'] ?? null) ? $data['fallback_preview'] : [];
@@ -983,6 +989,7 @@ final class TaskAssistantMessageFormatter
         $paragraphs = [];
         $framing = TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy(trim((string) ($data['framing'] ?? '')));
         if ($framing !== '') {
+            $framing = $this->normalizeCommitmentTone($framing, true);
             $framing = $this->polishScheduleSentence($framing);
             $paragraphs[] = $framing;
         }
@@ -1209,6 +1216,48 @@ final class TaskAssistantMessageFormatter
         $value = preg_replace('/\bbefore you save\b/iu', 'before we lock it in', $value) ?? $value;
         $value = preg_replace('/\b2-block run\b/iu', 'two focused blocks', $value) ?? $value;
         $value = preg_replace('/\bearliest realistic windows\b/iu', 'time that fits your availability', $value) ?? $value;
+        $value = preg_replace('/\s+/u', ' ', $value) ?? $value;
+
+        return trim($value);
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $proposals
+     */
+    private function shouldUsePendingProposalNarrative(array $data, array $proposals): bool
+    {
+        if ((bool) ($data['confirmation_required'] ?? false)) {
+            return true;
+        }
+
+        $mode = trim((string) data_get($data, 'explanation_meta.narrative_mode', ''));
+        if ($mode !== '') {
+            return $mode === 'pending_proposal';
+        }
+
+        foreach ($proposals as $proposal) {
+            if (! is_array($proposal)) {
+                continue;
+            }
+            if (mb_strtolower(trim((string) ($proposal['status'] ?? ''))) === 'pending') {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function normalizeCommitmentTone(string $text, bool $pending): string
+    {
+        $value = trim($text);
+        if ($value === '' || ! $pending) {
+            return $value;
+        }
+
+        $value = preg_replace('/\bI scheduled\b/iu', 'I proposed', $value) ?? $value;
+        $value = preg_replace('/\bI placed\b/iu', 'I proposed', $value) ?? $value;
+        $value = preg_replace('/\bI kept\b/iu', 'I proposed keeping', $value) ?? $value;
+        $value = preg_replace('/\bbefore you finalize\b/iu', 'before you confirm', $value) ?? $value;
         $value = preg_replace('/\s+/u', ' ', $value) ?? $value;
 
         return trim($value);

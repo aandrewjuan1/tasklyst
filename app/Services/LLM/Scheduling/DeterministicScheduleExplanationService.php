@@ -15,6 +15,10 @@ final class DeterministicScheduleExplanationService
      */
     public function composeNormal(array $payload): array
     {
+        $narrativeMode = trim((string) ($payload['narrative_mode'] ?? 'pending_proposal'));
+        if (! in_array($narrativeMode, ['pending_proposal', 'applied_or_finalized'], true)) {
+            $narrativeMode = 'pending_proposal';
+        }
         $flowSource = trim((string) ($payload['flow_source'] ?? 'schedule'));
         $scheduleScope = trim((string) ($payload['schedule_scope'] ?? 'all_entities'));
         $requestedWindowLabel = trim((string) ($payload['requested_window_label'] ?? 'your requested window'));
@@ -105,6 +109,10 @@ final class DeterministicScheduleExplanationService
             targetedEntityTitle: $targetedEntityTitle,
         );
 
+        $framing = $this->applyNarrativeCommitmentTone($framing, $narrativeMode);
+        $reasoning = $this->applyNarrativeCommitmentTone($reasoning, $narrativeMode);
+        $confirmation = $this->applyNarrativeCommitmentTone($confirmation, $narrativeMode);
+
         $toneKey = $this->resolveCoachingToneKey($scenarioKey, $chosenDaypart, $chosenTimeLabel, $selectedBlockers);
         $coachLine = $this->coachingLineForToneKey($toneKey);
         if ($coachLine !== '' && ! str_contains(mb_strtolower($reasoning), mb_strtolower($coachLine))) {
@@ -137,6 +145,7 @@ final class DeterministicScheduleExplanationService
                 'targeted_entity_title' => $targetedEntityTitle,
                 'time_window_hint_source' => $timeWindowHintSource,
                 'all_day_overlap_note' => $allDayOverlapNote,
+                'narrative_mode' => $narrativeMode,
             ],
         ];
     }
@@ -153,6 +162,7 @@ final class DeterministicScheduleExplanationService
      */
     public function composeConfirmation(array $payload): array
     {
+        $narrativeMode = 'pending_proposal';
         $reasonCode = trim((string) ($payload['reason_code'] ?? 'schedule_confirmation_needed'));
         $requestedWindowLabel = trim((string) ($payload['requested_window_label'] ?? 'your requested window'));
         $requestedCount = max(1, (int) ($payload['requested_count'] ?? 1));
@@ -171,6 +181,7 @@ final class DeterministicScheduleExplanationService
             'empty_placement_no_fit', 'unplaced_explicit_targets' => 'I could not place every requested item in the current window, so I saved a safe draft for your decision.',
             default => 'I prepared a draft and paused so you can decide the next move.',
         };
+        $framing = $this->applyNarrativeCommitmentTone($framing, $narrativeMode);
 
         $reasoning = $reasonMessage;
         if ($reasonCode === 'top_n_shortfall') {
@@ -200,6 +211,7 @@ final class DeterministicScheduleExplanationService
             'reason_message' => $this->guardrail($reasoning, 280),
             'explanation_meta' => [
                 'mode' => 'confirmation',
+                'narrative_mode' => $narrativeMode,
                 'scenario_key' => strtoupper($reasonCode),
                 'coaching_tone_key' => $toneKey,
                 'requested_count' => $requestedCount,
@@ -207,6 +219,23 @@ final class DeterministicScheduleExplanationService
                 'requested_window' => $requestedWindowLabel,
             ],
         ];
+    }
+
+    private function applyNarrativeCommitmentTone(string $text, string $mode): string
+    {
+        $value = trim($text);
+        if ($value === '' || $mode !== 'pending_proposal') {
+            return $value;
+        }
+
+        $value = preg_replace('/\bI scheduled\b/iu', 'I proposed', $value) ?? $value;
+        $value = preg_replace('/\bI placed\b/iu', 'I proposed', $value) ?? $value;
+        $value = preg_replace('/\bI moved\b/iu', 'I suggested moving', $value) ?? $value;
+        $value = preg_replace('/\bI kept\b/iu', 'I proposed keeping', $value) ?? $value;
+        $value = preg_replace('/\bbefore you finalize\b/iu', 'before you confirm', $value) ?? $value;
+        $value = preg_replace('/\s+/u', ' ', $value) ?? $value;
+
+        return trim($value);
     }
 
     /**

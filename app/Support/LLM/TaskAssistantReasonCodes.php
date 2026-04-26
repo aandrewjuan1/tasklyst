@@ -18,6 +18,10 @@ final class TaskAssistantReasonCodes
 
     public const INTENT_OFF_TOPIC = 'intent_off_topic';
 
+    public const INTENT_CRUD_OUT_OF_SCOPE = 'intent_crud_out_of_scope';
+
+    public const INTENT_MANAGE_OUT_OF_SCOPE = 'intent_manage_out_of_scope';
+
     public const GREETING_ONLY_DETECTED = 'greeting_only_detected';
 
     public const GREETING_SHORTCIRCUIT_GENERAL_GUIDANCE = 'greeting_shortcircuit_general_guidance';

@@ -455,10 +455,23 @@ final class TaskAssistantResponseProcessor
             }
 
             // For out_of_scope, the boundary must live in message.
-            if ($intent === 'out_of_scope'
-                && ! str_contains($messageLower, "can't help")
-                && ! str_contains($messageLower, 'cannot help')) {
-                $validator->errors()->add('message', 'out_of_scope message must include a gentle refusal/boundary.');
+            if ($intent === 'out_of_scope') {
+                $hasGenericBoundary = str_contains($messageLower, "can't help")
+                    || str_contains($messageLower, 'cannot help');
+                $hasCrudBoundary = preg_match(
+                    '/\b(can\'t|cannot|can not)\b.{0,40}\b(create|add|edit|update|delete|remove|manage|perform)\b/u',
+                    $messageLower
+                ) === 1;
+                $hasOffTopicBoundary = str_contains($messageLower, 'outside what i can help with')
+                    || str_contains($messageLower, 'outside what i can help')
+                    || str_contains($messageLower, 'outside my scope')
+                    || str_contains($messageLower, 'outside scope')
+                    || str_contains($messageLower, 'off-topic')
+                    || str_contains($messageLower, 'off topic');
+
+                if (! $hasGenericBoundary && ! $hasCrudBoundary && ! $hasOffTopicBoundary) {
+                    $validator->errors()->add('message', 'out_of_scope message must include a gentle refusal/boundary.');
+                }
             }
 
             // Suggested next actions should be clausal/verb-led (not noun labels).

@@ -28,7 +28,10 @@ final class ScheduleEditTargetResolver
             return ['index' => null, 'proposal_uuid' => null, 'ambiguous' => true, 'reason' => 'There are no editable schedule items yet.', 'confidence' => 'low', 'candidate_titles' => []];
         }
 
-        if ($count === 1 && $this->lexicon->hasAmbiguousPronoun($normalizedMessage)) {
+        if ($count === 1 && (
+            $this->lexicon->hasAmbiguousPronoun($normalizedMessage)
+            || $this->hasSingleTargetTemporalRefinementCue($normalizedMessage)
+        )) {
             return $this->resultFromIndex($proposals, 0, false, null, 'high');
         }
 
@@ -80,6 +83,17 @@ final class ScheduleEditTargetResolver
         }
         if (count($matched) > 1) {
             return ['index' => null, 'proposal_uuid' => null, 'ambiguous' => true, 'reason' => 'I found multiple matching items. Please say which one to edit.', 'confidence' => 'low', 'candidate_titles' => $this->topCandidateTitles($proposals, $matched)];
+        }
+
+        if ($count > 1 && $this->isTemporalRefinementWithoutTargetSignal($normalizedMessage)) {
+            return [
+                'index' => null,
+                'proposal_uuid' => null,
+                'ambiguous' => true,
+                'reason' => 'I found multiple scheduled items. Tell me which one to change (first, second, last, #number, or title).',
+                'confidence' => 'low',
+                'candidate_titles' => $this->topCandidateTitles($proposals),
+            ];
         }
 
         if ($this->lexicon->hasAmbiguousPronoun($normalizedMessage)) {
@@ -238,5 +252,64 @@ final class ScheduleEditTargetResolver
         }
 
         return $titles;
+    }
+
+    private function hasSingleTargetTemporalRefinementCue(string $normalizedMessage): bool
+    {
+        return preg_match(
+            '/\b(later|earlier|today|tomorrow|tmrw|tonight|next week|morning|afternoon|evening|night|after lunch|after dinner|onward|onwards)\b/u',
+            $normalizedMessage
+        ) === 1
+            || preg_match('/\b(at\s+)?\d{1,2}(:\d{2})?\s*(am|pm)\b/u', $normalizedMessage) === 1
+            || preg_match('/\b\d+\s*(min|mins|minute|minutes)\b/u', $normalizedMessage) === 1;
+    }
+
+    private function isTemporalRefinementWithoutTargetSignal(string $normalizedMessage): bool
+    {
+        $hasTemporalCue = $this->hasSingleTargetTemporalRefinementCue($normalizedMessage);
+        if (! $hasTemporalCue) {
+            return false;
+        }
+
+        $hasTargetSignal = preg_match(
+            '/\b(first|second|third|last|\d+(?:st|nd|rd|th)|#\d+|item\s*#?\d+|task\s*#?\d+|top\s+\d+|ranked\s*#?\d+|line\s*#?\d+|row\s*#?\d+|slot\s*#?\d+)\b/u',
+            $normalizedMessage
+        ) === 1;
+
+        if ($hasTargetSignal) {
+            return false;
+        }
+
+        $hasMeaningfulTitleToken = $this->containsLikelyTitleToken($normalizedMessage);
+
+        return ! $hasMeaningfulTitleToken;
+    }
+
+    private function containsLikelyTitleToken(string $normalizedMessage): bool
+    {
+        $tokens = preg_split('/[^\pL\pN]+/u', mb_strtolower($normalizedMessage), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        if ($tokens === []) {
+            return false;
+        }
+
+        $temporalStopwords = [
+            'later', 'earlier', 'today', 'tomorrow', 'tmrw', 'tonight', 'next', 'week',
+            'morning', 'afternoon', 'evening', 'night', 'after', 'lunch', 'dinner',
+            'at', 'am', 'pm', 'onward', 'onwards', 'move', 'shift', 'change', 'set',
+            'edit', 'reschedule', 'adjust', 'it', 'this', 'that', 'one',
+        ];
+
+        foreach ($tokens as $token) {
+            if (mb_strlen($token) < 4) {
+                continue;
+            }
+            if (in_array($token, $temporalStopwords, true)) {
+                continue;
+            }
+
+            return true;
+        }
+
+        return false;
     }
 }
