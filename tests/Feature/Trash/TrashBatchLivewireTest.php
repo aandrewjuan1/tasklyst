@@ -182,3 +182,11 @@ test('authenticated forceDeleteAllTrashItems permanently deletes all trashed ite
     expect(Task::withTrashed()->find($t1->id))->toBeNull()
         ->and(Task::withTrashed()->find($t2->id))->toBeNull();
 });
+
+test('trash popover uses pointerdown outside handler without duplicate touchstart listener', function (): void {
+    $this->actingAs($this->owner);
+
+    Livewire::test('workspace.trash-popover')
+        ->assertSeeHtml('@pointerdown.window="closeOnOutsidePointer($event.target)"')
+        ->assertDontSeeHtml('@touchstart.window.passive="closeOnOutsidePointer($event.target)"');
+});

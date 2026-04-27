@@ -221,6 +221,7 @@
                     return;
                 }
                 if (this.useViewportSheet) {
+                    this.close(null);
                     return;
                 }
                 if (this._dockRaf != null) {
@@ -277,13 +278,13 @@
         },
 
         async togglePanel() {
-            if (Date.now() - this._lastScrollAt < this._scrollSuppressMs) {
-                return;
-            }
-
             if (this.open) {
                 this.close(this.$refs.dockAnchor ?? this.$refs.trigger);
 
+                return;
+            }
+
+            if (Date.now() - this._lastScrollAt < this._scrollSuppressMs) {
                 return;
             }
 
@@ -348,7 +349,9 @@
             this.open = false;
             this.cancelSelection();
             setTimeout(() => this.$dispatch('dropdown-closed'), 50);
-            focusAfter && focusAfter.focus();
+            if (!this.useViewportSheet && focusAfter && typeof focusAfter.focus === 'function') {
+                focusAfter.focus();
+            }
         },
 
         kindLabels: {
@@ -451,7 +454,6 @@
     @keydown.escape.prevent.stop="close($refs.dockAnchor || $refs.trigger)"
     @focusin.window="($refs.panel && !$refs.panel.contains($event.target)) && close($refs.dockAnchor || $refs.trigger)"
     @pointerdown.window="closeOnOutsidePointer($event.target)"
-    @touchstart.window.passive="closeOnOutsidePointer($event.target)"
     @workspace-item-trashed.window="addTrashedItem($event.detail)"
     @workspace-item-trashed-rollback.window="removeTrashedItemRollback($event.detail)"
     @resize.window="refreshViewportMode()"
