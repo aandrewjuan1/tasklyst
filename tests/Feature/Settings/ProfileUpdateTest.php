@@ -38,6 +38,40 @@ test('profile information can be updated', function () {
     expect($user->name)->toEqual('Test User');
 });
 
+test('scheduler preferences can be updated from profile settings', function () {
+    $user = User::factory()->create([
+        'timezone' => 'Asia/Manila',
+        'schedule_preferences' => [
+            'schema_version' => 1,
+            'energy_bias' => 'balanced',
+            'day_bounds' => ['start' => '08:00', 'end' => '22:00'],
+            'lunch_block' => ['enabled' => true, 'start' => '12:00', 'end' => '13:00'],
+        ],
+    ]);
+
+    $this->actingAs($user);
+
+    $response = Livewire::test('pages::settings.profile')
+        ->set('name', 'Test User')
+        ->set('dayBoundsStart', '11:00')
+        ->set('dayBoundsEnd', '20:00')
+        ->set('lunchBlockEnabled', false)
+        ->set('lunchBlockStart', '12:30')
+        ->set('lunchBlockEnd', '13:30')
+        ->set('energyBias', 'evening')
+        ->call('updateProfileInformation');
+
+    $response->assertHasNoErrors();
+
+    $user->refresh();
+
+    expect($user->schedule_preferences)->toMatchArray([
+        'energy_bias' => 'evening',
+        'day_bounds' => ['start' => '11:00', 'end' => '20:00'],
+        'lunch_block' => ['enabled' => false, 'start' => '12:30', 'end' => '13:30'],
+    ]);
+});
+
 test('user can delete their account', function () {
     $user = User::factory()->create();
 

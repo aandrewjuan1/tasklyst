@@ -11,8 +11,6 @@
                 <flux:input wire:model="email" :label="__('Email')" type="text" inputmode="email" required disabled autocomplete="email" />
             </div>
 
-            <flux:input wire:model="timezone" :label="__('Timezone')" type="text" placeholder="Asia/Manila" />
-
             <div class="grid gap-4 md:grid-cols-2">
                 <flux:input wire:model="dayBoundsStart" :label="__('Day starts at')" type="time" />
                 <flux:input wire:model="dayBoundsEnd" :label="__('Day ends at')" type="time" />

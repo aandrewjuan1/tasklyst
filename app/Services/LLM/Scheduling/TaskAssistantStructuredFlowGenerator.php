@@ -1283,6 +1283,9 @@ final class TaskAssistantStructuredFlowGenerator
         $eventsForBusy = is_array($contextualSnapshot['events'] ?? null)
             ? $contextualSnapshot['events']
             : [];
+        $tasksForBusy = is_array($contextualSnapshot['tasks'] ?? null)
+            ? $contextualSnapshot['tasks']
+            : [];
 
         $pendingBusyIntervals = is_array($options['pending_busy_intervals'] ?? null)
             ? $options['pending_busy_intervals']
@@ -1302,6 +1305,7 @@ final class TaskAssistantStructuredFlowGenerator
         }
 
         $contextualSnapshot['events_for_busy'] = $eventsForBusy;
+        $contextualSnapshot['tasks_for_busy'] = $tasksForBusy;
 
         $targetEntities = $options['target_entities'] ?? [];
         if (is_array($targetEntities) && $targetEntities !== []) {
@@ -1426,6 +1430,13 @@ final class TaskAssistantStructuredFlowGenerator
             }
         }
 
+        if (! isset($contextualSnapshot['time_window'])) {
+            $preferredWindow = $this->resolvePreferredDayBoundsWindow($contextualSnapshot);
+            if (is_array($preferredWindow)) {
+                $contextualSnapshot['time_window'] = $preferredWindow;
+            }
+        }
+
         $anchorAdjusted = $this->resolveClassAwareAnchorWindow($contextualSnapshot, $context);
         if (is_array($anchorAdjusted) && isset($anchorAdjusted['start'], $anchorAdjusted['end'])) {
             $contextualSnapshot['time_window'] = $anchorAdjusted;
@@ -1510,6 +1521,44 @@ final class TaskAssistantStructuredFlowGenerator
         }
 
         return ['start' => $start, 'end' => $fallbackEnd];
+    }
+
+    /**
+     * @param  array<string, mixed>  $snapshot
+     * @return array{start: string, end: string}|null
+     */
+    private function resolvePreferredDayBoundsWindow(array $snapshot): ?array
+    {
+        $preferences = is_array($snapshot['schedule_preferences'] ?? null)
+            ? $snapshot['schedule_preferences']
+            : [];
+        $dayBounds = is_array($preferences['day_bounds'] ?? null)
+            ? $preferences['day_bounds']
+            : [];
+
+        $startRaw = is_string($dayBounds['start'] ?? null) ? trim((string) $dayBounds['start']) : '';
+        $endRaw = is_string($dayBounds['end'] ?? null) ? trim((string) $dayBounds['end']) : '';
+
+        $start = $this->normalizeWindowBoundTime($startRaw);
+        $end = $this->normalizeWindowBoundTime($endRaw);
+        if ($start === null || $end === null || $start >= $end) {
+            return null;
+        }
+
+        return ['start' => $start, 'end' => $end];
+    }
+
+    private function normalizeWindowBoundTime(string $value): ?string
+    {
+        if ($value === '') {
+            return null;
+        }
+
+        if (preg_match('/^(?:[01]\d|2[0-3]):[0-5]\d$/', $value) !== 1) {
+            return null;
+        }
+
+        return $value;
     }
 
     /**
@@ -1636,8 +1685,19 @@ final class TaskAssistantStructuredFlowGenerator
             $placementDates = array_slice($placementDates, 0, 1);
         }
         $window = is_array($snapshot['time_window'] ?? null) ? $snapshot['time_window'] : null;
-        $windowStart = is_string($window['start'] ?? null) ? $window['start'] : '00:00';
-        $windowEnd = is_string($window['end'] ?? null) ? $window['end'] : '23:59:59';
+        $windowStart = is_string($window['start'] ?? null) ? trim((string) $window['start']) : '';
+        $windowEnd = is_string($window['end'] ?? null) ? trim((string) $window['end']) : '';
+        if ($windowStart === '' || $windowEnd === '') {
+            $preferredWindow = $this->resolvePreferredDayBoundsWindow($snapshot);
+            if (is_array($preferredWindow)) {
+                $windowStart = $preferredWindow['start'];
+                $windowEnd = $preferredWindow['end'];
+            }
+        }
+        if ($windowStart === '' || $windowEnd === '') {
+            $windowStart = '00:00';
+            $windowEnd = '23:59:59';
+        }
         $defaultAsapMode = (bool) ($context['default_asap_mode'] ?? false);
         $applyTodayLeadBuffer = $this->shouldApplyTodayLeadBuffer($context, $snapshot);
 
@@ -3168,7 +3228,9 @@ final class TaskAssistantStructuredFlowGenerator
             ];
         }
 
-        $taskSource = is_array($snapshot['tasks'] ?? null) ? $snapshot['tasks'] : [];
+        $taskSource = is_array($snapshot['tasks_for_busy'] ?? null)
+            ? $snapshot['tasks_for_busy']
+            : (is_array($snapshot['tasks'] ?? null) ? $snapshot['tasks'] : []);
         foreach ($taskSource as $task) {
             if (! is_array($task)) {
                 continue;

@@ -1251,6 +1251,78 @@ it('still subtracts calendar busy from events_for_busy for task-only targets', f
     }
 });
 
+it('preserves non-target scheduled task windows as busy for targeted scheduling', function (): void {
+    $generator = app(TaskAssistantStructuredFlowGenerator::class);
+    $apply = new ReflectionMethod(TaskAssistantStructuredFlowGenerator::class, 'applyContextToSnapshot');
+    $apply->setAccessible(true);
+    $place = new ReflectionMethod(TaskAssistantStructuredFlowGenerator::class, 'generateProposalsChunkedSpill');
+    $place->setAccessible(true);
+
+    $snapshot = [
+        'timezone' => 'UTC',
+        'today' => '2026-04-28',
+        'time_window' => ['start' => '08:00', 'end' => '22:00:00'],
+        'schedule_horizon' => [
+            'mode' => 'single_day',
+            'start_date' => '2026-04-28',
+            'end_date' => '2026-04-28',
+            'label' => 'today',
+        ],
+        'tasks' => [
+            [
+                'id' => 1,
+                'title' => 'Previously accepted top task',
+                'priority' => 'high',
+                'duration_minutes' => 60,
+                'starts_at' => '2026-04-28T08:00:00+00:00',
+                'ends_at' => '2026-04-28T09:00:00+00:00',
+                'is_recurring' => false,
+            ],
+            [
+                'id' => 2,
+                'title' => 'Targeted follow-up task',
+                'priority' => 'urgent',
+                'duration_minutes' => 60,
+                'starts_at' => null,
+                'ends_at' => null,
+                'is_recurring' => false,
+            ],
+        ],
+        'events' => [],
+        'events_for_busy' => [],
+        'projects' => [],
+    ];
+
+    $context = [
+        'intent_type' => 'general',
+        'priority_filters' => [],
+        'task_keywords' => [],
+        'time_constraint' => 'none',
+        'comparison_focus' => null,
+        'recurring_requested' => false,
+        'schedule_horizon' => $snapshot['schedule_horizon'],
+    ];
+
+    $options = [
+        'target_entities' => [
+            ['entity_type' => 'task', 'entity_id' => 2],
+        ],
+    ];
+
+    /** @var array<string, mixed> $ctxSnap */
+    $ctxSnap = $apply->invoke($generator, $snapshot, $context, $options);
+
+    expect($ctxSnap['tasks'] ?? [])->toHaveCount(1);
+    expect($ctxSnap['tasks_for_busy'] ?? [])->toHaveCount(2);
+
+    [$proposals] = $place->invoke($generator, $ctxSnap, $context, 1);
+
+    expect($proposals)->toHaveCount(1);
+    $proposal = $proposals[0];
+    expect((int) ($proposal['entity_id'] ?? 0))->toBe(2);
+    expect((string) ($proposal['start_datetime'] ?? ''))->toContain('T09:00:00');
+});
+
 it('orders scheduling candidates by prioritizeFocus ranking', function (): void {
     CarbonImmutable::setTestNow('2026-03-30T10:00:00+00:00');
 
@@ -1707,4 +1779,32 @@ it('allows scheduling through lunch when lunch block is disabled in user prefere
 
     expect($proposals)->not->toBe([]);
     expect((string) ($proposals[0]['start_datetime'] ?? ''))->toContain('T12:00:00');
+});
+
+it('uses user day bounds as default scheduling window when no explicit window is requested', function (): void {
+    $generator = app(TaskAssistantStructuredFlowGenerator::class);
+    $method = new ReflectionMethod(TaskAssistantStructuredFlowGenerator::class, 'applyContextToSnapshot');
+    $method->setAccessible(true);
+
+    $snapshot = [
+        'timezone' => 'UTC',
+        'today' => '2026-04-10',
+        'tasks' => [],
+        'events' => [],
+        'projects' => [],
+        'schedule_preferences' => [
+            'day_bounds' => [
+                'start' => '11:00',
+                'end' => '20:00',
+            ],
+        ],
+    ];
+
+    /** @var array<string, mixed> $applied */
+    $applied = $method->invoke($generator, $snapshot, [], []);
+
+    expect($applied['time_window'] ?? null)->toBe([
+        'start' => '11:00',
+        'end' => '20:00',
+    ]);
 });

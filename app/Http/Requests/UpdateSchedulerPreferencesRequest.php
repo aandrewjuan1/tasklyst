@@ -20,8 +20,8 @@ class UpdateSchedulerPreferencesRequest extends FormRequest
             'timezone' => ['nullable', 'timezone:all'],
             'day_bounds_start' => ['nullable', 'date_format:H:i'],
             'day_bounds_end' => ['nullable', 'date_format:H:i', 'after:day_bounds_start'],
-            'energy_bias' => ['required', 'in:morning,evening,balanced'],
-            'lunch_block_enabled' => ['required', 'boolean'],
+            'energy_bias' => ['filled', 'in:morning,evening,balanced'],
+            'lunch_block_enabled' => ['boolean'],
             'lunch_block_start' => ['nullable', 'date_format:H:i'],
             'lunch_block_end' => ['nullable', 'date_format:H:i', 'after:lunch_block_start'],
         ];

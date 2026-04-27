@@ -57,7 +57,7 @@ class extends Component {
             'timezone' => $this->timezone !== '' ? $this->timezone : null,
             'day_bounds_start' => $this->dayBoundsStart !== '' ? $this->dayBoundsStart : null,
             'day_bounds_end' => $this->dayBoundsEnd !== '' ? $this->dayBoundsEnd : null,
-            'energy_bias' => $this->energyBias,
+            'energy_bias' => $this->energyBias !== '' ? $this->energyBias : 'balanced',
             'lunch_block_enabled' => $this->lunchBlockEnabled,
             'lunch_block_start' => $this->lunchBlockStart !== '' ? $this->lunchBlockStart : null,
             'lunch_block_end' => $this->lunchBlockEnd !== '' ? $this->lunchBlockEnd : null,

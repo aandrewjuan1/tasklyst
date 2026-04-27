@@ -350,7 +350,23 @@
                                     {{ __('Where the model runs') }}
                                 </p>
                                 <p class="mt-1">
-                                    {{ __('This assistant uses Hermes 3:3b, a compact model running locally on infrastructure we control. Local hosting keeps processing within a secure environment, supporting better privacy. Because it runs on limited local resources, responses may take some time to generate. As a smaller model, outputs may also be less nuanced than larger cloud-based assistants.') }}
+                                    {{ __('This assistant uses Hermes 3:3b, a compact model running on infrastructure we control. Requests stay inside taskLyst\'s managed environment and are not sent to public AI tools. Because it runs on limited local resources, responses may take some time to generate. As a smaller model, outputs may also be less nuanced than larger cloud-based assistants.') }}
+                                </p>
+                            </div>
+                            <div>
+                                <p class="font-semibold text-zinc-900 dark:text-zinc-100">
+                                    {{ __('How your data is used') }}
+                                </p>
+                                <p class="mt-1">
+                                    {{ __('The assistant only uses the information needed to answer your request, such as relevant tasks, schedules, and timing details from your workspace. Data is used to generate the current response and improve in-app assistance quality for your account experience. It does not browse unrelated personal data, and it cannot access external apps unless taskLyst is explicitly connected to them.') }}
+                                </p>
+                            </div>
+                            <div>
+                                <p class="font-semibold text-zinc-900 dark:text-zinc-100">
+                                    {{ __('How we keep it safe') }}
+                                </p>
+                                <p class="mt-1">
+                                    {{ __('We apply access controls and secure handling in our systems so assistant processing stays protected. You stay in control: review AI suggestions before acting on them, and avoid sharing highly sensitive information in prompts when it is not needed.') }}
                                 </p>
                             </div>
                             <div>
