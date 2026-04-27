@@ -55,6 +55,17 @@ test('chat flyout help modal describes hosted model and assistant scope', functi
         ->assertDontSee('Replies are generated on your local machine', false);
 });
 
+test('chat flyout includes workflow settings personalization hint link', function (): void {
+    $user = User::factory()->create();
+    assert($user instanceof User);
+    $this->actingAs($user);
+
+    Livewire::test('assistant.chat-flyout')
+        ->assertSee('data-testid="assistant-workflow-settings-link"', false)
+        ->assertSee(route('settings.preference'), false)
+        ->assertSee(__('Using your workflow preferences'), false);
+});
+
 test('chat flyout component dispatches job on submit', function () {
     /** @var \Illuminate\Foundation\Testing\TestCase $this */
     Bus::fake();

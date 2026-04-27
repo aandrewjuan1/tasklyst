@@ -6,6 +6,7 @@ use App\Models\Event;
 use App\Models\Project;
 use App\Models\Task;
 use App\Models\User;
+use App\Services\LLM\Scheduling\UserSchedulePreferences;
 use Illuminate\Support\Str;
 
 final class AssistantCandidateProvider
@@ -21,6 +22,12 @@ final class AssistantCandidateProvider
      * @return array{
      *   today: string,
      *   timezone: string,
+     *   schedule_preferences: array{
+     *     schema_version:int,
+     *     energy_bias:string,
+     *     day_bounds:array{start:string,end:string},
+     *     lunch_block:array{enabled:bool,start:string,end:string}
+     *   },
      *   tasks: list<array{id:int,title:string,subject_name:?string,teacher_name:?string,tags:list<string>,status:?string,priority:?string,complexity:?string,ends_at:?string,project_id:?int,event_id:?int,school_class_id:?int,duration_minutes:?int,is_recurring:bool}>,
      *   events: list<array{id:int,title:string,starts_at:?string,ends_at:?string,all_day:bool,status:?string}>,
      *   projects: list<array{id:int,name:string,start_at:?string,end_at:?string}>
@@ -34,7 +41,8 @@ final class AssistantCandidateProvider
         int $eventLimit = 25,
         int $projectLimit = 20,
     ): array {
-        $timezone = (string) config('app.timezone');
+        $timezone = UserSchedulePreferences::timezoneForUser($user);
+        $schedulePreferences = UserSchedulePreferences::normalizedForUser($user);
         $now = now()->setTimezone($timezone);
 
         $tasks = Task::query()
@@ -104,6 +112,7 @@ final class AssistantCandidateProvider
         return [
             'today' => $now->toDateString(),
             'timezone' => $timezone,
+            'schedule_preferences' => $schedulePreferences,
             'tasks' => $tasks,
             'events' => $events,
             'projects' => $projects,

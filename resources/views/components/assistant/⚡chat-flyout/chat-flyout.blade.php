@@ -397,6 +397,17 @@
                 </flux:modal>
             </div>
             <flux:heading size="md">{{ __('Plan, prioritize, and organize faster') }}</flux:heading>
+            <div class="mt-1">
+                <a
+                    href="{{ route('settings.preference') }}"
+                    wire:navigate
+                    class="inline-flex items-center gap-1.5 text-xs font-medium text-brand-blue transition hover:text-brand-navy-blue dark:text-brand-light-blue dark:hover:text-brand-blue"
+                    data-testid="assistant-workflow-settings-link"
+                >
+                    <flux:icon name="adjustments-horizontal" class="size-3.5" />
+                    <span>{{ __('Using your workflow preferences') }}</span>
+                </a>
+            </div>
         </div>
     </div>
 

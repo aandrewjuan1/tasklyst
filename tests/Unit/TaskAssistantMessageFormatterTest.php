@@ -462,6 +462,22 @@ class TaskAssistantMessageFormatterTest extends TestCase
         $this->assertStringContainsString(TaskAssistantPrioritizeOutputDefaults::reasoningWhenEmpty(), $out);
     }
 
+    public function test_prioritize_omits_ranking_method_summary_when_no_ranked_items_exist(): void
+    {
+        $rankingSummary = 'I put urgent work first, then priority and effort, so your next move is both important and realistic.';
+
+        $out = $this->formatter->format('prioritize', [
+            'doing_progress_coach' => 'You already have one task in progress: DOING.',
+            'items' => [],
+            'ranking_method_summary' => $rankingSummary,
+            'reasoning' => 'Finish what you started first, then ask me again for the next priority.',
+            'next_options' => 'If you want, I can place this top task later today, tomorrow, or later this week.',
+        ]);
+
+        $this->assertStringContainsString('You already have one task in progress: DOING.', $out);
+        $this->assertStringNotContainsString($rankingSummary, $out);
+    }
+
     public function test_prioritize_ignores_placement_blurb_fields(): void
     {
         $blurb = 'Ranked here for urgency and your current filter.';

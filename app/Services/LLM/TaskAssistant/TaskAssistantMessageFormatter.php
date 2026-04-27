@@ -221,6 +221,7 @@ final class TaskAssistantMessageFormatter
         $doingProgressCoach = trim((string) ($data['doing_progress_coach'] ?? ''));
         $hasDoingSection = $doingProgressCoach !== '';
         $lines = $this->formatPrioritizeItemLines($items);
+        $hasRankedItems = $lines !== [];
 
         if (! $hasDoingSection) {
             $framing = $this->normalizePrioritizeFramingForRankedItems($framing, $items);
@@ -245,7 +246,7 @@ final class TaskAssistantMessageFormatter
             $paragraphs[] = $framing;
         }
 
-        if ($lines !== []) {
+        if ($hasRankedItems) {
             $paragraphs[] = implode("\n", $lines);
         }
 
@@ -257,7 +258,7 @@ final class TaskAssistantMessageFormatter
             $paragraphs[] = $filterInterpretation;
         }
 
-        if ($rankingMethodSummary !== '') {
+        if ($hasRankedItems && $rankingMethodSummary !== '') {
             $paragraphs[] = $rankingMethodSummary;
         }
         if ($orderingRationale !== []) {

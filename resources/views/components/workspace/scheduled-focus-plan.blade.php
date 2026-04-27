@@ -191,7 +191,7 @@
                         size="xs"
                         variant="primary"
                         class="bg-brand-blue text-white hover:bg-brand-blue/90 focus-visible:ring-brand-blue/45 dark:bg-brand-blue dark:text-white dark:hover:bg-brand-blue/90"
-                        x-on:click="$wire.$dispatch('assistant-chat-open-requested'); window.dispatchEvent(new CustomEvent('quick-prompt-append', { detail: { value: 'Schedule my top tasks' } })); $flux.modal('task-assistant-chat').show()"
+                        x-on:click="$wire.$dispatch('assistant-chat-open-requested'); $flux.modal('task-assistant-chat').show()"
                     >
                         <flux:icon name="chat-bubble-left-right" class="size-3.5" />
                         {{ __('Generate Schedule') }}

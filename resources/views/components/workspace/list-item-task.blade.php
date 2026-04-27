@@ -137,6 +137,7 @@
 
     // Match task progress: hide Focus when done on first paint; Alpine `status` + x-show keeps updates in sync.
     $hideFocusButtonInitiallyDone = ($initialStatusValue ?? '') === 'done';
+    $hideAiScheduleButtonInitially = ($initialStatusValue ?? '') !== 'to_do';
 
     $useKanbanCompact = ($layout ?? 'list') === 'kanban' && ! ($embedInFocusModal ?? false);
     $taskDropdownAlign = $useKanbanCompact ? 'start' : 'end';
@@ -964,6 +965,8 @@
                     <flux:tooltip :content="__('Append AI schedule prompt')">
                         <button
                             type="button"
+                            x-show="status === 'to_do'"
+                            @if($hideAiScheduleButtonInitially) style="display: none;" @endif
                             @click.stop="triggerQuickSchedule()"
                             class="inline-flex items-center gap-1.5 rounded-full border border-violet-500/60 bg-violet-500/15 px-3 py-1 text-xs font-semibold text-violet-700 transition hover:bg-violet-500/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/50 dark:border-violet-400/60 dark:bg-violet-400/20 dark:text-violet-200 dark:hover:bg-violet-400/30 dark:focus-visible:ring-violet-400/60"
                         >
@@ -1327,6 +1330,8 @@
                     <flux:tooltip :content="__('Append AI schedule prompt')">
                         <button
                             type="button"
+                            x-show="status === 'to_do'"
+                            @if($hideAiScheduleButtonInitially) style="display: none;" @endif
                             @click.stop="triggerQuickSchedule()"
                             class="inline-flex items-center gap-1.5 rounded-full border border-violet-500/60 bg-violet-500/15 px-3 py-1 text-xs font-semibold text-violet-700 transition hover:bg-violet-500/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/50 dark:border-violet-400/60 dark:bg-violet-400/20 dark:text-violet-200 dark:hover:bg-violet-400/30 dark:focus-visible:ring-violet-400/60"
                         >
