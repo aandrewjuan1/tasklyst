@@ -26,6 +26,8 @@
         _dockHandler: null,
         _dockRaf: null,
         _sidebarResizeObserver: null,
+        _lastScrollAt: 0,
+        _scrollSuppressMs: 280,
 
         itemKey(item) {
             return item.kind + '-' + item.id;
@@ -214,6 +216,7 @@
 
         init() {
             this._dockHandler = () => {
+                this._lastScrollAt = Date.now();
                 if (!this.open) {
                     return;
                 }
@@ -274,6 +277,10 @@
         },
 
         async togglePanel() {
+            if (Date.now() - this._lastScrollAt < this._scrollSuppressMs) {
+                return;
+            }
+
             if (this.open) {
                 this.close(this.$refs.dockAnchor ?? this.$refs.trigger);
 

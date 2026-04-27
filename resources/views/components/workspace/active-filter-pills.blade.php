@@ -386,7 +386,7 @@
                         aria-label="{{ __('Toggle completed items visibility') }}"
                     >
                         <flux:icon name="check-badge" class="size-4 shrink-0" />
-                        <span class="truncate">{{ __('Show Done') }}</span>
+                        <span class="truncate">{{ __('Include Done') }}</span>
                     </button>
                 </span>
             </flux:tooltip>
