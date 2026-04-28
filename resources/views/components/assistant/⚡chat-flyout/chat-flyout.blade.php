@@ -536,7 +536,7 @@
                                     }
                                     $showAcceptAll = $isLatestAssistant
                                         && ! $isStopped
-                                        && $pendingSchedulableCount > 0;
+                                        && $pendingSchedulableCount > 1;
                                 @endphp
                                 <div class="mt-3 flex flex-col gap-2">
                                     @foreach ($proposals as $proposal)
@@ -544,6 +544,13 @@
                                             @php
                                                 $proposalId = (string) ($proposal['proposal_uuid'] ?? $proposal['proposal_id'] ?? '');
                                                 $status = (string) ($proposal['status'] ?? 'pending');
+                                                $isPendingProposal = $status === 'pending';
+                                                $isPendingSchedulableProposal = \App\Support\LLM\SchedulableProposalPolicy::isPendingSchedulable($proposal);
+                                                $canShowPerItemActions = $isLatestAssistant
+                                                    && ! $isStopped
+                                                    && $proposalId !== ''
+                                                    && $isPendingProposal
+                                                    && $isPendingSchedulableProposal;
                                                 $startAt = (string) ($proposal['start_datetime'] ?? '');
                                                 $endAt = (string) ($proposal['end_datetime'] ?? '');
                                                 $title = (string) ($proposal['title'] ?? 'Scheduled item');
@@ -587,14 +594,9 @@
                                                 }
                                             @endphp
                                             <div class="rounded-lg border border-border/65 bg-white/90 px-2.5 py-2.5 shadow-sm ring-1 ring-black/5 dark:border-zinc-700/70 dark:bg-zinc-900/55 dark:ring-white/5">
-                                                <div class="flex min-w-0 items-start justify-between gap-2">
-                                                    <flux:text class="min-w-0 flex-1 text-sm font-semibold leading-tight text-zinc-900 dark:text-zinc-100">
-                                                        {{ $title }}
-                                                    </flux:text>
-                                                    <span class="inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em] {{ $statusClass }}">
-                                                        {{ $statusLabel }}
-                                                    </span>
-                                                </div>
+                                                <flux:text class="block w-full min-w-0 text-sm font-semibold leading-tight text-zinc-900 dark:text-zinc-100">
+                                                    {{ $title }}
+                                                </flux:text>
                                                 <div class="mt-2 rounded-md border border-brand-blue/20 bg-brand-light-blue/45 px-2 py-1.5 dark:border-brand-blue/35 dark:bg-brand-blue/15">
                                                     <div class="flex items-center gap-1.5">
                                                         <flux:icon name="calendar-days" class="size-3.5 shrink-0 text-brand-blue dark:text-brand-light-blue" />
@@ -603,12 +605,57 @@
                                                         </flux:text>
                                                     </div>
                                                 </div>
+                                                <div @if ($canShowPerItemActions) x-data="{ proposalAction: null }" @endif class="mt-2.5 flex items-center justify-between gap-2">
+                                                    @if ($canShowPerItemActions)
+                                                        <div class="flex items-center gap-1.5">
+                                                            <button
+                                                                type="button"
+                                                                wire:click="acceptScheduleProposal({{ $message->id }}, '{{ addslashes($proposalId) }}')"
+                                                                x-on:click="proposalAction = 'accept'"
+                                                                x-bind:disabled="proposalAction !== null"
+                                                                wire:loading.attr="disabled"
+                                                                wire:target="acceptScheduleProposal,declineScheduleProposal"
+                                                                class="inline-flex items-center gap-1 rounded-md border border-emerald-300/80 bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-700 transition hover:bg-emerald-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/70 disabled:pointer-events-none disabled:opacity-60 dark:border-emerald-700/70 dark:bg-emerald-900/30 dark:text-emerald-300 dark:hover:bg-emerald-900/45"
+                                                            >
+                                                                <span x-show="proposalAction !== 'accept'" class="inline-flex items-center gap-1">
+                                                                    <flux:icon name="check" class="size-3" />
+                                                                    <span>{{ __('Accept') }}</span>
+                                                                </span>
+                                                                <span x-cloak x-show="proposalAction === 'accept'" class="inline-flex items-center gap-1">
+                                                                    <flux:icon name="arrow-path" class="size-3 animate-spin" />
+                                                                    <span>{{ __('Accepting...') }}</span>
+                                                                </span>
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                wire:click="declineScheduleProposal({{ $message->id }}, '{{ addslashes($proposalId) }}')"
+                                                                x-on:click="proposalAction = 'decline'"
+                                                                x-bind:disabled="proposalAction !== null"
+                                                                wire:loading.attr="disabled"
+                                                                wire:target="acceptScheduleProposal,declineScheduleProposal"
+                                                                class="inline-flex items-center gap-1 rounded-md border border-zinc-300/90 bg-zinc-50/95 px-2 py-1 text-[11px] font-semibold text-zinc-700 transition hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-300/60 disabled:pointer-events-none disabled:opacity-60 dark:border-zinc-600/80 dark:bg-zinc-800/70 dark:text-zinc-200 dark:hover:bg-zinc-700/80"
+                                                            >
+                                                                <span x-show="proposalAction !== 'decline'" class="inline-flex items-center gap-1">
+                                                                    <flux:icon name="x-mark" class="size-3" />
+                                                                    <span>{{ __('Decline') }}</span>
+                                                                </span>
+                                                                <span x-cloak x-show="proposalAction === 'decline'" class="inline-flex items-center gap-1">
+                                                                    <flux:icon name="arrow-path" class="size-3 animate-spin" />
+                                                                    <span>{{ __('Declining...') }}</span>
+                                                                </span>
+                                                            </button>
+                                                        </div>
+                                                    @endif
+                                                    <span class="inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em] {{ $statusClass }}">
+                                                        {{ $statusLabel }}
+                                                    </span>
+                                                </div>
                                             </div>
                                         @endif
                                     @endforeach
                                 </div>
                                 @if ($showAcceptAll)
-                                    <div class="mt-3">
+                                    <div class="mt-3 flex justify-end">
                                         <button
                                             type="button"
                                             wire:click="acceptAllScheduleProposals({{ $message->id }})"

@@ -707,6 +707,150 @@ new class extends Component
         app(UserNotificationBroadcastService::class)->broadcastInboxUpdated($user);
     }
 
+    public function acceptScheduleProposal(int $assistantMessageId, string $proposalReference): void
+    {
+        $user = Auth::user();
+        if (! $this->thread || ! $user) {
+            return;
+        }
+        /** @var \App\Models\User $user */
+
+        if ($this->latestAssistantMessageId !== null && $assistantMessageId !== $this->latestAssistantMessageId) {
+            return;
+        }
+
+        $message = $this->thread->messages()
+            ->where('id', $assistantMessageId)
+            ->where('role', MessageRole::Assistant)
+            ->first();
+
+        if (! $message instanceof TaskAssistantMessage) {
+            return;
+        }
+
+        $reference = trim($proposalReference);
+        if ($reference === '') {
+            return;
+        }
+
+        $resolved = $this->resolveScheduleProposalsBucket($message);
+        if ($resolved === null) {
+            return;
+        }
+
+        [$fullPath, $count] = $resolved;
+        $proposalIndex = null;
+
+        for ($index = 0; $index < $count; $index++) {
+            $proposal = $this->proposalAtIndex($message, $fullPath, $index);
+            if (! is_array($proposal)) {
+                continue;
+            }
+
+            $candidateReference = trim((string) ($proposal['proposal_uuid'] ?? $proposal['proposal_id'] ?? ''));
+            if ($candidateReference === '' || $candidateReference !== $reference) {
+                continue;
+            }
+
+            $proposalIndex = $index;
+            break;
+        }
+
+        if (! is_int($proposalIndex)) {
+            return;
+        }
+
+        $proposal = $this->proposalAtIndex($message, $fullPath, $proposalIndex);
+        if (! is_array($proposal) || ! $this->isSchedulablePendingProposal($proposal)) {
+            return;
+        }
+
+        $result = $this->applyScheduleProposal($proposal);
+        if (! ($result['applied'] ?? false)) {
+            $this->setProposalStatus($message, $fullPath, $proposalIndex, 'failed');
+            $this->refreshMessages();
+
+            return;
+        }
+
+        $this->setProposalStatus($message, $fullPath, $proposalIndex, 'accepted');
+        $message->refresh();
+        $this->persistAcceptedSchedulePlan(
+            user: $user,
+            assistantMessage: $message,
+            acceptedProposals: [$proposal],
+        );
+        $this->refreshMessages();
+
+        $this->dispatch('toast', type: 'success', message: __('Accepted proposal.'));
+        $user->notify(new AssistantScheduleAcceptedNotification(
+            threadId: (int) $this->thread->id,
+            assistantMessageId: $assistantMessageId,
+            acceptedCount: 1,
+        ));
+        app(UserNotificationBroadcastService::class)->broadcastInboxUpdated($user);
+    }
+
+    public function declineScheduleProposal(int $assistantMessageId, string $proposalReference): void
+    {
+        if (! $this->thread) {
+            return;
+        }
+
+        if ($this->latestAssistantMessageId !== null && $assistantMessageId !== $this->latestAssistantMessageId) {
+            return;
+        }
+
+        $message = $this->thread->messages()
+            ->where('id', $assistantMessageId)
+            ->where('role', MessageRole::Assistant)
+            ->first();
+
+        if (! $message instanceof TaskAssistantMessage) {
+            return;
+        }
+
+        $reference = trim($proposalReference);
+        if ($reference === '') {
+            return;
+        }
+
+        $resolved = $this->resolveScheduleProposalsBucket($message);
+        if ($resolved === null) {
+            return;
+        }
+
+        [$fullPath, $count] = $resolved;
+        $proposalIndex = null;
+
+        for ($index = 0; $index < $count; $index++) {
+            $proposal = $this->proposalAtIndex($message, $fullPath, $index);
+            if (! is_array($proposal)) {
+                continue;
+            }
+
+            $candidateReference = trim((string) ($proposal['proposal_uuid'] ?? $proposal['proposal_id'] ?? ''));
+            if ($candidateReference === '' || $candidateReference !== $reference) {
+                continue;
+            }
+
+            $proposalIndex = $index;
+            break;
+        }
+
+        if (! is_int($proposalIndex)) {
+            return;
+        }
+
+        $proposal = $this->proposalAtIndex($message, $fullPath, $proposalIndex);
+        if (! is_array($proposal) || ! $this->isSchedulablePendingProposal($proposal)) {
+            return;
+        }
+
+        $this->setProposalStatus($message, $fullPath, $proposalIndex, 'declined');
+        $this->refreshMessages();
+    }
+
     /**
      * @param  array<int, array<string, mixed>>  $acceptedProposals
      */
@@ -885,18 +1029,20 @@ new class extends Component
         return $dismissedCount;
     }
 
-    private function applyScheduleProposal(array $proposal): void
+    /**
+     * @param  array<string, mixed>  $proposal
+     * @return array{applied: bool, reason?: string}
+     */
+    private function applyScheduleProposal(array $proposal): array
     {
         $user = Auth::user();
         if (! $user) {
-            return;
+            return ['applied' => false, 'reason' => 'unauthenticated'];
         }
 
         $applyPayload = $proposal['apply_payload'] ?? null;
         if (is_array($applyPayload)) {
-            $this->applyFromPayload($user, $applyPayload);
-
-            return;
+            return $this->applyFromPayload($user, $applyPayload);
         }
 
         $entityType = (string) ($proposal['entity_type'] ?? '');
@@ -911,7 +1057,7 @@ new class extends Component
                 ->whereKey($entityId)
                 ->first();
             if (! $task) {
-                return;
+                return ['applied' => false, 'reason' => 'task_not_found'];
             }
 
             $attributes = [
@@ -924,7 +1070,7 @@ new class extends Component
 
             app(TaskService::class)->updateTask($task, $attributes);
 
-            return;
+            return ['applied' => true];
         }
 
         if ($entityType === 'event' && $entityId > 0 && $startDatetime !== '' && $endDatetime !== '') {
@@ -933,7 +1079,7 @@ new class extends Component
                 ->whereKey($entityId)
                 ->first();
             if (! $event) {
-                return;
+                return ['applied' => false, 'reason' => 'event_not_found'];
             }
 
             app(EventService::class)->updateEvent($event, [
@@ -941,7 +1087,7 @@ new class extends Component
                 'end_datetime' => $endDatetime,
             ]);
 
-            return;
+            return ['applied' => true];
         }
 
         if ($entityType === 'project' && $entityId > 0 && $startDatetime !== '') {
@@ -950,16 +1096,24 @@ new class extends Component
                 ->whereKey($entityId)
                 ->first();
             if (! $project) {
-                return;
+                return ['applied' => false, 'reason' => 'project_not_found'];
             }
 
             app(ProjectService::class)->updateProject($project, [
                 'start_datetime' => $startDatetime,
             ]);
+
+            return ['applied' => true];
         }
+
+        return ['applied' => false, 'reason' => 'invalid_proposal_payload'];
     }
 
-    private function applyFromPayload(\App\Models\User $user, array $applyPayload): void
+    /**
+     * @param  array<string, mixed>  $applyPayload
+     * @return array{applied: bool, reason?: string}
+     */
+    private function applyFromPayload(\App\Models\User $user, array $applyPayload): array
     {
         $applyAction = (string) ($applyPayload['action'] ?? $applyPayload['tool'] ?? '');
         $arguments = is_array($applyPayload['arguments'] ?? null) ? $applyPayload['arguments'] : [];
@@ -973,20 +1127,20 @@ new class extends Component
                 'end_datetime' => $arguments['endDatetime'] ?? null,
             ]);
 
-            return;
+            return ['applied' => true];
         }
 
         if ($applyAction === 'update_task') {
             $taskId = (int) ($arguments['taskId'] ?? 0);
             if ($taskId <= 0) {
-                return;
+                return ['applied' => false, 'reason' => 'task_id_missing'];
             }
             $task = Task::query()
                 ->forUser($user->id)
                 ->whereKey($taskId)
                 ->first();
             if (! $task) {
-                return;
+                return ['applied' => false, 'reason' => 'task_not_found'];
             }
 
             $attributes = [];
@@ -1008,22 +1162,24 @@ new class extends Component
 
             if ($attributes !== []) {
                 app(TaskService::class)->updateTask($task, $attributes);
+
+                return ['applied' => true];
             }
 
-            return;
+            return ['applied' => false, 'reason' => 'no_task_attributes'];
         }
 
         if ($applyAction === 'update_event') {
             $eventId = (int) ($arguments['eventId'] ?? 0);
             if ($eventId <= 0) {
-                return;
+                return ['applied' => false, 'reason' => 'event_id_missing'];
             }
             $event = Event::query()
                 ->forUser($user->id)
                 ->whereKey($eventId)
                 ->first();
             if (! $event) {
-                return;
+                return ['applied' => false, 'reason' => 'event_not_found'];
             }
 
             $attributes = [];
@@ -1045,22 +1201,24 @@ new class extends Component
 
             if ($attributes !== []) {
                 app(EventService::class)->updateEvent($event, $attributes);
+
+                return ['applied' => true];
             }
 
-            return;
+            return ['applied' => false, 'reason' => 'no_event_attributes'];
         }
 
         if ($applyAction === 'update_project') {
             $projectId = (int) ($arguments['projectId'] ?? 0);
             if ($projectId <= 0) {
-                return;
+                return ['applied' => false, 'reason' => 'project_id_missing'];
             }
             $project = Project::query()
                 ->forUser($user->id)
                 ->whereKey($projectId)
                 ->first();
             if (! $project) {
-                return;
+                return ['applied' => false, 'reason' => 'project_not_found'];
             }
 
             $attributes = [];
@@ -1080,8 +1238,12 @@ new class extends Component
 
             if ($attributes !== []) {
                 app(ProjectService::class)->updateProject($project, $attributes);
+
+                return ['applied' => true];
             }
         }
+
+        return ['applied' => false, 'reason' => 'unsupported_action'];
     }
 
     /**

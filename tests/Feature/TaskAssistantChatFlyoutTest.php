@@ -708,6 +708,165 @@ test('chat flyout accept all marks invalid pending proposal as failed instead of
     expect(data_get($assistantMessage->metadata, 'schedule.proposals.0.status'))->toBe('failed');
 });
 
+test('chat flyout can accept a single schedule proposal by proposal reference', function () {
+    /** @var User $user */
+    $user = User::factory()->create();
+    $this->actingAs($user);
+
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+    session(['task_assistant.current_thread_id' => $thread->id]);
+
+    $taskA = Task::factory()->for($user)->create([
+        'title' => 'Single accept task A',
+        'status' => \App\Enums\TaskStatus::ToDo,
+        'start_datetime' => null,
+        'duration' => 30,
+    ]);
+    $taskB = Task::factory()->for($user)->create([
+        'title' => 'Single accept task B',
+        'status' => \App\Enums\TaskStatus::ToDo,
+        'start_datetime' => null,
+        'duration' => 30,
+    ]);
+    $startA = now()->addHours(2)->startOfHour();
+    $startB = now()->addHours(4)->startOfHour();
+
+    $assistantMessage = $thread->messages()->create([
+        'role' => \App\Enums\MessageRole::Assistant,
+        'content' => 'Proposed schedule',
+        'metadata' => [
+            'daily_schedule' => [
+                'proposals' => [
+                    [
+                        'proposal_id' => 'single-a',
+                        'status' => 'pending',
+                        'entity_type' => 'task',
+                        'entity_id' => $taskA->id,
+                        'title' => $taskA->title,
+                        'start_datetime' => $startA->toIso8601String(),
+                        'duration_minutes' => 60,
+                    ],
+                    [
+                        'proposal_id' => 'single-b',
+                        'status' => 'pending',
+                        'entity_type' => 'task',
+                        'entity_id' => $taskB->id,
+                        'title' => $taskB->title,
+                        'start_datetime' => $startB->toIso8601String(),
+                        'duration_minutes' => 45,
+                    ],
+                ],
+            ],
+        ],
+    ]);
+
+    Livewire::test('assistant.chat-flyout')
+        ->call('acceptScheduleProposal', $assistantMessage->id, 'single-a')
+        ->assertDispatched('toast', type: 'success', message: 'Accepted proposal.');
+
+    $assistantMessage->refresh();
+    $taskA->refresh();
+    $taskB->refresh();
+
+    expect(data_get($assistantMessage->metadata, 'schedule.proposals.0.status'))->toBe('accepted');
+    expect(data_get($assistantMessage->metadata, 'schedule.proposals.1.status'))->toBe('pending');
+    expect($taskA->duration)->toBe(60);
+    expect($taskB->duration)->toBe(30);
+});
+
+test('chat flyout can decline a single schedule proposal by proposal reference', function () {
+    /** @var User $user */
+    $user = User::factory()->create();
+    $this->actingAs($user);
+
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+    session(['task_assistant.current_thread_id' => $thread->id]);
+
+    $task = Task::factory()->for($user)->create([
+        'title' => 'Decline me',
+        'status' => \App\Enums\TaskStatus::ToDo,
+        'start_datetime' => null,
+        'duration' => 30,
+    ]);
+    $startAt = now()->addHours(2)->startOfHour();
+
+    $assistantMessage = $thread->messages()->create([
+        'role' => \App\Enums\MessageRole::Assistant,
+        'content' => 'Proposed schedule',
+        'metadata' => [
+            'daily_schedule' => [
+                'proposals' => [[
+                    'proposal_id' => 'decline-1',
+                    'status' => 'pending',
+                    'entity_type' => 'task',
+                    'entity_id' => $task->id,
+                    'title' => $task->title,
+                    'start_datetime' => $startAt->toIso8601String(),
+                    'duration_minutes' => 90,
+                ]],
+            ],
+        ],
+    ]);
+
+    Livewire::test('assistant.chat-flyout')
+        ->call('declineScheduleProposal', $assistantMessage->id, 'decline-1');
+
+    $assistantMessage->refresh();
+    $task->refresh();
+
+    expect(data_get($assistantMessage->metadata, 'schedule.proposals.0.status'))->toBe('declined');
+    expect($task->duration)->toBe(30);
+    expect($task->start_datetime)->toBeNull();
+});
+
+test('chat flyout does not accept a single proposal on stale assistant schedule card', function () {
+    /** @var User $user */
+    $user = User::factory()->create();
+    $this->actingAs($user);
+
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+    session(['task_assistant.current_thread_id' => $thread->id]);
+
+    $task = Task::factory()->for($user)->create([
+        'status' => \App\Enums\TaskStatus::ToDo,
+        'start_datetime' => null,
+    ]);
+    $startAt = now()->addHour();
+
+    $olderAssistant = $thread->messages()->create([
+        'role' => \App\Enums\MessageRole::Assistant,
+        'content' => 'Older schedule',
+        'metadata' => [
+            'daily_schedule' => [
+                'proposals' => [[
+                    'proposal_id' => 'stale-single',
+                    'status' => 'pending',
+                    'entity_type' => 'task',
+                    'entity_id' => $task->id,
+                    'title' => 'T',
+                    'start_datetime' => $startAt->toIso8601String(),
+                    'duration_minutes' => 30,
+                ]],
+            ],
+        ],
+    ]);
+
+    $thread->messages()->create([
+        'role' => \App\Enums\MessageRole::Assistant,
+        'content' => 'Newer reply',
+        'metadata' => [],
+    ]);
+
+    Livewire::test('assistant.chat-flyout')
+        ->call('acceptScheduleProposal', $olderAssistant->id, 'stale-single');
+
+    $olderAssistant->refresh();
+    $task->refresh();
+
+    expect(data_get($olderAssistant->metadata, 'daily_schedule.proposals.0.status'))->toBe('pending');
+    expect($task->start_datetime)->toBeNull();
+});
+
 test('chat flyout restores streaming state from persisted thread metadata after reload', function () {
     $user = User::factory()->create();
     assert($user instanceof User);
