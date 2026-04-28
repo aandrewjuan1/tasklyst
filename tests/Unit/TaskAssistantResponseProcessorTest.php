@@ -1265,7 +1265,39 @@ class TaskAssistantResponseProcessorTest extends TestCase
 
         $this->assertTrue($result['valid']);
         $this->assertStringNotContainsString('Complex complexity', (string) ($result['structured_data']['reasoning'] ?? ''));
-        $this->assertStringContainsString('higher effort', (string) ($result['structured_data']['reasoning'] ?? ''));
+        $this->assertStringContainsString('needs a bigger focused block', (string) ($result['structured_data']['reasoning'] ?? ''));
+    }
+
+    public function test_prioritize_quality_softens_higher_effort_reasoning_into_bigger_focus_block_language(): void
+    {
+        $processor = app(TaskAssistantResponseProcessor::class);
+
+        $result = $processor->processResponse('prioritize', [
+            'items' => [[
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'title' => 'A task',
+                'priority' => 'high',
+                'due_phrase' => 'overdue',
+                'due_on' => 'Apr 25, 2026',
+                'complexity_label' => 'Complex',
+            ]],
+            'limit_used' => 1,
+            'focus' => [
+                'main_task' => 'A task',
+                'secondary_tasks' => [],
+            ],
+            'framing' => 'Here is your focused next-step slice.',
+            'reasoning' => 'Start with A task first because it is overdue, high priority, and higher effort.',
+            'next_options' => 'If you want, I can schedule this next step.',
+            'next_options_chip_texts' => [
+                'Schedule this next step',
+            ],
+        ], []);
+
+        $this->assertTrue($result['valid']);
+        $this->assertStringContainsString('needs a bigger focused block', (string) ($result['structured_data']['reasoning'] ?? ''));
+        $this->assertStringNotContainsString('higher effort', (string) ($result['structured_data']['reasoning'] ?? ''));
     }
 
     public function test_daily_schedule_quality_normalization_rewrites_mixed_daypart_claims_in_narrative(): void
@@ -1486,6 +1518,14 @@ class TaskAssistantResponseProcessorTest extends TestCase
             ]],
             'blocking_reasons' => [],
             'blocking_reasons_struct' => [],
+            'prioritize_selection_explanation' => [
+                'enabled' => true,
+                'target_mode' => 'implicit_ranked',
+                'selected_count' => 1,
+                'summary' => 'I picked this task first because it had the strongest priority signals in your list before I placed it into a time block.',
+                'selection_basis' => 'Urgency comes first, then explicit priority, then earlier deadlines and shorter blocks when tasks are otherwise close.',
+                'ordering_rationale' => ['#1 Task A: due today and marked high priority.'],
+            ],
         ], [
             'tasks' => [['id' => 1]],
             'events' => [],

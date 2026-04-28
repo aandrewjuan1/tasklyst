@@ -4879,6 +4879,9 @@ final class TaskAssistantService
             explicitTaskTargets: $explicitTaskTargets,
             countLimit: $plan->countLimit,
         );
+        $prioritizeSelectionMode = $explicitTaskTargets === []
+            ? 'implicit_ranked'
+            : 'explicit_targets';
 
         $explicitRequestedCount = $this->extractExplicitRequestedCount($content);
         $snapshot = $this->candidateProvider->candidatesForUser(
@@ -4907,6 +4910,7 @@ final class TaskAssistantService
                     'explicit_requested_count' => $explicitRequestedCount,
                     'is_strict_set_contract' => (bool) ($plan->constraints['is_strict_set_contract'] ?? false),
                     'schedule_user_id' => $thread->user_id,
+                    'prioritize_selection_mode' => $prioritizeSelectionMode,
                     'named_task_resolution' => is_array($plan->constraints['named_task_resolution'] ?? null)
                         ? $plan->constraints['named_task_resolution']
                         : [],

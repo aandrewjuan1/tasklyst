@@ -35,5 +35,5 @@ test('connection fallback framing uses heuristic lead for what-should-i-do-first
     ];
 
     $out = PrioritizeNarrativeConnectionFallback::framing($items, 'what should I do first?');
-    expect($out)->toContain('urgency');
+    expect($out)->toContain('time-sensitive');
 });

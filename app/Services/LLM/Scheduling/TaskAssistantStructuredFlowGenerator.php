@@ -178,6 +178,7 @@ final class TaskAssistantStructuredFlowGenerator
             'ordering_rationale_struct' => $scheduleExplainability['ordering_rationale_struct'] ?? [],
             'blocking_reasons_struct' => $scheduleExplainability['blocking_reasons_struct'] ?? [],
             'narrative_facts' => $scheduleExplainability['narrative_facts'] ?? [],
+            'prioritize_selection_explanation' => $this->buildPrioritizeSelectionExplanation($options),
             'confirmation_required' => false,
             'awaiting_user_decision' => false,
             'confirmation_context' => null,
@@ -260,6 +261,105 @@ final class TaskAssistantStructuredFlowGenerator
     }
 
     /**
+     * @param  array<string, mixed>  $scheduleOptions
+     * @return array<string, mixed>|null
+     */
+    private function buildPrioritizeSelectionExplanation(array $scheduleOptions): ?array
+    {
+        $scheduleSource = trim((string) ($scheduleOptions['schedule_source'] ?? 'schedule'));
+        if ($scheduleSource !== 'prioritize_schedule') {
+            return null;
+        }
+
+        $selectionMode = trim((string) ($scheduleOptions['prioritize_selection_mode'] ?? ''));
+        if ($selectionMode !== 'implicit_ranked') {
+            return null;
+        }
+
+        $targets = is_array($scheduleOptions['target_entities'] ?? null)
+            ? $scheduleOptions['target_entities']
+            : [];
+        if ($targets === []) {
+            return null;
+        }
+
+        $orderingRationale = [];
+        $selectedCount = 0;
+        foreach ($targets as $index => $target) {
+            if (! is_array($target)) {
+                continue;
+            }
+
+            $entityId = (int) ($target['entity_id'] ?? 0);
+            $title = trim((string) ($target['title'] ?? ''));
+            if ($entityId <= 0 || $title === '') {
+                continue;
+            }
+
+            $selectedCount++;
+            $orderingRationale[] = '#'.($index + 1).' '.$title.': '.$this->buildPrioritizeSelectionLine($target);
+        }
+
+        if ($orderingRationale === []) {
+            return null;
+        }
+
+        $summary = $selectedCount === 1
+            ? 'I picked this task first because it stood out most clearly in your current priorities before I placed it into a time block.'
+            : 'I picked these tasks first because they stood out most clearly in your current priorities before I placed them into time blocks.';
+
+        return [
+            'enabled' => true,
+            'target_mode' => 'implicit_ranked',
+            'selected_count' => $selectedCount,
+            'summary' => $summary,
+            'selection_basis' => 'Urgency leads, then explicit priority and earlier deadlines. When tasks are otherwise close, shorter blocks can help break the tie.',
+            'ordering_rationale' => array_slice($orderingRationale, 0, 5),
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $target
+     */
+    private function buildPrioritizeSelectionLine(array $target): string
+    {
+        $reasoning = trim((string) ($target['selection_reasoning'] ?? ''));
+        if ($reasoning !== '') {
+            return $reasoning;
+        }
+
+        $explainability = is_array($target['selection_explainability'] ?? null)
+            ? $target['selection_explainability']
+            : [];
+        $urgencyBucket = trim((string) ($explainability['urgency_bucket'] ?? ''));
+        $priorityLabel = trim((string) ($explainability['priority_label'] ?? ''));
+        $quickWin = trim((string) ($explainability['quick_win'] ?? ''));
+
+        $parts = [];
+        if ($urgencyBucket !== '') {
+            $parts[] = match ($urgencyBucket) {
+                'overdue' => 'it is already overdue',
+                'due_today' => 'it is due today',
+                'due_tomorrow' => 'it is due tomorrow',
+                'due_this_week' => 'it is due this week',
+                default => 'it still needs attention soon',
+            };
+        }
+        if ($priorityLabel !== '' && ! in_array($priorityLabel, ['medium', 'n/a'], true)) {
+            $parts[] = 'its priority is '.$priorityLabel;
+        }
+        if ($quickWin !== '' && ! in_array($quickWin, ['unknown', 'n/a'], true)) {
+            $parts[] = 'it looks like a '.$quickWin.' block';
+        }
+
+        if ($parts === []) {
+            return 'it rose to the top of your current priorities.';
+        }
+
+        return ucfirst(implode(', and ', $parts)).'.';
+    }
+
+    /**
      * @param  array<string, mixed>  $snapshot
      * @param  array<string, mixed>  $options  Same shape as {@see generateDailySchedule} options (target_entities, time_window_hint)
      * @return array{0: array<string, mixed>, 1: array<string, mixed>} [schedule context, contextual snapshot]
@@ -277,7 +377,15 @@ final class TaskAssistantStructuredFlowGenerator
      * Resolve top-N task entities using the same improved scheduler snapshot/context pipeline.
      *
      * @param  array<int, array<string, mixed>>  $explicitTaskTargets
-     * @return list<array{entity_type: 'task', entity_id: int, title: string, position: int}>
+     * @return list<array{
+     *   entity_type: 'task',
+     *   entity_id: int,
+     *   title: string,
+     *   position: int,
+     *   selection_reasoning?: string,
+     *   selection_explainability?: array<string, mixed>,
+     *   selection_score?: int
+     * }>
      */
     public function resolvePrioritizeScheduleTaskTargets(
         TaskAssistantThread $thread,
@@ -356,6 +464,11 @@ final class TaskAssistantStructuredFlowGenerator
                     'entity_id' => (int) ($candidate['id'] ?? 0),
                     'title' => $title !== '' ? $title : 'Untitled',
                     'position' => $index,
+                    'selection_reasoning' => trim((string) ($candidate['reasoning'] ?? '')),
+                    'selection_explainability' => is_array($candidate['explainability'] ?? null)
+                        ? $candidate['explainability']
+                        : [],
+                    'selection_score' => (int) ($candidate['score'] ?? 0),
                 ];
             },
             array_slice($rankedTasks, 0, $limit),
@@ -492,6 +605,7 @@ final class TaskAssistantStructuredFlowGenerator
             'ordering_rationale_struct' => $scheduleExplainability['ordering_rationale_struct'] ?? [],
             'blocking_reasons_struct' => $scheduleExplainability['blocking_reasons_struct'] ?? [],
             'narrative_facts' => $scheduleExplainability['narrative_facts'] ?? [],
+            'prioritize_selection_explanation' => null,
             'confirmation_required' => false,
             'awaiting_user_decision' => false,
             'confirmation_context' => null,

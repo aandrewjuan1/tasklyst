@@ -305,7 +305,7 @@ final class DeterministicScheduleExplanationService
         string $targetedEntityTitle,
     ): string {
         if ($scenarioKey === 'FLOW_PRIORITIZE_SCHEDULE_TASKS_ONLY' || ($flowSource === 'prioritize_schedule' && $scheduleScope === 'tasks_only')) {
-            return 'I scheduled your top-ranked tasks first, then placed them in realistic open windows.';
+            return 'I proposed time blocks for your top-ranked tasks so they fit into realistic open windows.';
         }
         if ($isTargetedSchedule) {
             return $this->buildTargetedFraming(
@@ -323,13 +323,13 @@ final class DeterministicScheduleExplanationService
             'ADAPTIVE_FALLBACK_RELAXED' => 'I widened the placement window to keep your plan feasible.',
             'TOP_N_SHORTFALL' => 'I built the strongest draft possible for your requested count.',
             'UNPLACED_TARGETS_EXIST' => 'I scheduled what fit cleanly and held the rest for your next decision.',
-            'BLOCKED_WINDOW_SHIFTED' => 'I moved this to the next conflict-free slot.',
-            'MISSING_BLOCKER_TITLES' => 'I moved this based on occupied time in your earlier window.',
+            'BLOCKED_WINDOW_SHIFTED' => 'I proposed the next conflict-free slot that still fits this plan.',
+            'MISSING_BLOCKER_TITLES' => 'I proposed a later fit because earlier time was already occupied.',
             'REQUESTED_WINDOW_HONORED' => "I kept this in {$requestedWindowLabel} as requested.",
             'EMPTY_CANDIDATE_LIST' => 'I could not find schedulable items in this scope yet.',
             default => $chosenDaypart !== ''
-                ? "I placed this in your {$chosenDaypart} availability for a realistic start."
-                : 'I placed this in the closest feasible window for your request.',
+                ? "I proposed a {$chosenDaypart} start because it fit your requested timing cleanly."
+                : 'I proposed the closest feasible window for what you asked.',
         };
     }
 
@@ -388,8 +388,10 @@ final class DeterministicScheduleExplanationService
                 )
                 : "I placed this{$this->suffixAtLabel($chosenTimeLabel)} because your earlier window was occupied.",
             'PLACEMENT_OUTSIDE_HORIZON' => "The closest valid slot was outside the original horizon, so I drafted the nearest feasible alternative{$this->suffixAtLabel($chosenTimeLabel)}.",
-            'REQUESTED_WINDOW_HONORED' => "That window stayed open and conflict-free, so placement remained inside {$requestedWindowLabel}.",
-            'FLOW_PRIORITIZE_SCHEDULE_TASKS_ONLY' => 'This schedule is based on your ranked task targets first, then matched to conflict-free windows.',
+            'REQUESTED_WINDOW_HONORED' => "Keeping this inside {$requestedWindowLabel} helps you execute without reshuffling the rest of your day.",
+            'FLOW_PRIORITIZE_SCHEDULE_TASKS_ONLY' => $placedCount > 1
+                ? 'I spread these tasks across conflict-free windows that fit the rest of your schedule without overloading one block.'
+                : 'I placed this task into a conflict-free window that fits the rest of your schedule.',
             'MISSING_BLOCKER_TITLES' => "I moved this{$this->suffixAtLabel($chosenTimeLabel)} because earlier windows were occupied even though blocker titles were not available.",
             'EMPTY_CANDIDATE_LIST' => 'There are no schedulable items in this scope right now. Add or unfilter tasks, then I can place them immediately.',
             default => $fallbackMode !== ''
@@ -441,9 +443,11 @@ final class DeterministicScheduleExplanationService
             'STRICT_WINDOW_NO_FIT' => "I could not keep {$taskLabel} strictly inside {$requestedWindowLabel}, so I held the closest workable option{$timePhrase}.",
             'REQUESTED_WINDOW_HONORED' => "I scheduled {$taskLabel}{$timePhrase} and kept it inside {$requestedWindowLabel}.",
             'BLOCKED_WINDOW_SHIFTED', 'MISSING_BLOCKER_TITLES' => "I moved {$taskLabel}{$timePhrase} to the next clean opening.",
-            default => $chosenDaypart !== ''
-                ? "I scheduled {$taskLabel}{$timePhrase} in your {$chosenDaypart} window."
-                : "I scheduled {$taskLabel}{$timePhrase} in the closest feasible window.",
+            default => $requestedWindowLabel !== '' && $chosenTimeLabel !== ''
+                ? "I scheduled {$taskLabel} for {$requestedWindowLabel}{$timePhrase}."
+                : ($chosenDaypart !== ''
+                    ? "I scheduled {$taskLabel}{$timePhrase} in a {$chosenDaypart} slot that fit your day."
+                    : "I scheduled {$taskLabel}{$timePhrase} in the closest feasible window."),
         };
     }
 

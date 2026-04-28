@@ -213,6 +213,29 @@ it('builds warmer targeted schedule coaching for later windows', function (): vo
     expect((string) ($out['confirmation'] ?? ''))->toContain('5:30 PM');
 });
 
+it('requested window honored reasoning is additive and avoids conflict-free restatement', function (): void {
+    $service = new DeterministicScheduleExplanationService;
+
+    $out = $service->composeNormal([
+        'flow_source' => 'schedule',
+        'schedule_scope' => 'all_entities',
+        'requested_window_label' => 'today',
+        'requested_count' => 1,
+        'placed_count' => 1,
+        'unplaced_count' => 0,
+        'trigger_list' => [],
+        'strict_window_requested' => false,
+        'explicit_requested_window' => true,
+        'requested_window_honored' => true,
+        'blocking_reasons' => [],
+        'chosen_time_label' => '6:30 PM',
+    ]);
+
+    expect(data_get($out, 'explanation_meta.scenario_key'))->toBe('REQUESTED_WINDOW_HONORED');
+    expect(mb_strtolower((string) ($out['reasoning'] ?? '')))->not->toContain('conflict-free');
+    expect((string) ($out['reasoning'] ?? ''))->toContain('inside today');
+});
+
 it('appends all-day overlap note into reasoning when provided', function (): void {
     $service = new DeterministicScheduleExplanationService;
 

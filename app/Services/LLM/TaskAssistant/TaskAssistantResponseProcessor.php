@@ -191,6 +191,20 @@ final class TaskAssistantResponseProcessor
             }
         }
 
+        if ($reasoning !== '' && preg_match('/\bhigher effort\b/iu', $reasoning) === 1) {
+            $rewritten = preg_replace(
+                '/\bhigher effort\b/iu',
+                'needs a bigger focused block',
+                $reasoning,
+                1
+            );
+            if (is_string($rewritten) && $rewritten !== $reasoning) {
+                $data['reasoning'] = $rewritten;
+                $reasoning = $rewritten;
+                $corrections['prioritize_reasoning_effort_tie_break_softened'] = true;
+            }
+        }
+
         $items = is_array($data['items'] ?? null) ? $data['items'] : [];
         if ($items !== [] && ! $this->reasoningMentionsTopTitle((string) ($data['reasoning'] ?? ''), $items)) {
             $firstTitle = trim((string) data_get($items, '0.title', 'this top task'));
@@ -787,6 +801,9 @@ final class TaskAssistantResponseProcessor
         if (! is_array($data['blocking_reasons_struct'] ?? null)) {
             $data['blocking_reasons_struct'] = [];
         }
+        if (! array_key_exists('prioritize_selection_explanation', $data)) {
+            $data['prioritize_selection_explanation'] = null;
+        }
         if (! array_key_exists('fallback_choice_explanation', $data)) {
             $data['fallback_choice_explanation'] = null;
         }
@@ -899,6 +916,14 @@ final class TaskAssistantResponseProcessor
             'blocking_reasons_struct.*.reason_facts' => ['nullable', 'array', 'max:12'],
             'blocking_reasons_struct.*.reason_facts.*.key' => ['required_with:blocking_reasons_struct.*.reason_facts', 'string', 'max:64'],
             'blocking_reasons_struct.*.reason_facts.*.value' => ['required_with:blocking_reasons_struct.*.reason_facts', 'string', 'max:180'],
+            'prioritize_selection_explanation' => ['nullable', 'array'],
+            'prioritize_selection_explanation.enabled' => ['nullable', 'boolean'],
+            'prioritize_selection_explanation.target_mode' => ['nullable', 'string', 'in:implicit_ranked'],
+            'prioritize_selection_explanation.selected_count' => ['nullable', 'integer', 'min:1', 'max:10'],
+            'prioritize_selection_explanation.summary' => ['nullable', 'string', 'max:320'],
+            'prioritize_selection_explanation.selection_basis' => ['nullable', 'string', 'max:320'],
+            'prioritize_selection_explanation.ordering_rationale' => ['nullable', 'array', 'max:10'],
+            'prioritize_selection_explanation.ordering_rationale.*' => ['string', 'min:8', 'max:220'],
             'fallback_choice_explanation' => ['nullable', 'string', 'max:320'],
             'explanation_meta' => ['nullable', 'array'],
             'explanation_meta.mode' => ['nullable', 'string', 'in:normal,confirmation'],
@@ -992,7 +1017,16 @@ final class TaskAssistantResponseProcessor
                 $orderingRationaleForQuality
             ));
             $windowSelection = trim((string) ($data['window_selection_explanation'] ?? ''));
-            $referenceBlob = trim($orderingBlob.' '.$windowSelection.' '.$this->scheduleStructFactsBlob($data));
+            $prioritizeSelection = is_array($data['prioritize_selection_explanation'] ?? null)
+                ? $data['prioritize_selection_explanation']
+                : [];
+            $selectionSummary = trim((string) ($prioritizeSelection['summary'] ?? ''));
+            $selectionBasis = trim((string) ($prioritizeSelection['selection_basis'] ?? ''));
+            $selectionOrdering = implode(' ', array_map(
+                static fn (mixed $line): string => trim((string) $line),
+                is_array($prioritizeSelection['ordering_rationale'] ?? null) ? $prioritizeSelection['ordering_rationale'] : []
+            ));
+            $referenceBlob = trim($orderingBlob.' '.$windowSelection.' '.$selectionSummary.' '.$selectionBasis.' '.$selectionOrdering.' '.$this->scheduleStructFactsBlob($data));
             if ($referenceBlob !== '' && $reasoning !== '' && $this->textSimilarityScore($referenceBlob, $reasoning) >= 0.65) {
                 $validator->errors()->add('reasoning', 'reasoning must add new context and avoid repeating ordering/window rationale.');
             }
@@ -1030,6 +1064,14 @@ final class TaskAssistantResponseProcessor
             $orderingRationaleStruct = is_array($data['ordering_rationale_struct'] ?? null) ? $data['ordering_rationale_struct'] : [];
             if ($items !== [] && $orderingRationaleStruct !== [] && count($orderingRationaleStruct) !== count($items)) {
                 $validator->errors()->add('ordering_rationale_struct', 'ordering_rationale_struct must have one rationale object per scheduled row when provided.');
+            }
+            if (($prioritizeSelection['enabled'] ?? false) === true && $items !== []) {
+                $selectionOrderingRows = is_array($prioritizeSelection['ordering_rationale'] ?? null)
+                    ? $prioritizeSelection['ordering_rationale']
+                    : [];
+                if ($selectionOrderingRows !== [] && count($selectionOrderingRows) !== count($items)) {
+                    $validator->errors()->add('prioritize_selection_explanation.ordering_rationale', 'prioritize_selection_explanation.ordering_rationale must have one explanation line per scheduled row when enabled.');
+                }
             }
             $blockingReasons = is_array($data['blocking_reasons'] ?? null) ? $data['blocking_reasons'] : [];
             $digest = is_array($data['placement_digest'] ?? null) ? $data['placement_digest'] : [];

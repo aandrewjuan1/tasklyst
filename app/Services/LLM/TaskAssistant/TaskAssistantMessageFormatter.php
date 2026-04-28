@@ -338,6 +338,9 @@ final class TaskAssistantMessageFormatter
 
         $firstSentence = preg_replace('/\bhere (?:are|is)\s+\d+\s+(?:tasks?|items?|priorities)\b/iu', 'Here is your focused next-step slice', $firstSentence) ?? $firstSentence;
         $firstSentence = preg_replace('/\b(?:ordered by|ranked by)\b[^.?!]*/iu', '', $firstSentence) ?? $firstSentence;
+        $firstSentence = preg_replace('/\b(it’s|it\'s|it is)\s*(?:[.?!])?\s*$/iu', '', trim($firstSentence)) ?? $firstSentence;
+        $firstSentence = preg_replace('/[—–-]\s*$/u', '', trim($firstSentence)) ?? $firstSentence;
+        $firstSentence = preg_replace('/\s+([.?!])$/u', '$1', $firstSentence) ?? $firstSentence;
         $firstSentence = preg_replace('/\s{2,}/u', ' ', $firstSentence) ?? $firstSentence;
 
         return trim($firstSentence);
@@ -685,10 +688,23 @@ final class TaskAssistantMessageFormatter
         $framing = $normalizedNarrative['framing'];
         $reasoning = $normalizedNarrative['reasoning'];
         $confirmation = $normalizedNarrative['confirmation'];
+        $framing = $this->normalizeScheduleNarrativeForCardinality($framing, $items, $scheduleSource, 'framing');
+        $reasoning = $this->normalizeScheduleNarrativeForCardinality($reasoning, $items, $scheduleSource, 'reasoning');
+        $confirmation = $this->normalizeScheduleNarrativeForCardinality($confirmation, $items, $scheduleSource, 'confirmation');
 
         $paragraphs = [];
         if ($framing !== '') {
             $paragraphs[] = $framing;
+        }
+
+        $prioritizeSelectionExplanation = is_array($data['prioritize_selection_explanation'] ?? null)
+            ? $data['prioritize_selection_explanation']
+            : [];
+        $hasImplicitPrioritizeSelectionExplanation = (bool) ($prioritizeSelectionExplanation['enabled'] ?? false)
+            && trim((string) ($prioritizeSelectionExplanation['target_mode'] ?? '')) === 'implicit_ranked';
+        $prioritizeSelectionParagraph = $this->formatPrioritizeSelectionExplanation($prioritizeSelectionExplanation);
+        if ($prioritizeSelectionParagraph !== '') {
+            $paragraphs[] = $prioritizeSelectionParagraph;
         }
 
         if ($items !== []) {
@@ -727,7 +743,7 @@ final class TaskAssistantMessageFormatter
                 $lines[] = $line;
             }
             if ($lines !== []) {
-                if ($hasSuccessfulProposals && $scheduleSource === 'prioritize_schedule') {
+                if ($hasSuccessfulProposals && $scheduleSource === 'prioritize_schedule' && ! $hasImplicitPrioritizeSelectionExplanation) {
                     $paragraphs[] = 'Here are your prioritized items, placed into schedule blocks:';
                 }
                 $paragraphs[] = implode("\n", $lines);
@@ -788,7 +804,10 @@ final class TaskAssistantMessageFormatter
             $whyPlanLines[] = $fallbackChoiceExplanation;
         }
         if ($whyPlanLines !== []) {
-            $paragraphs[] = $this->renderScheduleExplainabilityAsSentenceChain($whyPlanLines);
+            $whyPlanParagraph = $this->renderScheduleExplainabilityAsSentenceChain($whyPlanLines);
+            if (! $this->scheduleParagraphsAreTooSimilar($whyPlanParagraph, $reasoning)) {
+                $paragraphs[] = $whyPlanParagraph;
+            }
         }
         if (! $hasSuccessfulProposals) {
             $blockingSectionTitle = $this->resolveBlockingSectionTitle($data);
@@ -845,6 +864,82 @@ final class TaskAssistantMessageFormatter
         return implode("\n\n", $this->dedupeParagraphs(
             array_values(array_filter($paragraphs, static fn (string $p): bool => trim($p) !== ''))
         ));
+    }
+
+    /**
+     * @param  array<string, mixed>  $explanation
+     */
+    private function formatPrioritizeSelectionExplanation(array $explanation): string
+    {
+        if (! (bool) ($explanation['enabled'] ?? false)) {
+            return '';
+        }
+
+        $summary = trim((string) ($explanation['summary'] ?? ''));
+        $selectionBasis = trim((string) ($explanation['selection_basis'] ?? ''));
+        $orderingRationale = is_array($explanation['ordering_rationale'] ?? null)
+            ? $explanation['ordering_rationale']
+            : [];
+
+        $parts = [];
+        if ($summary !== '') {
+            $parts[] = $summary;
+        }
+        if ($selectionBasis !== '') {
+            $parts[] = $selectionBasis;
+        }
+
+        return implode("\n", $parts);
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $items
+     */
+    private function normalizeScheduleNarrativeForCardinality(
+        string $text,
+        array $items,
+        string $scheduleSource,
+        string $field
+    ): string {
+        $value = trim($text);
+        $itemCount = count($items);
+        if ($value === '' || $itemCount <= 1) {
+            return $value;
+        }
+
+        $replacements = [
+            '/\bI proposed this at\b/iu' => 'I proposed this plan starting at',
+            '/\bI suggested moving this to the next conflict-free slot\b/iu' => 'I suggested the next conflict-free slots that fit this plan',
+            '/\bI proposed moving this to the next conflict-free slot\b/iu' => 'I proposed the next conflict-free slots that fit this plan',
+            '/\bI moved this to the next conflict-free slot\b/iu' => 'I moved these tasks into the next conflict-free slots',
+            '/\bI proposed this in the closest feasible window\b/iu' => 'I proposed these tasks in the closest feasible windows',
+            '/\bI placed this in the closest feasible window\b/iu' => 'I placed these tasks in the closest feasible windows',
+            '/\bI placed this\b/iu' => 'I placed these tasks',
+            '/\bI proposed this\b(?!\s+plan)/iu' => 'I proposed this plan',
+            '/\bthis task\b/iu' => 'these tasks',
+            '/\bthis slot\b/iu' => 'this plan',
+        ];
+
+        foreach ($replacements as $pattern => $replacement) {
+            $value = preg_replace($pattern, $replacement, $value) ?? $value;
+        }
+
+        if ($field === 'confirmation') {
+            $value = preg_replace('/\bshift earlier\/later\b/iu', 'shift some of these blocks earlier or later', $value) ?? $value;
+        }
+
+        return trim($value);
+    }
+
+    private function scheduleParagraphsAreTooSimilar(string $left, string $right): bool
+    {
+        $leftNorm = $this->normalizeForDedupe($left);
+        $rightNorm = $this->normalizeForDedupe($right);
+        if ($leftNorm === '' || $rightNorm === '') {
+            return false;
+        }
+
+        return $this->tokenJaccardSimilarity($leftNorm, $rightNorm) >= 0.62;
     }
 
     private function scheduleWindowReasonFromStruct(string $windowMode, string $reasonCode): string

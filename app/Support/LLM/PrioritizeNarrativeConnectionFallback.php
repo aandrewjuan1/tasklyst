@@ -66,7 +66,7 @@ final class PrioritizeNarrativeConnectionFallback
         }
 
         if (preg_match('/\b(what should i do first|what to do first|where (do i|should i) start|what do i start (with)?)\b/u', $m) === 1) {
-            return (string) __('For what to do first, I’d look at the item below—it’s ordered by urgency and your deadlines.');
+            return (string) __('For what to do first, I’d start with the item below—it reflects what’s most time-sensitive in your tasks right now.');
         }
 
         if (preg_match('/\b(top\s+\d+|top tasks?|most urgent|as soon as possible|asap)\b/u', $m) === 1) {

@@ -238,8 +238,16 @@ test('prioritize_schedule schedules tasks only (events present)', function (): v
     $assistantMessage->refresh();
 
     $proposals = $assistantMessage->metadata['schedule']['proposals'] ?? [];
+    $selectionExplanation = $assistantMessage->metadata['schedule']['prioritize_selection_explanation'] ?? null;
     expect($proposals)->toBeArray();
     expect(count($proposals))->toBeGreaterThan(0);
+    expect($selectionExplanation)->toBeArray();
+    expect($selectionExplanation['enabled'] ?? null)->toBeTrue();
+    expect($selectionExplanation['target_mode'] ?? null)->toBe('implicit_ranked');
+    expect($selectionExplanation['selected_count'] ?? 0)->toBe(count($proposals));
+    expect((string) ($assistantMessage->content ?? ''))->toContain('I picked these tasks first because they stood out most clearly in your current priorities before I placed them into time blocks.');
+    expect((string) ($assistantMessage->content ?? ''))->not->toContain('Here are your prioritized items, placed into schedule blocks:');
+    expect((string) ($assistantMessage->content ?? ''))->not->toContain('• #1 ');
 
     $entityTypes = array_values(array_unique(array_filter(array_map(
         static fn (mixed $p): string => is_array($p) ? (string) ($p['entity_type'] ?? '') : '',
@@ -297,12 +305,20 @@ test('prioritize_schedule schedules the top student-first task selection', funct
 
     $assistantMessage->refresh();
     $proposals = $assistantMessage->metadata['schedule']['proposals'] ?? [];
+    $selectionExplanation = $assistantMessage->metadata['schedule']['prioritize_selection_explanation'] ?? null;
 
     expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('prioritize_schedule');
     expect($proposals)->toBeArray();
     expect(count($proposals))->toBeGreaterThan(0);
     expect((string) ($proposals[0]['entity_type'] ?? ''))->toBe('task');
     expect((int) ($proposals[0]['entity_id'] ?? 0))->toBe($academic->id);
+    expect($selectionExplanation)->toBeArray();
+    expect($selectionExplanation['enabled'] ?? null)->toBeTrue();
+    expect($selectionExplanation['selected_count'] ?? null)->toBe(1);
+    expect(is_array($selectionExplanation['ordering_rationale'] ?? null))->toBeTrue();
+    expect((string) ($assistantMessage->content ?? ''))->toContain('I picked this task first because it stood out most clearly in your current priorities before I placed it into a time block.');
+    expect((string) ($assistantMessage->content ?? ''))->not->toContain('Here are your prioritized items, placed into schedule blocks:');
+    expect((string) ($assistantMessage->content ?? ''))->not->toContain('• #1 ');
 });
 
 test('prioritize_schedule with only doing tasks does not schedule and returns doing guidance', function (): void {

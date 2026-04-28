@@ -1351,12 +1351,242 @@ class TaskAssistantMessageFormatterTest extends TestCase
                 'title' => 'Class',
                 'blocked_window' => '6:45 AM-10:15 AM',
             ]],
+            'prioritize_selection_explanation' => [
+                'enabled' => true,
+                'target_mode' => 'implicit_ranked',
+                'selected_count' => 1,
+                'summary' => 'I picked this task first because it stood out most clearly in your current priorities before I placed it into a time block.',
+                'selection_basis' => 'Urgency leads, then explicit priority and earlier deadlines. When tasks are otherwise close, shorter blocks can help break the tie.',
+                'ordering_rationale' => ['#1 Task A: due today and marked high priority.'],
+            ],
         ]);
 
-        $this->assertStringContainsString('Here are your prioritized items, placed into schedule blocks:', $out);
+        $this->assertStringNotContainsString('Here are your prioritized items, placed into schedule blocks:', $out);
         $this->assertStringNotContainsString('Apr 22 to Apr 24', $out);
         $this->assertStringNotContainsString('#1 Task A', $out);
         $this->assertStringNotContainsString('These items are already scheduled', $out);
+    }
+
+    public function test_daily_schedule_prioritize_schedule_renders_selection_explanation_before_scheduled_items(): void
+    {
+        $out = $this->formatter->format('daily_schedule', [
+            'schedule_source' => 'prioritize_schedule',
+            'proposals' => [[
+                'proposal_id' => 'p1',
+                'status' => 'pending',
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'title' => 'Task A',
+                'start_datetime' => '2026-04-23T08:00:00+08:00',
+                'end_datetime' => '2026-04-23T09:00:00+08:00',
+                'duration_minutes' => 60,
+            ]],
+            'items' => [[
+                'title' => 'Task A',
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'start_datetime' => '2026-04-23T08:00:00+08:00',
+                'end_datetime' => '2026-04-23T09:00:00+08:00',
+                'duration_minutes' => 60,
+            ]],
+            'blocks' => [[
+                'start_time' => '08:00',
+                'end_time' => '09:00',
+                'label' => 'Task A',
+            ]],
+            'framing' => 'Here is your plan.',
+            'reasoning' => 'I placed this task into a conflict-free window that fits the rest of your schedule.',
+            'confirmation' => 'Do these times work?',
+            'window_selection_explanation' => 'I used your requested range first.',
+            'ordering_rationale' => ['#1 Task A: placed at Apr 23 8:00 AM as one of the strongest fit windows.'],
+            'blocking_reasons' => [],
+            'prioritize_selection_explanation' => [
+                'enabled' => true,
+                'target_mode' => 'implicit_ranked',
+                'selected_count' => 1,
+                'summary' => 'I picked this task first because it stood out most clearly in your current priorities before I placed it into a time block.',
+                'selection_basis' => 'Urgency leads, then explicit priority and earlier deadlines. When tasks are otherwise close, shorter blocks can help break the tie.',
+                'ordering_rationale' => ['#1 Task A: due today and marked high priority.'],
+            ],
+        ]);
+
+        $posSelection = strpos($out, 'I picked this task first because it stood out most clearly in your current priorities before I placed it into a time block.');
+        $posScheduledRow = strpos($out, '• Task A —');
+        $this->assertNotFalse($posSelection);
+        $this->assertNotFalse($posScheduledRow);
+        $this->assertLessThan($posScheduledRow, $posSelection);
+        $this->assertStringNotContainsString('Here are your prioritized items, placed into schedule blocks:', $out);
+        $this->assertStringNotContainsString('• #1 Task A: due today and marked high priority.', $out);
+    }
+
+    public function test_daily_schedule_prioritize_schedule_does_not_render_selection_explanation_when_absent(): void
+    {
+        $out = $this->formatter->format('daily_schedule', [
+            'schedule_source' => 'prioritize_schedule',
+            'proposals' => [[
+                'proposal_id' => 'p1',
+                'status' => 'pending',
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'title' => 'Task A',
+                'start_datetime' => '2026-04-23T08:00:00+08:00',
+                'end_datetime' => '2026-04-23T09:00:00+08:00',
+                'duration_minutes' => 60,
+            ]],
+            'items' => [[
+                'title' => 'Task A',
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'start_datetime' => '2026-04-23T08:00:00+08:00',
+                'end_datetime' => '2026-04-23T09:00:00+08:00',
+                'duration_minutes' => 60,
+            ]],
+            'blocks' => [[
+                'start_time' => '08:00',
+                'end_time' => '09:00',
+                'label' => 'Task A',
+            ]],
+            'framing' => 'Here is your plan.',
+            'reasoning' => 'I placed this task into a conflict-free window that fits the rest of your schedule.',
+            'confirmation' => 'Do these times work?',
+            'window_selection_explanation' => 'I used your requested range first.',
+            'ordering_rationale' => ['#1 Task A: placed at Apr 23 8:00 AM as one of the strongest fit windows.'],
+            'blocking_reasons' => [],
+        ]);
+
+        $this->assertStringNotContainsString('I picked this task first because it stood out most clearly in your current priorities before I placed it into a time block.', $out);
+        $this->assertStringContainsString('Here are your prioritized items, placed into schedule blocks:', $out);
+    }
+
+    public function test_daily_schedule_multi_item_reasoning_uses_set_level_language(): void
+    {
+        $out = $this->formatter->format('daily_schedule', [
+            'schedule_source' => 'schedule',
+            'proposals' => [
+                [
+                    'proposal_id' => 'p1',
+                    'status' => 'pending',
+                    'entity_type' => 'task',
+                    'entity_id' => 1,
+                    'title' => 'Task A',
+                    'start_datetime' => '2026-04-29T10:15:00+08:00',
+                    'end_datetime' => '2026-04-29T11:15:00+08:00',
+                    'duration_minutes' => 60,
+                ],
+                [
+                    'proposal_id' => 'p2',
+                    'status' => 'pending',
+                    'entity_type' => 'task',
+                    'entity_id' => 2,
+                    'title' => 'Task B',
+                    'start_datetime' => '2026-04-29T13:00:00+08:00',
+                    'end_datetime' => '2026-04-29T14:00:00+08:00',
+                    'duration_minutes' => 60,
+                ],
+            ],
+            'items' => [
+                [
+                    'title' => 'Task A',
+                    'entity_type' => 'task',
+                    'entity_id' => 1,
+                    'start_datetime' => '2026-04-29T10:15:00+08:00',
+                    'end_datetime' => '2026-04-29T11:15:00+08:00',
+                    'duration_minutes' => 60,
+                ],
+                [
+                    'title' => 'Task B',
+                    'entity_type' => 'task',
+                    'entity_id' => 2,
+                    'start_datetime' => '2026-04-29T13:00:00+08:00',
+                    'end_datetime' => '2026-04-29T14:00:00+08:00',
+                    'duration_minutes' => 60,
+                ],
+            ],
+            'blocks' => [
+                ['start_time' => '10:15', 'end_time' => '11:15', 'label' => 'Task A'],
+                ['start_time' => '13:00', 'end_time' => '14:00', 'label' => 'Task B'],
+            ],
+            'framing' => 'I suggested moving this to the next conflict-free slot.',
+            'reasoning' => 'I proposed this at 10:15 AM.',
+            'confirmation' => 'Do these times look workable, or should I shift earlier/later before you confirm?',
+            'window_selection_explanation' => 'I kept this plan aligned with the availability window you asked for.',
+        ]);
+
+        $this->assertStringNotContainsString('moving this to the next conflict-free slot', $out);
+        $this->assertStringNotContainsString('I proposed this at 10:15 AM.', $out);
+        $this->assertStringContainsString('I suggested the next conflict-free slots that fit this plan', $out);
+        $this->assertStringContainsString('I proposed this plan starting at 10:15 AM.', $out);
+        $this->assertStringContainsString('shift some of these blocks earlier or later before you confirm', $out);
+    }
+
+    public function test_daily_schedule_targeted_copy_prefers_requested_horizon_over_inferred_daypart(): void
+    {
+        $out = $this->formatter->format('daily_schedule', [
+            'schedule_source' => 'targeted_schedule',
+            'proposals' => [[
+                'proposal_id' => 'p1',
+                'status' => 'pending',
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'title' => 'Task A',
+                'start_datetime' => '2026-04-28T18:15:00+08:00',
+                'end_datetime' => '2026-04-28T19:15:00+08:00',
+                'duration_minutes' => 60,
+            ]],
+            'items' => [[
+                'title' => 'Task A',
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'start_datetime' => '2026-04-28T18:15:00+08:00',
+                'end_datetime' => '2026-04-28T19:15:00+08:00',
+                'duration_minutes' => 60,
+            ]],
+            'blocks' => [[
+                'start_time' => '18:15',
+                'end_time' => '19:15',
+                'label' => 'Task A',
+            ]],
+            'framing' => 'I scheduled Task A for today at 6:15 PM.',
+            'reasoning' => 'This slot at 6:15 PM gives Task A a focused block that is realistic for the rest of your day.',
+            'confirmation' => 'Do you want to keep Task A at 6:15 PM, or shift it earlier/later?',
+            'window_selection_explanation' => 'I kept this plan aligned with the availability window you asked for.',
+            'requested_horizon_label' => 'today',
+            'requested_window_display_label' => 'today',
+        ]);
+
+        $this->assertStringContainsString('I proposed Task A for today at 6:15 PM.', $out);
+        $this->assertStringNotContainsString('in your evening window', $out);
+    }
+
+    public function test_prioritize_framing_normalization_does_not_leave_dangling_it_is_fragment(): void
+    {
+        $out = $this->formatter->format('prioritize', [
+            'items' => [[
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'title' => 'Task A',
+                'priority' => 'high',
+                'due_phrase' => 'due today',
+                'due_on' => 'Apr 28, 2026',
+                'complexity_label' => 'Complex',
+            ]],
+            'limit_used' => 1,
+            'focus' => [
+                'main_task' => 'Task A',
+                'secondary_tasks' => [],
+            ],
+            'framing' => 'For what to do first, I’d look at the item below—it’s ordered by urgency and your deadlines.',
+            'reasoning' => 'Start with Task A first.',
+            'next_options' => 'If you want, I can schedule this next step.',
+            'next_options_chip_texts' => [
+                'Schedule this next step',
+            ],
+        ]);
+
+        $this->assertStringNotContainsString('it’s .', $out);
+        $this->assertStringNotContainsString('it’s.', $out);
+        $this->assertStringNotContainsString('it’s —', $out);
+        $this->assertStringNotContainsString('it’s –', $out);
     }
 
     public function test_daily_schedule_implicit_shortfall_uses_light_digest_note(): void
