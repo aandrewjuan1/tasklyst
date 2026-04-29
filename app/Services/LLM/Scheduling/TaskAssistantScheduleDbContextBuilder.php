@@ -27,6 +27,7 @@ final class TaskAssistantScheduleDbContextBuilder
     public function __construct(
         private readonly TaskAssistantScheduleContextBuilder $scheduleContextBuilder,
         private readonly SchoolClassBusyIntervalResolver $schoolClassBusyIntervalResolver,
+        private readonly FocusSessionSchedulingSignalsBuilder $focusSignalsBuilder,
     ) {}
 
     /**
@@ -45,6 +46,53 @@ final class TaskAssistantScheduleDbContextBuilder
         $now = CarbonImmutable::now($timezone);
         $today = $now->toDateString();
 
+        $focusSignals = $this->focusSignalsBuilder->buildForUser(
+            user: $user,
+            timezone: $timezone,
+            now: $now,
+        );
+
+        $schedulePreferences = UserSchedulePreferences::normalize($user->schedule_preferences);
+        $overrideThreshold = (float) config('task-assistant.schedule.focus_signals.override_threshold', 0.6);
+
+        $overrideEnergyBiasConfidence = (float) ($focusSignals['energy_bias_confidence'] ?? 0.0);
+        if ($overrideEnergyBiasConfidence >= $overrideThreshold) {
+            $energyBias = data_get($focusSignals, 'schedule_preferences_override.energy_bias');
+            if (is_string($energyBias) && $energyBias !== '') {
+                $currentEnergyBias = strtolower((string) ($schedulePreferences['energy_bias'] ?? 'balanced'));
+                $nextEnergyBias = strtolower($energyBias);
+                $isBalancedInference = $nextEnergyBias === 'balanced';
+                $isUserExplicitBias = in_array($currentEnergyBias, ['morning', 'evening'], true);
+
+                if (! ($isBalancedInference && $isUserExplicitBias)) {
+                    $schedulePreferences['energy_bias'] = $nextEnergyBias;
+                }
+            }
+        }
+
+        $overrideDayBoundsConfidence = (float) ($focusSignals['day_bounds_confidence'] ?? 0.0);
+        if ($overrideDayBoundsConfidence >= $overrideThreshold) {
+            $dayBounds = data_get($focusSignals, 'schedule_preferences_override.day_bounds');
+            if (is_array($dayBounds) && isset($dayBounds['start'], $dayBounds['end'])) {
+                $schedulePreferences['day_bounds'] = [
+                    'start' => (string) ($dayBounds['start'] ?? '08:00'),
+                    'end' => (string) ($dayBounds['end'] ?? '22:00'),
+                ];
+            }
+        }
+
+        $overrideLunchBlockConfidence = (float) ($focusSignals['lunch_block_confidence'] ?? 0.0);
+        if ($overrideLunchBlockConfidence >= $overrideThreshold) {
+            $lunchBlock = data_get($focusSignals, 'schedule_preferences_override.lunch_block');
+            if (is_array($lunchBlock) && isset($lunchBlock['enabled'], $lunchBlock['start'], $lunchBlock['end'])) {
+                $schedulePreferences['lunch_block'] = [
+                    'enabled' => (bool) $lunchBlock['enabled'],
+                    'start' => (string) ($lunchBlock['start'] ?? '12:00'),
+                    'end' => (string) ($lunchBlock['end'] ?? '13:00'),
+                ];
+            }
+        }
+
         // Deterministically resolve placement horizon from the user's message.
         $context = $this->scheduleContextBuilder->build(
             $userMessageContent,
@@ -52,7 +100,7 @@ final class TaskAssistantScheduleDbContextBuilder
                 'timezone' => $timezone,
                 'today' => $today,
                 'now' => $now->toIso8601String(),
-                'schedule_preferences' => is_array($user->schedule_preferences) ? $user->schedule_preferences : [],
+                'schedule_preferences' => $schedulePreferences,
                 'refinement_anchor_date' => is_string($options['refinement_anchor_date'] ?? null)
                     ? (string) $options['refinement_anchor_date']
                     : null,
@@ -109,7 +157,20 @@ final class TaskAssistantScheduleDbContextBuilder
             'school_class_buffer_minutes' => $classBufferMinutes,
             'projects' => $projects,
             'schedule_target_skips' => $scheduleTargetSkips,
-            'schedule_preferences' => is_array($user->schedule_preferences) ? $user->schedule_preferences : [],
+            'schedule_preferences' => $schedulePreferences,
+            'focus_session_signals' => [
+                'energy_bias_confidence' => (float) ($focusSignals['energy_bias_confidence'] ?? 0.0),
+                'day_bounds_confidence' => (float) ($focusSignals['day_bounds_confidence'] ?? 0.0),
+                'lunch_block_confidence' => (float) ($focusSignals['lunch_block_confidence'] ?? 0.0),
+                'work_duration_minutes_predicted' => $focusSignals['work_duration_minutes_predicted'] ?? null,
+                'work_duration_confidence' => (float) ($focusSignals['work_duration_confidence'] ?? 0.0),
+                'gap_minutes_predicted' => $focusSignals['gap_minutes_predicted'] ?? null,
+                'gap_confidence' => (float) ($focusSignals['gap_confidence'] ?? 0.0),
+                'learning_meta' => is_array($focusSignals['learning_meta'] ?? null) ? $focusSignals['learning_meta'] : [],
+            ],
+            'active_focus_session' => is_array($focusSignals['active_focus_session'] ?? null)
+                ? $focusSignals['active_focus_session']
+                : null,
         ];
 
         return [
@@ -258,13 +319,13 @@ final class TaskAssistantScheduleDbContextBuilder
             ->forUser($user->id)
             ->notCancelled()
             ->notCompleted()
-            ->whereNotNull('start_datetime')
+            ->whereNotNull('start_datetime', 'and')
             ->where('start_datetime', '<=', $windowEnd)
             ->where(function (Builder $q) use ($windowStart): void {
                 $q->whereNull('end_datetime')
                     ->orWhere('end_datetime', '>=', $windowStart);
             })
-            ->orderBy('start_datetime');
+            ->orderBy('start_datetime', 'asc');
 
         return $query
             ->limit($eventsLimit)

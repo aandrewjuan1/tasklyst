@@ -354,6 +354,15 @@ it('builds structured schedule explainability records alongside legacy rationale
     $snapshot = [
         'time_window' => ['start' => '18:00', 'end' => '22:00'],
         'schedule_horizon' => ['start_date' => '2026-04-22', 'end_date' => '2026-04-24'],
+        'schedule_preferences' => [
+            'energy_bias' => 'morning',
+            'day_bounds' => ['start' => '09:00', 'end' => '19:30'],
+        ],
+        'focus_session_signals' => [
+            'energy_bias_confidence' => 0.8,
+            'day_bounds_confidence' => 0.8,
+            'learning_meta' => ['work_sessions_count' => 12],
+        ],
     ];
     $context = [];
     $proposals = [[
@@ -376,10 +385,104 @@ it('builds structured schedule explainability records alongside legacy rationale
     expect($result['blocking_section_title'] ?? null)->toBeString();
     expect($result['window_selection_struct'] ?? null)->toBeArray();
     expect($result['window_selection_struct']['reason_code_primary'] ?? null)->toBeString();
+    expect($result['window_selection_struct']['focus_history_applied'] ?? null)->toBeBool();
     expect($result['ordering_rationale_struct'] ?? null)->toBeArray();
     expect($result['ordering_rationale_struct'][0]['fit_reason_code'] ?? null)->toBeString();
     expect($result['blocking_reasons_struct'] ?? null)->toBeArray();
     expect($result['blocking_reasons_struct'][0]['block_reason_code'] ?? null)->toBeString();
+    expect($result['focus_history_window_struct'] ?? null)->toBeArray();
+});
+
+it('adds focus-history window explanation when confidence meets threshold', function (): void {
+    $generator = app(TaskAssistantStructuredFlowGenerator::class);
+    $method = new ReflectionMethod(TaskAssistantStructuredFlowGenerator::class, 'buildScheduleExplainability');
+    $method->setAccessible(true);
+
+    $snapshot = [
+        'time_window' => ['start' => '18:00', 'end' => '22:00'],
+        'schedule_horizon' => ['start_date' => '2026-04-22', 'end_date' => '2026-04-24'],
+        'schedule_preferences' => [
+            'energy_bias' => 'morning',
+            'day_bounds' => ['start' => '09:00', 'end' => '19:30'],
+        ],
+        'focus_session_signals' => [
+            'energy_bias_confidence' => 0.9,
+            'day_bounds_confidence' => 0.9,
+            'gap_minutes_predicted' => 20,
+            'gap_confidence' => 0.9,
+            'learning_meta' => ['work_sessions_count' => 15, 'gap_samples_used' => 10],
+        ],
+    ];
+
+    $result = $method->invoke($generator, $snapshot, [], [], ['unplaced_units' => []], []);
+
+    expect((string) ($result['focus_history_window_explanation'] ?? ''))->toContain('Based on your recent focus-session history');
+    expect((bool) data_get($result, 'focus_history_window_struct.applied', false))->toBeTrue();
+    expect(data_get($result, 'focus_history_window_struct.signals', []))->not->toBe([]);
+    expect((bool) data_get($result, 'window_selection_struct.focus_history_applied', false))->toBeTrue();
+});
+
+it('does not add focus-history window explanation when confidence is below threshold', function (): void {
+    $generator = app(TaskAssistantStructuredFlowGenerator::class);
+    $method = new ReflectionMethod(TaskAssistantStructuredFlowGenerator::class, 'buildScheduleExplainability');
+    $method->setAccessible(true);
+
+    $snapshot = [
+        'time_window' => ['start' => '18:00', 'end' => '22:00'],
+        'schedule_horizon' => ['start_date' => '2026-04-22', 'end_date' => '2026-04-24'],
+        'schedule_preferences' => [
+            'energy_bias' => 'morning',
+            'day_bounds' => ['start' => '09:00', 'end' => '19:30'],
+        ],
+        'focus_session_signals' => [
+            'energy_bias_confidence' => 0.4,
+            'day_bounds_confidence' => 0.4,
+            'gap_minutes_predicted' => 20,
+            'gap_confidence' => 0.4,
+            'learning_meta' => ['work_sessions_count' => 4],
+        ],
+    ];
+
+    $result = $method->invoke($generator, $snapshot, [], [], ['unplaced_units' => []], []);
+
+    expect($result['focus_history_window_explanation'] ?? null)->toBeNull();
+    expect((bool) data_get($result, 'focus_history_window_struct.applied', true))->toBeFalse();
+    expect((bool) data_get($result, 'window_selection_struct.focus_history_applied', true))->toBeFalse();
+});
+
+it('threads focus-history explanation into deterministic narrative metadata', function (): void {
+    $generator = app(TaskAssistantStructuredFlowGenerator::class);
+    $method = new ReflectionMethod(TaskAssistantStructuredFlowGenerator::class, 'buildDeterministicNarrative');
+    $method->setAccessible(true);
+
+    $narrative = $method->invoke(
+        $generator,
+        'schedule',
+        [],
+        ['today' => '2026-04-22'],
+        [
+            'requested_window_display_label' => '6:00 PM-10:00 PM',
+            'has_explicit_clock_time' => true,
+            'blocking_reasons' => [],
+            'all_day_overlap_note' => '',
+            'all_day_overlaps' => [],
+            'focus_history_window_explanation' => 'Based on your recent focus-session history, I leaned toward this timing because your recent focus sessions trend toward morning productivity.',
+            'focus_history_window_struct' => [
+                'applied' => true,
+                'signals' => [['signal' => 'energy_bias', 'confidence' => 0.9]],
+            ],
+        ],
+        ['confirmation_signals' => ['triggers' => []], 'requested_count' => 1, 'unplaced_units' => [], 'days_used' => []],
+        [[
+            'title' => 'Practice coding interview problems',
+            'start_datetime' => '2026-04-22T18:00:00+00:00',
+        ]],
+        []
+    );
+
+    expect((string) ($narrative['reasoning'] ?? ''))->toContain('Based on your recent focus-session history');
+    expect((string) data_get($narrative, 'explanation_meta.focus_history_window_explanation', ''))->toContain('Based on your recent focus-session history');
+    expect((bool) data_get($narrative, 'explanation_meta.focus_history_window_struct.applied', false))->toBeTrue();
 });
 
 it('uses explicit task datetime ranges for unplaced blocker rows', function (): void {
@@ -1332,7 +1435,7 @@ it('orders scheduling candidates by prioritizeFocus ranking', function (): void 
     $snapshot = [
         'timezone' => 'UTC',
         'today' => '2026-03-30',
-        'time_window' => ['start' => '00:00', 'end' => '23:59:59'],
+        'time_window' => ['start' => '12:00', 'end' => '23:59:59'],
         'schedule_horizon' => [
             'mode' => 'single_day',
             'start_date' => '2026-03-30',
@@ -1413,7 +1516,7 @@ it('uses one-hour gap for implicit plain later defaults (no trailing gap after c
     $snapshot = [
         'timezone' => 'UTC',
         'today' => '2026-03-30',
-        'time_window' => ['start' => '00:00', 'end' => '23:59:59'],
+        'time_window' => ['start' => '12:00', 'end' => '23:59:59'],
         'schedule_horizon' => [
             'mode' => 'single_day',
             'start_date' => '2026-03-30',
@@ -1479,6 +1582,186 @@ it('uses one-hour gap for implicit plain later defaults (no trailing gap after c
     $end1 = new DateTimeImmutable((string) ($proposals[1]['end_datetime'] ?? ''));
     $start2 = new DateTimeImmutable((string) ($proposals[2]['start_datetime'] ?? ''));
     expect($start2 >= $end1)->toBeTrue();
+});
+
+it('uses learned gap minutes for implicit plain later defaults when confidence is high', function (): void {
+    config([
+        'task-assistant.schedule.max_horizon_days' => 3,
+    ]);
+
+    $generator = app(TaskAssistantStructuredFlowGenerator::class);
+    $method = new ReflectionMethod(TaskAssistantStructuredFlowGenerator::class, 'generateProposalsChunkedSpill');
+    $method->setAccessible(true);
+
+    $snapshot = [
+        'timezone' => 'UTC',
+        'today' => '2026-03-30',
+        'time_window' => ['start' => '12:00', 'end' => '23:59:59'],
+        'schedule_horizon' => [
+            'mode' => 'single_day',
+            'start_date' => '2026-03-30',
+            'end_date' => '2026-03-30',
+            'label' => 'default_today',
+        ],
+        'focus_session_signals' => [
+            'gap_minutes_predicted' => 20,
+            'gap_confidence' => 0.9,
+        ],
+        'tasks' => [
+            [
+                'id' => 1,
+                'title' => 'Task A',
+                'priority' => 'medium',
+                'duration_minutes' => 60,
+                'ends_at' => null,
+                'is_recurring' => false,
+            ],
+            [
+                'id' => 2,
+                'title' => 'Task B',
+                'priority' => 'medium',
+                'duration_minutes' => 60,
+                'ends_at' => null,
+                'is_recurring' => false,
+            ],
+            [
+                'id' => 3,
+                'title' => 'Task C',
+                'priority' => 'medium',
+                'duration_minutes' => 60,
+                'ends_at' => null,
+                'is_recurring' => false,
+            ],
+        ],
+        'events' => [],
+        'events_for_busy' => [],
+        'projects' => [],
+    ];
+
+    $context = [
+        'schedule_horizon' => $snapshot['schedule_horizon'],
+        'has_explicit_clock_time' => false,
+        'schedule_intent_flags' => [
+            'is_plain_later_default' => true,
+        ],
+    ];
+
+    /** @var array{0: array<int, array<string, mixed>>, 1: array<string, mixed>} $out */
+    $out = $method->invoke($generator, $snapshot, $context, 3);
+
+    $proposals = $out[0];
+    expect(count($proposals))->toBe(3);
+
+    usort($proposals, static function (array $a, array $b): int {
+        return strcmp((string) ($a['start_datetime'] ?? ''), (string) ($b['start_datetime'] ?? ''));
+    });
+
+    $end0 = new DateTimeImmutable((string) ($proposals[0]['end_datetime'] ?? ''));
+    $start1 = new DateTimeImmutable((string) ($proposals[1]['start_datetime'] ?? ''));
+    $gapSeconds = $start1->getTimestamp() - $end0->getTimestamp();
+    expect($gapSeconds)->toBe(20 * 60);
+});
+
+it('anchors first proposal start after active focus session projected end', function (): void {
+    config([
+        'task-assistant.schedule.max_horizon_days' => 3,
+        'task-assistant.schedule.implicit_later_prep_minutes' => 0,
+        'task-assistant.schedule.implicit_later_rounding_minutes' => 1,
+    ]);
+
+    $generator = app(TaskAssistantStructuredFlowGenerator::class);
+    $method = new ReflectionMethod(TaskAssistantStructuredFlowGenerator::class, 'generateProposalsChunkedSpill');
+    $method->setAccessible(true);
+
+    $snapshot = [
+        'timezone' => 'UTC',
+        'today' => '2026-03-30',
+        'now' => '2026-03-30T08:00:00+00:00',
+        'active_focus_session' => [
+            'projected_end_at_iso' => '2026-03-30T09:00:00+00:00',
+        ],
+        'time_window' => ['start' => '00:00', 'end' => '23:59:59'],
+        'schedule_horizon' => [
+            'mode' => 'single_day',
+            'start_date' => '2026-03-30',
+            'end_date' => '2026-03-30',
+            'label' => 'default_today',
+        ],
+        'tasks' => [
+            ['id' => 1, 'title' => 'Task A', 'priority' => 'medium', 'duration_minutes' => 60, 'ends_at' => null, 'is_recurring' => false],
+        ],
+        'events' => [],
+        'events_for_busy' => [],
+        'projects' => [],
+    ];
+
+    $context = [
+        'schedule_horizon' => $snapshot['schedule_horizon'],
+        'has_explicit_clock_time' => false,
+        'schedule_intent_flags' => [
+            'is_plain_later_default' => true,
+        ],
+    ];
+
+    /** @var array{0: array<int, array<string, mixed>>, 1: array<string, mixed>} $out */
+    $out = $method->invoke($generator, $snapshot, $context, 1);
+
+    $proposals = $out[0];
+    expect(count($proposals))->toBe(1);
+
+    $proposalStart = new DateTimeImmutable((string) ($proposals[0]['start_datetime'] ?? ''));
+    $projectedEnd = new DateTimeImmutable((string) ($snapshot['active_focus_session']['projected_end_at_iso'] ?? ''));
+    expect($proposalStart >= $projectedEnd)->toBeTrue();
+});
+
+it('uses learned work duration for tasks with default-like duration when confidence is high', function (): void {
+    config([
+        'task-assistant.schedule.max_horizon_days' => 3,
+    ]);
+
+    $generator = app(TaskAssistantStructuredFlowGenerator::class);
+    $method = new ReflectionMethod(TaskAssistantStructuredFlowGenerator::class, 'generateProposalsChunkedSpill');
+    $method->setAccessible(true);
+
+    $snapshot = [
+        'timezone' => 'UTC',
+        'today' => '2026-03-30',
+        'time_window' => ['start' => '00:00', 'end' => '23:59:59'],
+        'schedule_horizon' => [
+            'mode' => 'single_day',
+            'start_date' => '2026-03-30',
+            'end_date' => '2026-03-30',
+            'label' => 'default_today',
+        ],
+        'focus_session_signals' => [
+            'work_duration_minutes_predicted' => 45,
+            'work_duration_confidence' => 0.9,
+        ],
+        'tasks' => [
+            ['id' => 1, 'title' => 'Task A', 'priority' => 'medium', 'duration_minutes' => 0, 'ends_at' => null, 'is_recurring' => false],
+        ],
+        'events' => [],
+        'events_for_busy' => [],
+        'projects' => [],
+    ];
+
+    $context = [
+        'schedule_horizon' => $snapshot['schedule_horizon'],
+        'has_explicit_clock_time' => true,
+        'schedule_intent_flags' => [
+            'is_plain_later_default' => false,
+        ],
+    ];
+
+    /** @var array{0: array<int, array<string, mixed>>, 1: array<string, mixed>} $out */
+    $out = $method->invoke($generator, $snapshot, $context, 1);
+
+    $proposals = $out[0];
+    expect(count($proposals))->toBe(1);
+
+    $start = new DateTimeImmutable((string) ($proposals[0]['start_datetime'] ?? ''));
+    $end = new DateTimeImmutable((string) ($proposals[0]['end_datetime'] ?? ''));
+    expect($end->getTimestamp() - $start->getTimestamp())->toBe(45 * 60);
 });
 
 it('keeps tighter non-hour gaps for explicit-time scheduling requests', function (): void {

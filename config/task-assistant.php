@@ -187,6 +187,24 @@ return [
          */
         'school_class_buffer_minutes' => (int) env('TASK_ASSISTANT_SCHOOL_CLASS_BUFFER_MINUTES', 15),
         /**
+         * Learned scheduling signals from historical focus sessions.
+         */
+        'focus_signals' => [
+            // Minimum confidence required before learned signals override preferences/defaults.
+            'override_threshold' => (float) env('TASK_ASSISTANT_SCHEDULE_FOCUS_OVERRIDE_THRESHOLD', 0.6),
+            // Lookback window for completed sessions used in signal learning.
+            'lookback_days' => (int) env('TASK_ASSISTANT_SCHEDULE_FOCUS_LOOKBACK_DAYS', 30),
+            'min_work_sessions_energy' => (int) env('TASK_ASSISTANT_SCHEDULE_FOCUS_MIN_WORK_SESSIONS_ENERGY', 8),
+            'min_work_sessions_duration' => (int) env('TASK_ASSISTANT_SCHEDULE_FOCUS_MIN_WORK_SESSIONS_DURATION', 6),
+            'min_work_sessions_day_bounds' => (int) env('TASK_ASSISTANT_SCHEDULE_FOCUS_MIN_WORK_SESSIONS_DAY_BOUNDS', 10),
+            'fallback_work_duration_minutes' => (int) env('TASK_ASSISTANT_SCHEDULE_FOCUS_FALLBACK_WORK_DURATION_MINUTES', 60),
+            'min_day_bounds_span_minutes' => (int) env('TASK_ASSISTANT_SCHEDULE_FOCUS_MIN_DAY_BOUNDS_SPAN_MINUTES', 8 * 60),
+            'min_break_sessions_lunch' => (int) env('TASK_ASSISTANT_SCHEDULE_FOCUS_MIN_BREAK_SESSIONS_LUNCH', 5),
+            'min_work_gaps' => (int) env('TASK_ASSISTANT_SCHEDULE_FOCUS_MIN_WORK_GAPS', 5),
+            // If an active session has no declared duration, keep a small forward guard.
+            'active_session_fallback_minutes' => (int) env('TASK_ASSISTANT_SCHEDULE_ACTIVE_SESSION_FALLBACK_MINUTES', 25),
+        ],
+        /**
          * Fallback duration for timed events missing an explicit end datetime.
          */
         'event_fallback_duration_minutes' => (int) env('TASK_ASSISTANT_SCHEDULE_EVENT_FALLBACK_DURATION_MINUTES', 60),
