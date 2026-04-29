@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Event;
+use App\Models\FocusSession;
 use App\Models\Project;
 use App\Models\RecurringSchoolClass;
 use App\Models\RecurringTask;
@@ -21,10 +22,12 @@ it('seeds the exact andrew dataset snapshot', function () {
     expect($user->name)->toBe('ANDREW JUAN')
         ->and(Project::query()->where('user_id', $user->id)->count())->toBe(0)
         ->and(Event::query()->where('user_id', $user->id)->count())->toBe(4)
-        ->and(Task::query()->withTrashed()->where('user_id', $user->id)->count())->toBe(26)
-        ->and(Task::query()->where('user_id', $user->id)->count())->toBe(25)
+        ->and(Task::query()->withTrashed()->where('user_id', $user->id)->count())->toBe(32)
+        ->and(Task::query()->where('user_id', $user->id)->count())->toBe(31)
         ->and(SchoolClass::query()->where('user_id', $user->id)->count())->toBe(2)
-        ->and(Teacher::query()->where('user_id', $user->id)->count())->toBe(4);
+        ->and(Teacher::query()->where('user_id', $user->id)->count())->toBe(4)
+        ->and(Task::query()->where('user_id', $user->id)->where('status', 'done')->count())->toBe(6)
+        ->and(FocusSession::query()->where('user_id', $user->id)->count())->toBe(18);
 
     $electiveClass = SchoolClass::query()
         ->where('user_id', $user->id)
@@ -66,10 +69,47 @@ it('seeds the exact andrew dataset snapshot', function () {
 
     $recurringTask = RecurringTask::query()->where('task_id', $dailyRunTask->id)->firstOrFail();
     $recurringStudy = RecurringTask::query()->where('task_id', $recurringStudyTask->id)->firstOrFail();
+    $completedTask = Task::query()->where('user_id', $user->id)->where('source_id', 'history-completed-api-refactor')->firstOrFail();
+    $completedTaskFocusSessions = FocusSession::query()
+        ->where('user_id', $user->id)
+        ->where('focusable_type', $completedTask->getMorphClass())
+        ->where('focusable_id', $completedTask->id)
+        ->orderBy('started_at')
+        ->get();
+    $workSessions = FocusSession::query()
+        ->where('user_id', $user->id)
+        ->where('type', 'work')
+        ->where('completed', true)
+        ->get();
+
+    $hourBuckets = $workSessions->reduce(
+        function (array $carry, FocusSession $session): array {
+            $hour = (int) $session->started_at?->format('H');
+            if ($hour >= 8 && $hour <= 13) {
+                $carry['morning']++;
+            } elseif ($hour >= 14 && $hour <= 17) {
+                $carry['afternoon']++;
+            } elseif ($hour >= 18 && $hour <= 22) {
+                $carry['evening']++;
+            }
+
+            return $carry;
+        },
+        ['morning' => 0, 'afternoon' => 0, 'evening' => 0]
+    );
 
     expect($recurringTask->recurrence_type?->value)->toBe('daily')
         ->and($recurringTask->interval)->toBe(1)
         ->and(RecurringTask::query()->count())->toBe(7)
         ->and($recurringStudy->recurrence_type?->value)->toBe('weekly')
-        ->and($recurringStudy->days_of_week)->toBe('[6]');
+        ->and($recurringStudy->days_of_week)->toBe('[6]')
+        ->and($completedTask->status?->value)->toBe('done')
+        ->and($completedTask->completed_at)->not->toBeNull()
+        ->and($completedTaskFocusSessions->count())->toBeGreaterThan(0)
+        ->and($workSessions->count())->toBe(12)
+        ->and($hourBuckets['morning'])->toBeGreaterThan(0)
+        ->and($hourBuckets['afternoon'])->toBeGreaterThan(0)
+        ->and($hourBuckets['evening'])->toBeGreaterThan(0)
+        ->and($hourBuckets['afternoon'])->toBeGreaterThanOrEqual(3)
+        ->and($hourBuckets['evening'])->toBeGreaterThan($hourBuckets['morning']);
 });
