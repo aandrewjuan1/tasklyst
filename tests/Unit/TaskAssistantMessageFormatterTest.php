@@ -1251,8 +1251,8 @@ class TaskAssistantMessageFormatterTest extends TestCase
         ]);
 
         $this->assertStringNotContainsString('Why this plan:', $out);
-        $this->assertStringContainsString('I used your morning window first.', $out);
-        $this->assertStringContainsString('Also, I kept this as the closest feasible fit.', $out);
+        $this->assertStringNotContainsString('I used your morning window first.', $out);
+        $this->assertStringContainsString('I kept this as the closest feasible fit.', $out);
         $this->assertStringNotContainsString('• I used your morning window first.', $out);
         $this->assertStringNotContainsString('• I kept this as the closest feasible fit.', $out);
         $this->assertStringNotContainsString('These items are already scheduled for tomorrow:', $out);
@@ -1309,7 +1309,7 @@ class TaskAssistantMessageFormatterTest extends TestCase
         ]);
 
         $this->assertStringNotContainsString('Why this plan:', $out);
-        $this->assertStringContainsString('I kept this plan aligned with the availability window you asked for.', $out);
+        $this->assertStringNotContainsString('I kept this plan aligned with the availability window you asked for.', $out);
         $this->assertStringNotContainsString('These items are already scheduled in your requested window:', $out);
         $this->assertStringNotContainsString('Chemistry lab (9:30 AM-11:00 AM)', $out);
         $this->assertStringNotContainsString('placed in the strongest fit window', $out);

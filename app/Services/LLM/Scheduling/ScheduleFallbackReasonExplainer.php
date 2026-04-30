@@ -16,6 +16,7 @@ final class ScheduleFallbackReasonExplainer
             : [];
         $requestedWindow = is_array($scheduleData['requested_window'] ?? null) ? $scheduleData['requested_window'] : [];
         $unplacedUnits = is_array($digest['unplaced_units'] ?? null) ? $digest['unplaced_units'] : [];
+        $candidateUnitsCount = max(0, (int) ($digest['candidate_units_count'] ?? 0));
 
         $reasonFamilies = [];
 
@@ -33,7 +34,9 @@ final class ScheduleFallbackReasonExplainer
 
         $hasCalendarConflicts = in_array('empty_placement', $triggers, true) || in_array('unplaced_units', $triggers, true);
         if ($hasCalendarConflicts) {
-            $reasonFamilies['calendar_conflict'] = 'Your current classes and events leave no open block that fits this request right now.';
+            $reasonFamilies['calendar_conflict'] = $candidateUnitsCount === 0
+                ? 'I could not build a schedulable work block for this task with the current setup yet.'
+                : 'Your current classes and events leave no open block that fits this request right now.';
         }
 
         $hasDurationMismatch = $this->hasDurationMismatch($unplacedUnits);

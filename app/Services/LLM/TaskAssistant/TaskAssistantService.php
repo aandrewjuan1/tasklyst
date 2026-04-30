@@ -3047,6 +3047,7 @@ final class TaskAssistantService
         $attemptedHorizon = $this->attemptedHorizonDescriptorFromScheduleData($scheduleData);
         $fallbackHorizon = $this->fallbackHorizonDescriptorFromScheduleData($scheduleData);
         $reasonDetails = $this->scheduleFallbackReasonExplainer->summarize($scheduleData, $plan->timeWindowHint);
+        $candidateUnitsCount = max(0, (int) ($digest['candidate_units_count'] ?? 0));
 
         $signals = is_array($digest['confirmation_signals'] ?? null) ? $digest['confirmation_signals'] : [];
         $triggers = is_array($signals['triggers'] ?? null) ? $signals['triggers'] : [];
@@ -3095,7 +3096,9 @@ final class TaskAssistantService
             ];
         } elseif (in_array('empty_placement', $triggers, true)) {
             $reasonCode = 'empty_placement_no_fit';
-            $reasonMessage = "I could not find open time that fits {$requestedWindowLabel} with your classes and events as they are.";
+            $reasonMessage = $candidateUnitsCount === 0
+                ? "I could not build a schedulable work block for this request in {$requestedWindowLabel} with the current task setup."
+                : "I could not find open time that fits {$requestedWindowLabel} with your classes and events as they are.";
             $prompt = $hasNearestWindow
                 ? "I can try {$nearestPromptLabel}, or widen your time window. What would you prefer?"
                 : 'I can try the closest available window, or widen your time window. What would you prefer?';
@@ -3765,7 +3768,7 @@ final class TaskAssistantService
             return true;
         }
 
-        $windowChangeDetected = $this->isLikelyScheduleWindowChangeRequest($userMessageContent);
+        $windowChangeDetected = $this->isLikelyScheduleWindowChangeRequest($userMessageContent, $pendingState);
         $replanDetected = $this->isLikelyScheduleReplanRequest($userMessageContent, $pendingState);
         $freshPrioritizeDetected = $this->isLikelyFreshPrioritizeRequest($userMessageContent);
         if ($windowChangeDetected || $replanDetected || $freshPrioritizeDetected) {
@@ -4185,10 +4188,17 @@ final class TaskAssistantService
         return $actionId !== '' ? $actionId : null;
     }
 
-    private function isLikelyScheduleWindowChangeRequest(string $content): bool
+    /**
+     * @param  array{schedule_data?: array<string, mixed>}  $pendingState
+     */
+    private function isLikelyScheduleWindowChangeRequest(string $content, array $pendingState = []): bool
     {
         $normalized = mb_strtolower(trim(preg_replace('/\s+/u', ' ', $content) ?? $content));
         if ($normalized === '') {
+            return false;
+        }
+
+        if ($this->isLikelyFreshTargetedSchedulePrompt($normalized, $pendingState)) {
             return false;
         }
 
@@ -4201,6 +4211,55 @@ final class TaskAssistantService
             || ($hasScheduleAction && $hasWindowNoun)
             || ($hasWindowVerb && $hasClockAnchor)
             || ($hasScheduleAction && $hasClockAnchor);
+    }
+
+    /**
+     * @param  array{schedule_data?: array<string, mixed>}  $pendingState
+     */
+    private function isLikelyFreshTargetedSchedulePrompt(string $normalized, array $pendingState = []): bool
+    {
+        $hasScheduleStart = preg_match('/^(?:please\s+)?(?:can you\s+)?(?:help me\s+)?(?:re)?schedule\b/u', $normalized) === 1;
+        if (! $hasScheduleStart) {
+            return false;
+        }
+
+        $hasExplicitWindowEditVerb = preg_match('/\b(adjust|change|move|switch|update|widen|expand|shift|set|retry|replan)\b/u', $normalized) === 1;
+        if ($hasExplicitWindowEditVerb) {
+            return false;
+        }
+
+        $pendingData = is_array($pendingState['schedule_data'] ?? null) ? $pendingState['schedule_data'] : [];
+        $pendingProposals = is_array($pendingData['proposals'] ?? null) ? $pendingData['proposals'] : [];
+        if ($pendingProposals === []) {
+            return false;
+        }
+
+        $targetedTitleHints = [];
+        foreach ($pendingProposals as $proposal) {
+            if (! is_array($proposal)) {
+                continue;
+            }
+            $title = trim((string) ($proposal['title'] ?? ''));
+            if ($title === '') {
+                continue;
+            }
+
+            $normalizedTitle = mb_strtolower(trim(preg_replace('/\s+/u', ' ', $title) ?? $title));
+            if ($normalizedTitle !== '') {
+                $targetedTitleHints[] = $normalizedTitle;
+            }
+        }
+        if ($targetedTitleHints === []) {
+            return false;
+        }
+
+        foreach ($targetedTitleHints as $titleHint) {
+            if (str_contains($normalized, $titleHint)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -4879,7 +4938,7 @@ final class TaskAssistantService
             explicitTaskTargets: $explicitTaskTargets,
             countLimit: $plan->countLimit,
         );
-        $prioritizeSelectionMode = $explicitTaskTargets === []
+        $prioritizeSelectionMode = $this->shouldUseImplicitPrioritizeSelectionMode($content, $plan)
             ? 'implicit_ranked'
             : 'explicit_targets';
 
@@ -4974,6 +5033,33 @@ final class TaskAssistantService
             flow: 'prioritize_schedule',
             execution: $execution
         );
+    }
+
+    private function shouldUseImplicitPrioritizeSelectionMode(string $content, ExecutionPlan $plan): bool
+    {
+        $namedResolution = is_array($plan->constraints['named_task_resolution'] ?? null)
+            ? $plan->constraints['named_task_resolution']
+            : [];
+        $namedStatus = trim((string) ($namedResolution['status'] ?? 'none'));
+        if (in_array($namedStatus, ['single', 'multi', 'partial'], true)) {
+            return false;
+        }
+
+        $normalized = mb_strtolower(trim(preg_replace('/\s+/u', ' ', $content) ?? $content));
+        if ($normalized === '') {
+            return $plan->targetEntities === [];
+        }
+
+        $hasDirectTargetReference = preg_match(
+            '/\b(it|this|that|them|those|the\s+above|first\s+one|second\s+one|third\s+one|last|\d+(?:st|nd|rd|th)|item\s*#?\d+|task\s*#?\d+)\b/u',
+            $normalized
+        ) === 1;
+
+        if ($hasDirectTargetReference && $plan->targetEntities !== []) {
+            return false;
+        }
+
+        return true;
     }
 
     private function logRoutingDecision(TaskAssistantThread $thread, TaskAssistantMessage $assistantMessage, ExecutionPlan $plan): void

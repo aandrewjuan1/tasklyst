@@ -698,12 +698,9 @@ final class TaskAssistantStructuredFlowGenerator
 
         $windowSelectionExplanation = ($meaningfulWindow && $hasExplicitClockTime)
             ? 'I prioritized slots between '.$this->formatClockLabel($windowStart).' and '.$this->formatClockLabel($windowEnd).' so this plan fits the time window you asked for.'
-            : 'I prioritized conflict-free windows in your requested time frame so this stays realistic.';
-        if ($isPlacementMultiDay && $horizonStart !== '' && $horizonEnd !== '' && $horizonStart !== $horizonEnd) {
+            : '';
+        if ($windowSelectionExplanation !== '' && $isPlacementMultiDay && $horizonStart !== '' && $horizonEnd !== '' && $horizonStart !== $horizonEnd) {
             $windowSelectionExplanation .= " I spread placements across {$horizonStart} to {$horizonEnd} when needed.";
-        }
-        if ($focusHistoryWindowExplanation !== '') {
-            $windowSelectionExplanation .= ' '.$focusHistoryWindowExplanation;
         }
 
         $orderingRationale = [];
@@ -4211,8 +4208,8 @@ final class TaskAssistantStructuredFlowGenerator
         $focusHistoryWindowExplanation = trim((string) ($scheduleExplainability['focus_history_window_explanation'] ?? ''));
         if ($focusHistoryWindowExplanation !== '') {
             $reasoning = trim((string) ($narrative['reasoning'] ?? ''));
-            if ($reasoning !== '' && ! str_contains($reasoning, $focusHistoryWindowExplanation)) {
-                $narrative['reasoning'] = $reasoning.' '.$focusHistoryWindowExplanation;
+            if ($reasoning !== '') {
+                $narrative['reasoning'] = $this->appendSentenceIfMissing($reasoning, $focusHistoryWindowExplanation);
             }
 
             $explanationMeta = is_array($narrative['explanation_meta'] ?? null) ? $narrative['explanation_meta'] : [];
@@ -4224,6 +4221,33 @@ final class TaskAssistantStructuredFlowGenerator
         }
 
         return $narrative;
+    }
+
+    private function appendSentenceIfMissing(string $base, string $sentence): string
+    {
+        $baseTrimmed = trim($base);
+        $sentenceTrimmed = trim($sentence);
+        if ($baseTrimmed === '' || $sentenceTrimmed === '') {
+            return $baseTrimmed;
+        }
+
+        $normalizedBase = $this->normalizeNarrativeTextForDedupe($baseTrimmed);
+        $normalizedSentence = $this->normalizeNarrativeTextForDedupe($sentenceTrimmed);
+        if ($normalizedSentence !== '' && str_contains($normalizedBase, $normalizedSentence)) {
+            return $baseTrimmed;
+        }
+
+        return $baseTrimmed.' '.$sentenceTrimmed;
+    }
+
+    private function normalizeNarrativeTextForDedupe(string $text): string
+    {
+        $normalized = mb_strtolower(trim($text));
+        $normalized = preg_replace('/\s+/u', ' ', $normalized) ?? $normalized;
+        $normalized = preg_replace('/[[:punct:]]+/u', ' ', $normalized) ?? $normalized;
+        $normalized = preg_replace('/\s+/u', ' ', $normalized) ?? $normalized;
+
+        return trim($normalized);
     }
 
     /**

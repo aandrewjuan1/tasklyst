@@ -417,6 +417,7 @@ it('adds focus-history window explanation when confidence meets threshold', func
     $result = $method->invoke($generator, $snapshot, [], [], ['unplaced_units' => []], []);
 
     expect((string) ($result['focus_history_window_explanation'] ?? ''))->toContain('Based on your recent focus-session history');
+    expect((string) ($result['window_selection_explanation'] ?? ''))->not->toContain('Based on your recent focus-session history');
     expect((bool) data_get($result, 'focus_history_window_struct.applied', false))->toBeTrue();
     expect(data_get($result, 'focus_history_window_struct.signals', []))->not->toBe([]);
     expect((bool) data_get($result, 'window_selection_struct.focus_history_applied', false))->toBeTrue();
@@ -483,6 +484,18 @@ it('threads focus-history explanation into deterministic narrative metadata', fu
     expect((string) ($narrative['reasoning'] ?? ''))->toContain('Based on your recent focus-session history');
     expect((string) data_get($narrative, 'explanation_meta.focus_history_window_explanation', ''))->toContain('Based on your recent focus-session history');
     expect((bool) data_get($narrative, 'explanation_meta.focus_history_window_struct.applied', false))->toBeTrue();
+});
+
+it('does not duplicate focus-history explanation when punctuation and case differ', function (): void {
+    $generator = app(TaskAssistantStructuredFlowGenerator::class);
+    $method = new ReflectionMethod(TaskAssistantStructuredFlowGenerator::class, 'appendSentenceIfMissing');
+    $method->setAccessible(true);
+
+    $focusLine = 'Based on your recent focus-session history, I leaned toward this timing because your recent focus window clusters around 10:20-20:25 (from 12 recent focus sessions).';
+    $existingReasoning = 'This slot fits your day. based on your recent focus session history i leaned toward this timing because your recent focus window clusters around 10 20 20 25 from 12 recent focus sessions';
+    $merged = $method->invoke($generator, $existingReasoning, $focusLine);
+
+    expect(substr_count(mb_strtolower((string) $merged), 'based on your recent focus'))->toBe(1);
 });
 
 it('uses explicit task datetime ranges for unplaced blocker rows', function (): void {

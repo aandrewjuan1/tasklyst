@@ -754,8 +754,9 @@ final class TaskAssistantMessageFormatter
         if ($digestNote !== '') {
             $paragraphs[] = $digestNote;
         }
-        $windowSelectionExplanation = $this->humanizeIsoDateRanges(trim((string) ($data['window_selection_explanation'] ?? '')));
+        $windowSelectionExplanation = '';
         $windowSelectionStruct = is_array($data['window_selection_struct'] ?? null) ? $data['window_selection_struct'] : [];
+        $suppressWindowSelectionParagraph = true;
         $orderingRationale = is_array($data['ordering_rationale'] ?? null) ? $data['ordering_rationale'] : [];
         $orderingRationaleStruct = is_array($data['ordering_rationale_struct'] ?? null) ? $data['ordering_rationale_struct'] : [];
         $blockingReasons = is_array($data['blocking_reasons'] ?? null) ? $data['blocking_reasons'] : [];
@@ -767,15 +768,7 @@ final class TaskAssistantMessageFormatter
         $suggestedNextSteps = is_array($data['suggested_next_steps'] ?? null) ? $data['suggested_next_steps'] : [];
         $assumptions = is_array($data['assumptions'] ?? null) ? $data['assumptions'] : [];
         $whyPlanLines = [];
-        if ($windowSelectionExplanation !== '') {
-            $whyPlanLines[] = $windowSelectionExplanation;
-        } elseif ($windowSelectionStruct !== []) {
-            $windowMode = trim((string) ($windowSelectionStruct['window_mode'] ?? ''));
-            $reasonCode = trim((string) ($windowSelectionStruct['reason_code_primary'] ?? ''));
-            if ($windowMode !== '' || $reasonCode !== '') {
-                $whyPlanLines[] = $this->scheduleWindowReasonFromStruct($windowMode, $reasonCode);
-            }
-        }
+        // Window-selection boilerplate lines are intentionally suppressed in student-facing output.
         if (! $hasSuccessfulProposals && $orderingRationaleStruct !== [] && $orderingRationale === []) {
             foreach ($orderingRationaleStruct as $row) {
                 if (! is_array($row)) {
@@ -940,17 +933,6 @@ final class TaskAssistantMessageFormatter
         }
 
         return $this->tokenJaccardSimilarity($leftNorm, $rightNorm) >= 0.62;
-    }
-
-    private function scheduleWindowReasonFromStruct(string $windowMode, string $reasonCode): string
-    {
-        return match ($reasonCode) {
-            'window_matched_request' => 'I kept this plan aligned with the availability window you asked for.',
-            'window_auto_selected' => 'I used the earliest conflict-free windows across your planning horizon.',
-            default => $windowMode === 'requested_window'
-                ? 'I kept this plan aligned with your requested window.'
-                : 'I used realistic conflict-free windows for this plan.',
-        };
     }
 
     private function scheduleFitReasonFromCode(string $fitReasonCode): string
