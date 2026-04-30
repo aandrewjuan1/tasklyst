@@ -11,6 +11,10 @@ use App\Support\LLM\TaskAssistantScheduleNarrativeSanitizer;
  */
 final class TaskAssistantMessageFormatter
 {
+    public function __construct(
+        private readonly TaskAssistantPrioritizeTemplateService $prioritizeTemplates,
+    ) {}
+
     /**
      * @param  array<string, mixed>  $data
      * @param  array<string, mixed>  $snapshot
@@ -234,19 +238,35 @@ final class TaskAssistantMessageFormatter
             $paragraphs[] = $acknowledgment;
         }
 
+        $hasOrderingRationale = $orderingRationale !== [];
+
         if ($hasDoingSection) {
             $paragraphs[] = $doingProgressCoach;
-            if ($lines !== []) {
+            if ($lines !== [] && ! $hasOrderingRationale) {
                 $paragraphs[] = TaskAssistantPrioritizeOutputDefaults::prioritizeFormatterBridgeAfterDoingCoach($singularCoerceCount);
             }
         } else {
             if ($framing === '') {
-                $framing = TaskAssistantPrioritizeOutputDefaults::reasoningWhenEmpty();
+                $seed = $this->prioritizeTemplates->buildSeedContextFromPrioritizePayload(
+                    $data,
+                    app()->bound('task_assistant.thread_id') ? (int) app('task_assistant.thread_id') : null,
+                    'formatter_framing_empty',
+                );
+                $framing = $this->prioritizeTemplates->buildFramingInvalidFallback($singularCoerceCount, false, $seed);
             }
             $paragraphs[] = $framing;
         }
 
-        if ($hasRankedItems) {
+        if ($hasRankedItems && $rankingMethodSummary !== '') {
+            $paragraphs[] = $rankingMethodSummary;
+        }
+
+        if ($hasOrderingRationale) {
+            $paragraphs[] = implode("\n", array_map(
+                static fn (string $line): string => '• '.$line,
+                $orderingRationale
+            ));
+        } elseif ($hasRankedItems) {
             $paragraphs[] = implode("\n", $lines);
         }
 
@@ -257,23 +277,18 @@ final class TaskAssistantMessageFormatter
         if ($filterInterpretation !== '') {
             $paragraphs[] = $filterInterpretation;
         }
-
-        if ($hasRankedItems && $rankingMethodSummary !== '') {
-            $paragraphs[] = $rankingMethodSummary;
-        }
-        if ($orderingRationale !== []) {
-            $paragraphs[] = "Why this order:\n".implode("\n", array_map(
-                static fn (string $line): string => '• '.$line,
-                $orderingRationale
-            ));
-        }
         $assumptionsBlock = $this->formatAssumptionsPlain($assumptions);
         if ($assumptionsBlock !== null) {
             $paragraphs[] = $assumptionsBlock;
         }
 
         if ($reasoning === '') {
-            $reasoning = TaskAssistantPrioritizeOutputDefaults::reasoningWhenEmpty();
+            $seed = $this->prioritizeTemplates->buildSeedContextFromPrioritizePayload(
+                $data,
+                app()->bound('task_assistant.thread_id') ? (int) app('task_assistant.thread_id') : null,
+                'formatter_reasoning_empty',
+            );
+            $reasoning = $this->prioritizeTemplates->buildReasoningInvalidFallback($items, $hasDoingSection, $seed);
         }
 
         if ($orderingRationale !== []) {
@@ -292,8 +307,12 @@ final class TaskAssistantMessageFormatter
                     $this->normalizeForDedupe($reasoning)
                 ) >= 0.72
             ) {
-                $topTitle = trim((string) data_get($items, '0.title', 'this top task'));
-                $reasoning = "Start with {$topTitle} first, keep this block focused, then check in on your energy before choosing what comes next.";
+                $seed = $this->prioritizeTemplates->buildSeedContextFromPrioritizePayload(
+                    $data,
+                    app()->bound('task_assistant.thread_id') ? (int) app('task_assistant.thread_id') : null,
+                    'formatter_ordering_similarity',
+                );
+                $reasoning = $this->prioritizeTemplates->buildReasoning($items, $hasDoingSection, $seed);
             }
         }
 
@@ -304,9 +323,13 @@ final class TaskAssistantMessageFormatter
         $paragraphs[] = $reasoning;
 
         if ($nextOptions === '') {
-            $nextOptions = $singularCoerceCount === 1
-                ? __('If you want, I can help schedule this next step.')
-                : __('If you want, I can help schedule these next steps.');
+            $seed = $this->prioritizeTemplates->buildSeedContextFromPrioritizePayload(
+                $data,
+                app()->bound('task_assistant.thread_id') ? (int) app('task_assistant.thread_id') : null,
+                'formatter_next_empty',
+            );
+            $next = $this->prioritizeTemplates->buildNextOptionsInvalidFallback($singularCoerceCount, $seed);
+            $nextOptions = $next['next_options'];
         }
 
         if ($singularCoerceCount === 1) {
@@ -338,6 +361,7 @@ final class TaskAssistantMessageFormatter
 
         $firstSentence = preg_replace('/\bhere (?:are|is)\s+\d+\s+(?:tasks?|items?|priorities)\b/iu', 'Here is your focused next-step slice', $firstSentence) ?? $firstSentence;
         $firstSentence = preg_replace('/\b(?:ordered by|ranked by)\b[^.?!]*/iu', '', $firstSentence) ?? $firstSentence;
+        $firstSentence = preg_replace('/,\s*(?=[.?!]|$)/u', '', $firstSentence) ?? $firstSentence;
         $firstSentence = preg_replace('/\b(it’s|it\'s|it is)\s*(?:[.?!])?\s*$/iu', '', trim($firstSentence)) ?? $firstSentence;
         $firstSentence = preg_replace('/[—–-]\s*$/u', '', trim($firstSentence)) ?? $firstSentence;
         $firstSentence = preg_replace('/\s+([.?!])$/u', '$1', $firstSentence) ?? $firstSentence;
@@ -445,6 +469,7 @@ final class TaskAssistantMessageFormatter
             if ($title === '') {
                 continue;
             }
+            $title = $this->normalizeDisplayTitleSpacing($title);
             $comparedLines[] = '• '.$title;
         }
 
@@ -458,6 +483,7 @@ final class TaskAssistantMessageFormatter
             if ($title === '') {
                 continue;
             }
+            $title = $this->normalizeDisplayTitleSpacing($title);
             $altLines[] = '• '.$title;
         }
 
@@ -607,6 +633,7 @@ final class TaskAssistantMessageFormatter
             if ($title === '') {
                 continue;
             }
+            $title = $this->normalizeDisplayTitleSpacing($title);
 
             $entityType = strtolower(trim((string) ($item['entity_type'] ?? 'task')));
 
@@ -669,6 +696,7 @@ final class TaskAssistantMessageFormatter
         $scheduleSource = trim((string) ($data['schedule_source'] ?? 'schedule'));
         $framing = TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy(trim((string) ($data['framing'] ?? '')));
         $reasoning = TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy(trim((string) ($data['reasoning'] ?? '')));
+        $focusHistoryWindowExplanation = TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy(trim((string) ($data['focus_history_window_explanation'] ?? '')));
         $confirmation = TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy(trim((string) ($data['confirmation'] ?? '')));
         $framing = $this->normalizeCommitmentTone($framing, $isPendingProposalNarrative);
         $reasoning = $this->normalizeCommitmentTone($reasoning, $isPendingProposalNarrative);
@@ -717,6 +745,7 @@ final class TaskAssistantMessageFormatter
                 if ($title === '') {
                     $title = 'Focus time';
                 }
+                $title = $this->normalizeDisplayTitleSpacing($title);
                 $duration = $item['duration_minutes'] ?? null;
                 $durPart = is_numeric($duration) && (int) $duration > 0
                     ? ' ('.$this->formatScheduleDurationLabel((int) $duration).')'
@@ -754,8 +783,9 @@ final class TaskAssistantMessageFormatter
         if ($digestNote !== '') {
             $paragraphs[] = $digestNote;
         }
-        $windowSelectionExplanation = $this->humanizeIsoDateRanges(trim((string) ($data['window_selection_explanation'] ?? '')));
+        $windowSelectionExplanation = '';
         $windowSelectionStruct = is_array($data['window_selection_struct'] ?? null) ? $data['window_selection_struct'] : [];
+        $suppressWindowSelectionParagraph = true;
         $orderingRationale = is_array($data['ordering_rationale'] ?? null) ? $data['ordering_rationale'] : [];
         $orderingRationaleStruct = is_array($data['ordering_rationale_struct'] ?? null) ? $data['ordering_rationale_struct'] : [];
         $blockingReasons = is_array($data['blocking_reasons'] ?? null) ? $data['blocking_reasons'] : [];
@@ -767,15 +797,7 @@ final class TaskAssistantMessageFormatter
         $suggestedNextSteps = is_array($data['suggested_next_steps'] ?? null) ? $data['suggested_next_steps'] : [];
         $assumptions = is_array($data['assumptions'] ?? null) ? $data['assumptions'] : [];
         $whyPlanLines = [];
-        if ($windowSelectionExplanation !== '') {
-            $whyPlanLines[] = $windowSelectionExplanation;
-        } elseif ($windowSelectionStruct !== []) {
-            $windowMode = trim((string) ($windowSelectionStruct['window_mode'] ?? ''));
-            $reasonCode = trim((string) ($windowSelectionStruct['reason_code_primary'] ?? ''));
-            if ($windowMode !== '' || $reasonCode !== '') {
-                $whyPlanLines[] = $this->scheduleWindowReasonFromStruct($windowMode, $reasonCode);
-            }
-        }
+        // Window-selection boilerplate lines are intentionally suppressed in student-facing output.
         if (! $hasSuccessfulProposals && $orderingRationaleStruct !== [] && $orderingRationale === []) {
             foreach ($orderingRationaleStruct as $row) {
                 if (! is_array($row)) {
@@ -856,6 +878,9 @@ final class TaskAssistantMessageFormatter
 
         if ($reasoning !== '') {
             $paragraphs[] = $this->humanizeIsoDateRanges($reasoning);
+        }
+        if ($focusHistoryWindowExplanation !== '') {
+            $paragraphs[] = $this->humanizeIsoDateRanges($focusHistoryWindowExplanation);
         }
         if ($confirmation !== '') {
             $paragraphs[] = $this->humanizeIsoDateRanges($confirmation);
@@ -940,17 +965,6 @@ final class TaskAssistantMessageFormatter
         }
 
         return $this->tokenJaccardSimilarity($leftNorm, $rightNorm) >= 0.62;
-    }
-
-    private function scheduleWindowReasonFromStruct(string $windowMode, string $reasonCode): string
-    {
-        return match ($reasonCode) {
-            'window_matched_request' => 'I kept this plan aligned with the availability window you asked for.',
-            'window_auto_selected' => 'I used the earliest conflict-free windows across your planning horizon.',
-            default => $windowMode === 'requested_window'
-                ? 'I kept this plan aligned with your requested window.'
-                : 'I used realistic conflict-free windows for this plan.',
-        };
     }
 
     private function scheduleFitReasonFromCode(string $fitReasonCode): string
@@ -1111,6 +1125,7 @@ final class TaskAssistantMessageFormatter
                 if ($title === '') {
                     continue;
                 }
+                $title = $this->normalizeDisplayTitleSpacing($title);
                 $block = is_array($blocks[$idx] ?? null) ? $blocks[$idx] : [];
                 $dateLabel = $this->formatDateLabel((string) ($item['start_datetime'] ?? ''));
                 $timeLabel = $this->resolveScheduleTimeLabelForRow(
@@ -1574,6 +1589,19 @@ final class TaskAssistantMessageFormatter
         return $this->formatHhmmLabel($date->format('H:i'));
     }
 
+    private function normalizeDisplayTitleSpacing(string $title): string
+    {
+        $normalized = trim($title);
+        if ($normalized === '') {
+            return '';
+        }
+
+        // Display-only cleanup: keep source title semantics, only collapse odd spacing.
+        $normalized = preg_replace('/\s+/u', ' ', $normalized) ?? $normalized;
+
+        return trim($normalized);
+    }
+
     /**
      * @param  list<array<string, mixed>>  $items
      */
@@ -1643,7 +1671,8 @@ final class TaskAssistantMessageFormatter
      * @return array{
      *   is_multi_day: bool,
      *   span_label: string,
-     *   dominant_daypart: string|null
+     *   dominant_daypart: string|null,
+     *   first_slot_daypart: string|null
      * }
      */
     private function buildScheduleNarrativeFacts(array $items, array $blocks, array $narrativeFacts = []): array
@@ -1698,6 +1727,7 @@ final class TaskAssistantMessageFormatter
             'is_multi_day' => $isMultiDay,
             'span_label' => $spanLabel,
             'dominant_daypart' => $this->dominantDaypartFromHours($hours),
+            'first_slot_daypart' => $this->firstSlotDaypartFromItems($items),
             'relative_day_label' => $relativeDayLabel,
         ];
     }
@@ -1707,6 +1737,7 @@ final class TaskAssistantMessageFormatter
      *   is_multi_day: bool,
      *   span_label: string,
      *   dominant_daypart: string|null,
+     *   first_slot_daypart: string|null,
      *   relative_day_label: string|null
      * }  $facts
      * @param  array<string, array{from: string, to: string}>  $corrections
@@ -1739,14 +1770,16 @@ final class TaskAssistantMessageFormatter
             }
         }
 
+        $firstSlotDaypart = is_string($facts['first_slot_daypart'] ?? null)
+            ? (string) $facts['first_slot_daypart']
+            : null;
+        if ($firstSlotDaypart !== null) {
+            $updated = $this->alignStartDaypartClaimToFirstSlot($updated, $firstSlotDaypart);
+        }
+
         $dominantDaypart = $facts['dominant_daypart'];
         if (is_string($dominantDaypart) && $dominantDaypart !== '') {
-            $updated = match ($dominantDaypart) {
-                'morning' => (string) preg_replace('/\b(evening|night|afternoon)\b/iu', 'morning', $updated),
-                'afternoon' => (string) preg_replace('/\b(evening|night|morning)\b/iu', 'afternoon', $updated),
-                'evening' => (string) preg_replace('/\b(morning|afternoon)\b/iu', 'evening', $updated),
-                default => $updated,
-            };
+            $updated = $this->alignGenericDaypartClaimsToDominantDaypart($updated, $dominantDaypart);
         }
 
         if ($updated !== $from) {
@@ -1774,6 +1807,67 @@ final class TaskAssistantMessageFormatter
         }
 
         return false;
+    }
+
+    private function alignGenericDaypartClaimsToDominantDaypart(string $text, string $dominantDaypart): string
+    {
+        $updated = $text;
+
+        return match ($dominantDaypart) {
+            'morning' => (string) preg_replace('/\b(evening|night|afternoon)\b(?!\s+start\b)/iu', 'morning', $updated),
+            'afternoon' => (string) preg_replace('/\b(evening|night|morning)\b(?!\s+start\b)/iu', 'afternoon', $updated),
+            'evening' => (string) preg_replace('/\b(morning|afternoon)\b(?!\s+start\b)/iu', 'evening', $updated),
+            default => $updated,
+        };
+    }
+
+    /**
+     * Keep "start" narratives grounded on the actual first scheduled slot.
+     * This avoids rewriting a concrete "10:20 AM start" into "afternoon start"
+     * when later rows dominate the schedule.
+     *
+     * @param  list<array<string, mixed>>  $items
+     */
+    private function firstSlotDaypartFromItems(array $items): ?string
+    {
+        $firstStart = trim((string) data_get($items, '0.start_datetime', ''));
+        if ($firstStart === '') {
+            return null;
+        }
+
+        try {
+            $hour = (int) (new \DateTimeImmutable($firstStart))->format('H');
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return match (true) {
+            $hour < 12 => 'morning',
+            $hour < 18 => 'afternoon',
+            default => 'evening',
+        };
+    }
+
+    private function alignStartDaypartClaimToFirstSlot(string $text, string $firstSlotDaypart): string
+    {
+        $updated = $text;
+
+        $patterns = [
+            '/\b(a|an)\s+(morning|afternoon|evening)\s+start\b/iu',
+            '/\b(morning|afternoon|evening)\s+start\b/iu',
+        ];
+
+        foreach ($patterns as $pattern) {
+            $updated = (string) preg_replace_callback($pattern, function (array $matches) use ($firstSlotDaypart): string {
+                $hasArticle = isset($matches[1]) && in_array(mb_strtolower((string) $matches[1]), ['a', 'an'], true);
+                $article = in_array($firstSlotDaypart, ['afternoon', 'evening'], true) ? 'an' : 'a';
+                $phrase = $hasArticle ? "{$article} {$firstSlotDaypart} start" : "{$firstSlotDaypart} start";
+
+                return $phrase;
+            }, $updated);
+        }
+
+        return $updated;
     }
 
     /**

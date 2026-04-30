@@ -44,14 +44,26 @@ final class TaskAssistantIntentSignalExtractor
         $score = 0.0;
         $hasTaskContext = preg_match(self::TASK_CONTEXT_PATTERN, $normalized) === 1;
 
-        if (preg_match('/\b(top|priorit|first|next|important|focus|which|should i (do|work|start))\b/i', $normalized) === 1) {
+        if (preg_match('/\b(top|priorit(?:y|ize|ized|ization)?|first|next|important|focus|which|should i (do|work|start))\b/i', $normalized) === 1) {
             $score += 0.72;
+        }
+        if (preg_match('/\b(number\s*1|no\.?\s*1|#\s*1|first\s+task|top\s+task)\b/i', $normalized) === 1) {
+            $score += 0.45;
         }
         if (preg_match('/\b(list|show|display|find|search|filter|sort|which tasks?|what tasks?|give me|pull up)\b/i', $normalized) === 1) {
             $score += 0.55;
         }
+        if (preg_match('/\b(priorit(?:y|ize)|rank|order|sort)\b.{0,24}\b(my|our|the)\s+tasks?\b/i', $normalized) === 1) {
+            $score += 0.58;
+        }
         if (preg_match('/\b(what should i tackle|what should i hit first|which one first|what should i focus on first|what do i knock out first|sort my tasks by urgency|figure out what to do first)\b/i', $normalized) === 1) {
             $score += 0.52;
+        }
+        if (preg_match('/\b(what|which)\s+is\s+(my\s+)?(number\s*1|no\.?\s*1|#\s*1|top|first)\s+task\b/i', $normalized) === 1) {
+            $score += 0.52;
+        }
+        if (preg_match('/\bwhat\s+is\s+my\s+task\b.{0,40}\bneed\s+to\s+do\b/i', $normalized) === 1) {
+            $score += 0.45;
         }
         if ($hasTaskContext && preg_match('/\b(sort|order)\b.{0,20}\b(urgency|priority|importance)\b/i', $normalized) === 1) {
             $score += 0.38;

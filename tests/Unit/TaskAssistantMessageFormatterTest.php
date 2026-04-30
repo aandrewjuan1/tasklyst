@@ -91,6 +91,24 @@ class TaskAssistantMessageFormatterTest extends TestCase
         $this->assertStringNotContainsString('Start with the list below and keep your first pass short.', $out);
     }
 
+    public function test_prioritize_framing_cleanup_does_not_leave_dangling_comma_after_ranked_by_phrase_strip(): void
+    {
+        $out = $this->formatter->format('prioritize', [
+            'framing' => 'Here are the steps I would line up first right now, ranked by urgency and deadlines.',
+            'limit_used' => 3,
+            'items' => [
+                ['entity_type' => 'task', 'entity_id' => 1, 'title' => 'A', 'priority' => 'high', 'due_phrase' => 'due today', 'due_on' => 'Mar 22, 2026', 'complexity_label' => 'Simple'],
+                ['entity_type' => 'task', 'entity_id' => 2, 'title' => 'B', 'priority' => 'medium', 'due_phrase' => 'due tomorrow', 'due_on' => 'Mar 23, 2026', 'complexity_label' => 'Moderate'],
+                ['entity_type' => 'task', 'entity_id' => 3, 'title' => 'C', 'priority' => 'low', 'due_phrase' => 'due this week', 'due_on' => 'Mar 25, 2026', 'complexity_label' => 'Complex'],
+            ],
+            'reasoning' => 'Start with A first because it has the nearest due date.',
+            'next_options' => 'If you want, I can schedule these tasks for later.',
+        ]);
+
+        $this->assertStringNotContainsString('right now,.', $out);
+        $this->assertStringContainsString('Here are the steps I would line up first right now.', $out);
+    }
+
     public function test_prioritize_renders_assumptions_block_when_present(): void
     {
         $out = $this->formatter->format('prioritize', [
@@ -378,9 +396,42 @@ class TaskAssistantMessageFormatterTest extends TestCase
             'next_options' => 'If you want, I can schedule these tasks for later.',
         ]);
 
-        $this->assertStringContainsString('Why this order:', $out);
+        $this->assertStringNotContainsString('Why this order:', $out);
+        $this->assertStringContainsString('• #1 A:', $out);
         $this->assertStringContainsString('If you want, I can schedule these tasks for later.', $out);
         $this->assertLessThanOrEqual(6, substr_count($out, $duplicate));
+    }
+
+    public function test_prioritize_uses_ordering_rationale_as_single_ranked_list_without_duplicate_numbered_block(): void
+    {
+        $summary = 'I put urgent work first, then priority and effort, so your next move is both important and realistic.';
+        $out = $this->formatter->format('prioritize', [
+            'acknowledgment' => 'Here are the next steps I would take.',
+            'framing' => 'I prioritized urgency first, then effort and priority.',
+            'limit_used' => 3,
+            'items' => [
+                ['entity_type' => 'task', 'entity_id' => 1, 'title' => 'Task A', 'priority' => 'high', 'due_phrase' => 'due tomorrow', 'due_on' => 'May 1, 2026', 'complexity_label' => 'Moderate'],
+                ['entity_type' => 'task', 'entity_id' => 2, 'title' => 'Task B', 'priority' => 'medium', 'due_phrase' => 'due this week', 'due_on' => 'May 2, 2026', 'complexity_label' => 'Moderate'],
+                ['entity_type' => 'task', 'entity_id' => 3, 'title' => 'Task C', 'priority' => 'medium', 'due_phrase' => 'due this week', 'due_on' => 'May 3, 2026', 'complexity_label' => 'Moderate'],
+            ],
+            'ordering_rationale' => [
+                '#1 Task A: Nearest due date and manageable effort.',
+                '#2 Task B: Important and still time-sensitive this week.',
+                '#3 Task C: Still relevant this week, but after the top two.',
+            ],
+            'ranking_method_summary' => $summary,
+            'reasoning' => 'Start with Task A first, then move down the list.',
+            'next_options' => 'If you want, I can place these ranked tasks later today, tomorrow, or later this week.',
+        ]);
+
+        $this->assertStringContainsString('• #1 Task A:', $out);
+        $this->assertStringContainsString('• #2 Task B:', $out);
+        $this->assertStringContainsString('• #3 Task C:', $out);
+        $this->assertStringNotContainsString('Why this order:', $out);
+        $this->assertStringNotContainsString('1. Task A —', $out);
+        $this->assertStringNotContainsString('2. Task B —', $out);
+        $this->assertStringNotContainsString('3. Task C —', $out);
+        $this->assertLessThan(strpos($out, '• #1 Task A:'), strpos($out, $summary));
     }
 
     public function test_prioritize_normalizes_awkward_complexity_wording_in_reasoning(): void
@@ -449,7 +500,29 @@ class TaskAssistantMessageFormatterTest extends TestCase
         $this->assertStringContainsString('Medium priority', $out);
         $this->assertStringContainsString(TaskAssistantPrioritizeOutputDefaults::noDueDateLabel(), $out);
         $this->assertStringContainsString('Complexity: '.TaskAssistantPrioritizeOutputDefaults::complexityNotSetLabel(), $out);
-        $this->assertStringContainsString('If you want, I can help schedule this next step.', $out);
+        $this->assertMatchesRegularExpression('/schedule[\s\S]{0,400}later today|later today[\s\S]{0,400}schedule/iu', $out);
+    }
+
+    public function test_prioritize_normalizes_display_only_title_spacing_in_ranked_rows(): void
+    {
+        $out = $this->formatter->format('prioritize', [
+            'framing' => 'Here is your focused next-step slice.',
+            'limit_used' => 1,
+            'items' => [[
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'title' => 'STATIC AND DYNAMIC RESUME WEBSITE-  FINAL EXAM PROJECT',
+                'priority' => 'high',
+                'due_phrase' => 'due tomorrow',
+                'due_on' => 'May 1, 2026',
+                'complexity_label' => 'Moderate',
+            ]],
+            'reasoning' => 'Start with this first because it is time-sensitive.',
+            'next_options' => 'If you want, I can schedule this for tomorrow.',
+        ]);
+
+        $this->assertStringContainsString('STATIC AND DYNAMIC RESUME WEBSITE- FINAL EXAM PROJECT', $out);
+        $this->assertStringNotContainsString('WEBSITE-  FINAL', $out);
     }
 
     public function test_prioritize_uses_default_framing_when_payload_omits_it(): void
@@ -459,7 +532,7 @@ class TaskAssistantMessageFormatterTest extends TestCase
             'items' => [],
         ]);
 
-        $this->assertStringContainsString(TaskAssistantPrioritizeOutputDefaults::reasoningWhenEmpty(), $out);
+        $this->assertStringContainsString('student-first', mb_strtolower($out));
     }
 
     public function test_prioritize_omits_ranking_method_summary_when_no_ranked_items_exist(): void
@@ -674,6 +747,31 @@ class TaskAssistantMessageFormatterTest extends TestCase
         $this->assertStringContainsString('5:30 PM', $out);
         $this->assertStringContainsString('Start gently', $out);
         $this->assertStringContainsString('stopping point', $out);
+    }
+
+    public function test_daily_schedule_normalizes_display_only_title_spacing_in_rendered_rows(): void
+    {
+        $out = $this->formatter->format('daily_schedule', [
+            'framing' => 'Here is your schedule.',
+            'reasoning' => 'This keeps your plan coherent.',
+            'confirmation' => 'Does this feel workable?',
+            'blocks' => [[
+                'start_time' => '15:43',
+                'end_time' => '16:53',
+                'task_id' => 31,
+            ]],
+            'items' => [[
+                'title' => 'STATIC AND DYNAMIC RESUME WEBSITE-  FINAL EXAM PROJECT',
+                'entity_type' => 'task',
+                'entity_id' => 31,
+                'start_datetime' => '2026-05-01T15:43:00+08:00',
+                'end_datetime' => '2026-05-01T16:53:00+08:00',
+                'duration_minutes' => 70,
+            ]],
+        ]);
+
+        $this->assertStringContainsString('STATIC AND DYNAMIC RESUME WEBSITE- FINAL EXAM PROJECT', $out);
+        $this->assertStringNotContainsString('WEBSITE-  FINAL', $out);
     }
 
     public function test_daily_schedule_message_sorts_rows_chronologically_for_student_clarity(): void
@@ -1209,6 +1307,49 @@ class TaskAssistantMessageFormatterTest extends TestCase
         $this->assertStringContainsString('morning', mb_strtolower($out));
     }
 
+    public function test_daily_schedule_start_daypart_claim_aligns_to_first_slot_instead_of_dominant_distribution(): void
+    {
+        $out = $this->formatter->format('daily_schedule', [
+            'framing' => 'I proposed a morning start because it fit your requested timing cleanly.',
+            'reasoning' => 'I proposed this at 10:20 AM because it is the closest open slot that fits your requested scope.',
+            'confirmation' => 'Do these times feel workable, or should I move them earlier/later before you confirm?',
+            'blocks' => [
+                ['start_time' => '10:20', 'end_time' => '11:30'],
+                ['start_time' => '13:05', 'end_time' => '14:15'],
+                ['start_time' => '14:33', 'end_time' => '15:43'],
+            ],
+            'items' => [
+                [
+                    'title' => 'Task A',
+                    'entity_type' => 'task',
+                    'entity_id' => 1,
+                    'start_datetime' => '2026-05-01T10:20:00+08:00',
+                    'end_datetime' => '2026-05-01T11:30:00+08:00',
+                    'duration_minutes' => 70,
+                ],
+                [
+                    'title' => 'Task B',
+                    'entity_type' => 'task',
+                    'entity_id' => 2,
+                    'start_datetime' => '2026-05-01T13:05:00+08:00',
+                    'end_datetime' => '2026-05-01T14:15:00+08:00',
+                    'duration_minutes' => 70,
+                ],
+                [
+                    'title' => 'Task C',
+                    'entity_type' => 'task',
+                    'entity_id' => 3,
+                    'start_datetime' => '2026-05-01T14:33:00+08:00',
+                    'end_datetime' => '2026-05-01T15:43:00+08:00',
+                    'duration_minutes' => 70,
+                ],
+            ],
+        ]);
+
+        $this->assertStringContainsString('morning start', mb_strtolower($out));
+        $this->assertStringNotContainsString('afternoon start', mb_strtolower($out));
+    }
+
     public function test_daily_schedule_renders_prose_explainability_without_why_heading_or_bullets(): void
     {
         $out = $this->formatter->format('daily_schedule', [
@@ -1251,8 +1392,8 @@ class TaskAssistantMessageFormatterTest extends TestCase
         ]);
 
         $this->assertStringNotContainsString('Why this plan:', $out);
-        $this->assertStringContainsString('I used your morning window first.', $out);
-        $this->assertStringContainsString('Also, I kept this as the closest feasible fit.', $out);
+        $this->assertStringNotContainsString('I used your morning window first.', $out);
+        $this->assertStringContainsString('I kept this as the closest feasible fit.', $out);
         $this->assertStringNotContainsString('• I used your morning window first.', $out);
         $this->assertStringNotContainsString('• I kept this as the closest feasible fit.', $out);
         $this->assertStringNotContainsString('These items are already scheduled for tomorrow:', $out);
@@ -1309,10 +1450,36 @@ class TaskAssistantMessageFormatterTest extends TestCase
         ]);
 
         $this->assertStringNotContainsString('Why this plan:', $out);
-        $this->assertStringContainsString('I kept this plan aligned with the availability window you asked for.', $out);
+        $this->assertStringNotContainsString('I kept this plan aligned with the availability window you asked for.', $out);
         $this->assertStringNotContainsString('These items are already scheduled in your requested window:', $out);
         $this->assertStringNotContainsString('Chemistry lab (9:30 AM-11:00 AM)', $out);
         $this->assertStringNotContainsString('placed in the strongest fit window', $out);
+    }
+
+    public function test_listing_followup_normalizes_display_only_title_spacing_in_bullet_rows(): void
+    {
+        $out = $this->formatter->format('listing_followup', [
+            'verdict' => 'partial',
+            'framing' => 'Some items match, but not all.',
+            'rationale' => 'A few other tasks are currently more urgent.',
+            'next_options' => 'If you want, I can show your latest ranked list.',
+            'compared_items' => [[
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'title' => 'STATIC AND DYNAMIC RESUME WEBSITE-  FINAL EXAM PROJECT',
+            ]],
+            'more_urgent_alternatives' => [[
+                'entity_type' => 'task',
+                'entity_id' => 2,
+                'title' => 'IS THE DIFFERENCE REALLY SIGNIFICANT? -  FINAL EXAM -',
+                'reason_short' => 'Due sooner.',
+            ]],
+        ]);
+
+        $this->assertStringContainsString('WEBSITE- FINAL', $out);
+        $this->assertStringContainsString('SIGNIFICANT? - FINAL EXAM -', $out);
+        $this->assertStringNotContainsString('WEBSITE-  FINAL', $out);
+        $this->assertStringNotContainsString('-  FINAL', $out);
     }
 
     public function test_daily_schedule_prioritize_schedule_success_adds_prioritized_lead_line(): void
@@ -1556,6 +1723,48 @@ class TaskAssistantMessageFormatterTest extends TestCase
 
         $this->assertStringContainsString('I proposed Task A for today at 6:15 PM.', $out);
         $this->assertStringNotContainsString('in your evening window', $out);
+    }
+
+    public function test_daily_schedule_focus_history_explanation_renders_as_separate_paragraph(): void
+    {
+        $firstParagraph = 'This slot at 4:30 PM gives TIME SERIES, KPI CARDS, HISTOGRAMS - ACTIVITY - a focused block that is realistic for the rest of your day. Use a short reset before this block so you can re-focus quickly. Keep one small next step ready right after this slot to maintain momentum. An afternoon block is a practical restart window after earlier commitments.';
+        $focusHistoryParagraph = 'Based on your recent focus-session history, I leaned toward this timing because your recent focus window clusters around 10:20-20:25 (from 12 recent focus sessions).';
+
+        $out = $this->formatter->format('daily_schedule', [
+            'schedule_source' => 'targeted_schedule',
+            'proposals' => [[
+                'proposal_id' => 'p1',
+                'status' => 'pending',
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'title' => 'TIME SERIES, KPI CARDS, HISTOGRAMS - ACTIVITY -',
+                'start_datetime' => '2026-04-30T16:30:00+08:00',
+                'end_datetime' => '2026-04-30T17:40:00+08:00',
+                'duration_minutes' => 70,
+            ]],
+            'items' => [[
+                'title' => 'TIME SERIES, KPI CARDS, HISTOGRAMS - ACTIVITY -',
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'start_datetime' => '2026-04-30T16:30:00+08:00',
+                'end_datetime' => '2026-04-30T17:40:00+08:00',
+                'duration_minutes' => 70,
+            ]],
+            'blocks' => [[
+                'start_time' => '16:30',
+                'end_time' => '17:40',
+                'label' => 'TIME SERIES, KPI CARDS, HISTOGRAMS - ACTIVITY -',
+                'task_id' => 1,
+            ]],
+            'framing' => 'I proposed TIME SERIES, KPI CARDS, HISTOGRAMS - ACTIVITY - for this week at 4:30 PM.',
+            'reasoning' => $firstParagraph,
+            'focus_history_window_explanation' => $focusHistoryParagraph,
+            'confirmation' => 'Do you want to keep this time or shift it earlier/later?',
+        ]);
+
+        $this->assertStringContainsString($firstParagraph, $out);
+        $this->assertStringContainsString($focusHistoryParagraph, $out);
+        $this->assertStringContainsString($firstParagraph."\n\n".$focusHistoryParagraph, $out);
     }
 
     public function test_prioritize_framing_normalization_does_not_leave_dangling_it_is_fragment(): void

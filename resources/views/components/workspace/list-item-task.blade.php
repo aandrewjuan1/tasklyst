@@ -191,7 +191,7 @@
                 return;
             }
 
-            const prompt = 'Schedule my task ' + taskTitle + ' for today.';
+            const prompt = 'Schedule my task ' + taskTitle;
             this.dispatchWindowEvent('assistant-chat-open-requested', {});
             this.dispatchWindowEvent('quick-prompt-append', { value: prompt });
             if (typeof $flux !== 'undefined' && typeof $flux.modal === 'function') {

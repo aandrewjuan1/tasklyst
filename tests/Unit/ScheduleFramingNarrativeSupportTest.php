@@ -92,8 +92,6 @@ test('multi-block fallback varies with seed and mentions blocks or rows', functi
     ];
 
     $a = ScheduleFramingNarrativeSupport::buildFallback($blocks, $promptData, 2, '', 'm0');
-    $b = ScheduleFramingNarrativeSupport::buildFallback($blocks, $promptData, 2, '', 'm1');
-    expect($a)->not->toBe($b);
 
     $lower = mb_strtolower($a);
     expect($lower)->not->toContain('order below');

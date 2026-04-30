@@ -2,6 +2,8 @@
 
 namespace App\Support\LLM;
 
+use App\Services\LLM\TaskAssistant\TaskAssistantPrioritizeTemplateService;
+
 /**
  * User-visible clamps and defaults for the prioritize (rank) flow: narrative fields, doing coach, and formatter bridges.
  */
@@ -1514,14 +1516,115 @@ final class TaskAssistantPrioritizeOutputDefaults
         return __('Pick one task from this list to start so your first step stays light. If you share what you want to focus on, I can narrow it further or help map what to tackle first.');
     }
 
+    /**
+     * @deprecated Use {@see TaskAssistantPrioritizeTemplateService::buildReasoningInvalidFallback()}
+     */
     public static function reasoningWhenEmpty(): string
     {
-        return __('I could not add a custom explanation this time, but this order still follows your usual student-first ranking so you have a clear next step.');
+        $templates = app(TaskAssistantPrioritizeTemplateService::class);
+        $seed = $templates->buildSeedContextFromPrioritizePayload([], null, 'legacy_reasoning_when_empty');
+
+        return $templates->buildReasoningInvalidFallback([], false, $seed);
     }
 
+    /**
+     * @deprecated Use {@see TaskAssistantPrioritizeTemplateService::buildRankingMethodSummaryFromData()} or {@see TaskAssistantPrioritizeTemplateService::buildRankingMethodSummary()}
+     */
     public static function defaultRankingMethodSummary(): string
     {
-        return 'I put urgent work first, then priority and effort, so your next move is both important and realistic.';
+        $templates = app(TaskAssistantPrioritizeTemplateService::class);
+        $seed = $templates->buildSeedContextFromPrioritizePayload(['items' => []], null, 'legacy_default_ranking');
+
+        return $templates->buildRankingMethodSummary($seed);
+    }
+
+    /**
+     * @deprecated Use {@see TaskAssistantPrioritizeTemplateService::buildRankingMethodSummary()}
+     */
+    public static function buildBalancedPrioritizeRankingMethodSummary(): string
+    {
+        return self::defaultRankingMethodSummary();
+    }
+
+    /**
+     * @deprecated Use {@see TaskAssistantPrioritizeTemplateService::buildOrderingRationaleLineBodyFallback()}
+     */
+    public static function defaultOrderingRationaleLineBody(): string
+    {
+        $templates = app(TaskAssistantPrioritizeTemplateService::class);
+        $seed = $templates->buildSeedContextFromPrioritizePayload(['items' => []], null, 'legacy_ordering_body');
+
+        return $templates->buildOrderingRationaleLineBodyFallback([
+            'entity_type' => 'task',
+            'entity_id' => 0,
+            'title' => '',
+        ], $seed);
+    }
+
+    public static function buildPrioritizeOrderingLine(int $rank, string $title, string $reason): string
+    {
+        $safeRank = max(1, $rank);
+        $safeTitle = trim($title);
+        if ($safeTitle === '') {
+            $safeTitle = 'Item';
+        }
+        $safeReason = trim($reason);
+        if ($safeReason === '') {
+            $safeReason = self::defaultOrderingRationaleLineBody();
+        }
+
+        return '#'.$safeRank.' '.$safeTitle.': '.$safeReason;
+    }
+
+    /**
+     * @deprecated Use {@see TaskAssistantPrioritizeTemplateService::buildHybridPromptListingFraming()}
+     */
+    public static function buildDeterministicPrioritizeFraming(int $count, bool $ambiguous): string
+    {
+        $templates = app(TaskAssistantPrioritizeTemplateService::class);
+        $seed = $templates->buildSeedContextFromPrioritizePayload(
+            ['items' => []],
+            null,
+            'legacy_det_framing|'.$count.'|'.($ambiguous ? '1' : '0'),
+        );
+
+        return self::clampFraming($templates->buildHybridPromptListingFraming($count, $ambiguous, $seed));
+    }
+
+    /**
+     * @deprecated Use {@see TaskAssistantPrioritizeTemplateService::buildNextOptions()}
+     */
+    public static function buildDeterministicPrioritizeNextOptionsLine(int $itemsCount, bool $hasMoreUnseen): string
+    {
+        $templates = app(TaskAssistantPrioritizeTemplateService::class);
+        $items = [];
+        $n = max(0, min($itemsCount, 10));
+        for ($i = 1; $i <= $n; $i++) {
+            $items[] = ['entity_type' => 'task', 'entity_id' => $i, 'title' => '—'];
+        }
+        $seed = $templates->buildSeedContextFromPrioritizePayload(['items' => $items], null, 'legacy_next_options_line');
+        $countArg = $itemsCount <= 0 ? 0 : ($itemsCount <= 1 ? 1 : $itemsCount);
+
+        return $templates->buildNextOptions($countArg, $hasMoreUnseen, $seed)['next_options'];
+    }
+
+    /**
+     * @deprecated Use {@see TaskAssistantPrioritizeTemplateService::buildNextOptions()}
+     *
+     * @return list<string>
+     */
+    public static function buildDeterministicPrioritizeNextOptionChips(int $itemsCount): array
+    {
+        $templates = app(TaskAssistantPrioritizeTemplateService::class);
+        $items = [];
+        $n = max(0, min($itemsCount, 10));
+        for ($i = 1; $i <= $n; $i++) {
+            $items[] = ['entity_type' => 'task', 'entity_id' => $i, 'title' => '—'];
+        }
+        $seed = $templates->buildSeedContextFromPrioritizePayload(['items' => $items], null, 'legacy_next_option_chips');
+        $countArg = $itemsCount <= 0 ? 0 : ($itemsCount <= 1 ? 1 : $itemsCount);
+
+        return $templates->buildNextOptions($countArg, true, $seed)['next_options_chip_texts'];
     }
 
     /**

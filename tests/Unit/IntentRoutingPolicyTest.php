@@ -381,6 +381,46 @@ test('prioritize my most important task resolves to prioritize with single count
     expect($decision->constraints['count_limit'])->toBe(1);
 });
 
+test('number one task ask routes to prioritize with single count', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'WHAT IS MY NUMBER 1 TASK?');
+
+    expect($decision->flow)->toBe('prioritize');
+    expect($decision->constraints['count_limit'])->toBe(1);
+    expect($decision->reasonCodes)->toContain('prioritize_first_shortcircuit');
+});
+
+test('what is my task i need to do routes to prioritize with single count', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'i said what is my task that i need to do');
+
+    expect($decision->flow)->toBe('prioritize');
+    expect($decision->constraints['count_limit'])->toBe(1);
+    expect($decision->reasonCodes)->toContain('prioritize_first_shortcircuit');
+});
+
+test('prioritize my tasks routes to prioritize with default multi count', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+    config()->set('task-assistant.intent.prioritize_default_multi_count', 3);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'prioritize my tasks');
+
+    expect($decision->flow)->toBe('prioritize');
+    expect($decision->constraints['count_limit'])->toBe(3);
+    expect($decision->reasonCodes)->toContain('prioritize_first_shortcircuit');
+});
+
 test('schedule my top tasks for tomorrow afternoon over prior listing targets all top tasks', function (): void {
     config()->set('task-assistant.intent.use_llm', false);
 

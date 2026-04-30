@@ -57,7 +57,8 @@ test('prioritize flow returns structured prioritized tasks with hybrid narrative
     expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('prioritize');
     expect($assistantMessage->metadata['prioritize']['prioritize_variant'] ?? null)->toBeString();
     expect($assistantMessage->metadata['prioritize']['items'] ?? null)->toBeArray();
-    expect($assistantMessage->metadata['prioritize']['next_options'] ?? null)->toContain('schedule');
+    expect((string) ($assistantMessage->metadata['prioritize']['next_options'] ?? null))
+        ->toMatch('/(schedule|place|map|block)/i');
     expect($assistantMessage->metadata['prioritize']['next_options_chip_texts'] ?? null)->toBeArray();
 });
 
@@ -122,4 +123,77 @@ test('prioritize mismatch explanation does not claim explicit requested count wh
     expect($mismatch)->not->toContain('You asked for');
     expect(mb_strtolower($mismatch))->not->toContain('already started');
     expect($formatted)->toContain($mismatch);
+});
+
+test('prioritize flow overwrites hybrid narrative garbage with deterministic templates for core fields', function (): void {
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'intent' => 'prioritization',
+                'confidence' => 0.95,
+                'rationale' => 'User wants to see tasks.',
+            ])
+            ->withUsage(new Usage(1, 2)),
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => '___GARBAGE_FRAMING_SHOULD_NOT_PERSIST___',
+                'acknowledgment' => null,
+                'doing_progress_coach' => null,
+                'focus' => [
+                    'main_task' => 'Placeholder',
+                    'secondary_tasks' => [],
+                ],
+                'filter_interpretation' => null,
+                'assumptions' => null,
+                'count_mismatch_explanation' => null,
+                'reasoning' => '___GARBAGE_REASONING_SHOULD_NOT_PERSIST___',
+                'next_options' => '___GARBAGE_NEXT_OPTIONS_SHOULD_NOT_PERSIST_BUT_LONG_ENOUGH___',
+                'next_options_chip_texts' => [
+                    'Schedule those tasks for later today',
+                    'Schedule those tasks for tomorrow',
+                    'Schedule only the top task for later',
+                ],
+            ])
+            ->withUsage(new Usage(5, 10)),
+    ]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    Task::factory()->for($user)->create([
+        'title' => 'Task A',
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::High,
+        'start_datetime' => null,
+        'end_datetime' => now()->endOfDay(),
+    ]);
+    Task::factory()->for($user)->create([
+        'title' => 'Task B',
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::Medium,
+        'start_datetime' => null,
+        'end_datetime' => now()->addDay(),
+    ]);
+
+    $userMessage = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'List my tasks',
+    ]);
+    $assistantMessage = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
+
+    $assistantMessage->refresh();
+    $prioritize = is_array($assistantMessage->metadata['prioritize'] ?? null) ? $assistantMessage->metadata['prioritize'] : [];
+
+    expect((string) ($prioritize['framing'] ?? ''))->not->toContain('GARBAGE_FRAMING');
+    expect((string) ($prioritize['reasoning'] ?? ''))->not->toContain('GARBAGE_REASONING');
+    expect((string) ($prioritize['next_options'] ?? ''))->not->toContain('GARBAGE_NEXT_OPTIONS');
+    $reasoningLower = mb_strtolower((string) ($prioritize['reasoning'] ?? ''));
+    expect($reasoningLower)->toMatch('/task a|task b/');
+    expect(mb_strtolower((string) ($prioritize['next_options'] ?? '')))->toContain('later today');
+    expect((string) ($prioritize['ranking_method_summary'] ?? ''))->toContain('due');
 });

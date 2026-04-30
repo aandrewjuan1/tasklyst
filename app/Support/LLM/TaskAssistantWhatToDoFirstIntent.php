@@ -39,7 +39,7 @@ final class TaskAssistantWhatToDoFirstIntent
     public static function matchesSingleFocusPrioritizeFirst(string $normalized): bool
     {
         return (bool) preg_match(
-            '/\b(?:what\s+should\s+i\s+do\s+first|what\s+task\s+should\s+i\s+do\s+first|which\s+task\s+should\s+i\s+do\s+first|what\s+should\s+i\s+work\s+on\s+first|where\s+should\s+i\s+start|what\s+do\s+i\s+start\s+with)\b/i',
+            '/\b(?:what\s+should\s+i\s+do\s+first|what\s+task\s+should\s+i\s+do\s+first|which\s+task\s+should\s+i\s+do\s+first|what\s+should\s+i\s+work\s+on\s+first|where\s+should\s+i\s+start|what\s+do\s+i\s+start\s+with|what\s+is\s+(?:my\s+)?(?:number\s*1|no\.?\s*1|#\s*1|top|first)\s+task|which\s+is\s+(?:my\s+)?(?:number\s*1|no\.?\s*1|#\s*1|top|first)\s+task|what\s+is\s+my\s+task\b.{0,40}\bneed\s+to\s+do)\b/i',
             $normalized
         );
     }
@@ -68,6 +68,10 @@ final class TaskAssistantWhatToDoFirstIntent
         }
 
         if (preg_match('/\btop\s+tasks?\b.{0,120}?\bdo\s+first\b/is', $n) === 1) {
+            return true;
+        }
+
+        if (preg_match('/\b(priorit(?:y|ize)|rank|order|sort)\b.{0,24}\b(my|our|the)\s+tasks?\b/i', $n) === 1) {
             return true;
         }
 

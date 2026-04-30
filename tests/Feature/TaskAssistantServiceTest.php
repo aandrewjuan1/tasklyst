@@ -11,6 +11,7 @@ use App\Models\Task;
 use App\Models\TaskAssistantThread;
 use App\Models\User;
 use App\Notifications\AssistantResponseReadyNotification;
+use App\Services\LLM\TaskAssistant\ExecutionPlan;
 use App\Services\LLM\TaskAssistant\TaskAssistantQuickChipResolver;
 use App\Services\LLM\TaskAssistant\TaskAssistantService;
 use App\Support\LLM\TaskAssistantReasonCodes;
@@ -316,7 +317,7 @@ test('prioritize_schedule schedules the top student-first task selection', funct
     expect($selectionExplanation['enabled'] ?? null)->toBeTrue();
     expect($selectionExplanation['selected_count'] ?? null)->toBe(1);
     expect(is_array($selectionExplanation['ordering_rationale'] ?? null))->toBeTrue();
-    expect((string) ($assistantMessage->content ?? ''))->toContain('I picked this task first because it stood out most clearly in your current priorities before I placed it into a time block.');
+    expect(mb_strtolower((string) ($assistantMessage->content ?? '')))->toContain('priority');
     expect((string) ($assistantMessage->content ?? ''))->not->toContain('Here are your prioritized items, placed into schedule blocks:');
     expect((string) ($assistantMessage->content ?? ''))->not->toContain('• #1 ');
 });
@@ -1903,7 +1904,7 @@ test('robotic fallback narrative is rejected in favor of deterministic student-f
     expect((string) $assistantMessage->content)->not->toContain('Confidence:');
     expect((string) $assistantMessage->content)->not->toContain('explicitly by the user');
     expect((string) $assistantMessage->content)->toContain('What got in the way:');
-    expect((string) $assistantMessage->content)->toContain('I prepared a draft and paused so you can review it before I finalize anything.');
+    expect(mb_strtolower((string) $assistantMessage->content))->toContain('draft');
 
     CarbonImmutable::setTestNow();
 });
@@ -3067,6 +3068,38 @@ test('pending schedule fallback replan detector catches fit-all phrasing variant
     expect($fitAllCount)->toBeTrue();
 });
 
+test('pending schedule fallback window-change detector ignores fresh targeted schedule prompts', function (): void {
+    $service = app(TaskAssistantService::class);
+    $method = new ReflectionMethod(TaskAssistantService::class, 'isLikelyScheduleWindowChangeRequest');
+    $method->setAccessible(true);
+
+    $pendingState = [
+        'schedule_data' => [
+            'proposals' => [[
+                'proposal_id' => 'pending-1',
+                'status' => 'pending',
+                'entity_type' => 'task',
+                'entity_id' => 99,
+                'title' => 'How to maximize sales in dvd rental shop? - Midterm Exam',
+            ]],
+        ],
+    ];
+
+    $freshTargeted = (bool) $method->invoke(
+        $service,
+        'Schedule my task HOW TO MAXIMIZE SALES IN DVD RENTAL SHOP? - MIDTERM EXAM for today.',
+        $pendingState
+    );
+    $explicitWindowEdit = (bool) $method->invoke(
+        $service,
+        'lets adjust the window for tomorrow morning instead',
+        $pendingState
+    );
+
+    expect($freshTargeted)->toBeFalse();
+    expect($explicitWindowEdit)->toBeTrue();
+});
+
 test('pending schedule fallback fit-all follow-ups reroute instead of looping clarification', function (): void {
     config([
         'task-assistant.intent.use_llm' => false,
@@ -3491,7 +3524,7 @@ test('processQueuedMessage creates one assistant response ready notification and
         ->where('notifiable_type', User::class)
         ->where('notifiable_id', $user->id)
         ->where('type', AssistantResponseReadyNotification::class)
-        ->count();
+        ->count('*');
 
     expect($countAfterFirstRun)->toBe(1);
 
@@ -3501,7 +3534,7 @@ test('processQueuedMessage creates one assistant response ready notification and
         ->where('notifiable_type', User::class)
         ->where('notifiable_id', $user->id)
         ->where('type', AssistantResponseReadyNotification::class)
-        ->count();
+        ->count('*');
 
     expect($countAfterSecondRun)->toBe(1);
 });
@@ -3564,6 +3597,62 @@ test('processQueuedMessage routes prioritize-schedule top-one chip actions deter
     expect($assistantMessage->metadata['routing_trace']['initial_flow'] ?? null)->toBe('prioritize_schedule');
     expect($assistantMessage->metadata['routing_trace']['initial_reason_codes'] ?? [])
         ->toContain('client_action_chip_prioritize_schedule_top_one');
+});
+
+test('prioritize schedule selection mode stays implicit for generic top-one wording without direct target reference', function (): void {
+    $service = app(TaskAssistantService::class);
+    $method = new ReflectionMethod(TaskAssistantService::class, 'shouldUseImplicitPrioritizeSelectionMode');
+    $method->setAccessible(true);
+
+    $plan = new ExecutionPlan(
+        flow: 'prioritize_schedule',
+        confidence: 1.0,
+        clarificationNeeded: false,
+        clarificationQuestion: null,
+        reasonCodes: ['prioritize_schedule_combined_prompt'],
+        constraints: [
+            'named_task_resolution' => ['status' => 'none'],
+        ],
+        targetEntities: [[
+            'entity_type' => 'task',
+            'entity_id' => 123,
+            'title' => 'Resolved from context',
+        ]],
+        timeWindowHint: null,
+        countLimit: 1,
+        generationProfile: 'schedule',
+    );
+
+    $isImplicit = $method->invoke($service, 'schedule my top 1 task', $plan);
+    expect($isImplicit)->toBeTrue();
+});
+
+test('prioritize schedule selection mode switches to explicit for direct target references', function (): void {
+    $service = app(TaskAssistantService::class);
+    $method = new ReflectionMethod(TaskAssistantService::class, 'shouldUseImplicitPrioritizeSelectionMode');
+    $method->setAccessible(true);
+
+    $plan = new ExecutionPlan(
+        flow: 'prioritize_schedule',
+        confidence: 1.0,
+        clarificationNeeded: false,
+        clarificationQuestion: null,
+        reasonCodes: ['schedule_followup'],
+        constraints: [
+            'named_task_resolution' => ['status' => 'none'],
+        ],
+        targetEntities: [[
+            'entity_type' => 'task',
+            'entity_id' => 321,
+            'title' => 'Previously selected',
+        ]],
+        timeWindowHint: null,
+        countLimit: 1,
+        generationProfile: 'schedule',
+    );
+
+    $isImplicit = $method->invoke($service, 'schedule this task', $plan);
+    expect($isImplicit)->toBeFalse();
 });
 
 test('deterministic prioritize multi-item chips include top-task-later option', function (): void {
