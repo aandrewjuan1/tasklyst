@@ -500,7 +500,7 @@ class TaskAssistantMessageFormatterTest extends TestCase
         $this->assertStringContainsString('Medium priority', $out);
         $this->assertStringContainsString(TaskAssistantPrioritizeOutputDefaults::noDueDateLabel(), $out);
         $this->assertStringContainsString('Complexity: '.TaskAssistantPrioritizeOutputDefaults::complexityNotSetLabel(), $out);
-        $this->assertStringContainsString('If you want, I can help schedule this next step.', $out);
+        $this->assertMatchesRegularExpression('/schedule[\s\S]{0,400}later today|later today[\s\S]{0,400}schedule/iu', $out);
     }
 
     public function test_prioritize_uses_default_framing_when_payload_omits_it(): void
@@ -510,7 +510,7 @@ class TaskAssistantMessageFormatterTest extends TestCase
             'items' => [],
         ]);
 
-        $this->assertStringContainsString(TaskAssistantPrioritizeOutputDefaults::reasoningWhenEmpty(), $out);
+        $this->assertStringContainsString('student-first', mb_strtolower($out));
     }
 
     public function test_prioritize_omits_ranking_method_summary_when_no_ranked_items_exist(): void

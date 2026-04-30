@@ -667,7 +667,7 @@ final class TaskAssistantService
         }
 
         $ambiguous = false;
-        $deterministicSummary = $this->buildPrioritizeListingDeterministicSummary(count($items), $ambiguous);
+        $deterministicSummary = $this->buildPrioritizeListingDeterministicSummary(count($items), $ambiguous, $templateSeedContext);
         $filterContextForPrompt = $this->buildPrioritizeListingFilterContextForPrompt($ambiguous, $context);
 
         if ($items === [] && $doingMeta['count'] > 0) {
@@ -710,6 +710,15 @@ final class TaskAssistantService
                 'ranking_method_summary' => $rankingMethodSummary,
                 'ordering_rationale' => $orderingRationale,
             ];
+            $this->applyPrioritizeTemplateFieldsToPayload(
+                $prioritizeData,
+                $thread,
+                $content,
+                $snapshot,
+                $ambiguous,
+                $hasMoreUnseen,
+                $doingMeta['count'],
+            );
         } elseif ($items === []) {
             $framingText = $this->prioritizeTemplates->buildFraming([], false, $ambiguous, $templateSeedContext);
             $reasoningText = $this->prioritizeTemplates->buildReasoning([], false, $templateSeedContext);
@@ -733,6 +742,15 @@ final class TaskAssistantService
                 'ranking_method_summary' => $rankingMethodSummary,
                 'ordering_rationale' => $orderingRationale,
             ];
+            $this->applyPrioritizeTemplateFieldsToPayload(
+                $prioritizeData,
+                $thread,
+                $content,
+                $snapshot,
+                $ambiguous,
+                $hasMoreUnseen,
+                $doingMeta['count'],
+            );
         } else {
             $narrative = $this->hybridNarrative->refinePrioritizeListing(
                 $promptData,
@@ -789,6 +807,15 @@ final class TaskAssistantService
                 'ranking_method_summary' => $rankingMethodSummary,
                 'ordering_rationale' => $orderingRationale,
             ];
+            $this->applyPrioritizeTemplateFieldsToPayload(
+                $prioritizeData,
+                $thread,
+                $content,
+                $snapshot,
+                $ambiguous,
+                $hasMoreUnseen,
+                $doingMeta['count'],
+            );
         }
 
         $this->attachPrioritizeOrchestrationMetadata($prioritizeData);
@@ -1133,9 +1160,48 @@ final class TaskAssistantService
             : implode('; ', $parts);
     }
 
-    private function buildPrioritizeListingDeterministicSummary(int $count, bool $ambiguous): string
+    /**
+     * @param  array<string, mixed>  $seedContext
+     */
+    private function buildPrioritizeListingDeterministicSummary(int $count, bool $ambiguous, array $seedContext): string
     {
-        return TaskAssistantPrioritizeOutputDefaults::buildDeterministicPrioritizeFraming($count, $ambiguous);
+        return $this->prioritizeTemplates->buildHybridPromptListingFraming($count, $ambiguous, $seedContext);
+    }
+
+    /**
+     * @param  array<string, mixed>  $prioritizeData
+     */
+    private function applyPrioritizeTemplateFieldsToPayload(
+        array &$prioritizeData,
+        TaskAssistantThread $thread,
+        string $content,
+        array $snapshot,
+        bool $ambiguous,
+        bool $hasMoreUnseen,
+        int $doingCount,
+    ): void {
+        $items = is_array($prioritizeData['items'] ?? null) ? $prioritizeData['items'] : [];
+        $seed = $this->buildPrioritizeTemplateSeedContext(
+            threadId: $thread->id,
+            items: $items,
+            hasDoingContext: $doingCount > 0,
+            snapshot: $snapshot,
+            prompt: $content,
+        );
+
+        $prioritizeData['ranking_method_summary'] = $this->prioritizeTemplates->buildRankingMethodSummary($seed);
+        $prioritizeData['ordering_rationale'] = $this->prioritizeTemplates->buildOrderingRationale($items, $seed);
+        $prioritizeData['reasoning'] = $this->prioritizeTemplates->buildReasoning($items, $doingCount > 0, $seed);
+
+        $next = $this->prioritizeTemplates->buildNextOptions(count($items), $hasMoreUnseen, $seed);
+        $prioritizeData['next_options'] = $next['next_options'];
+        $prioritizeData['next_options_chip_texts'] = $next['next_options_chip_texts'];
+
+        if ($doingCount > 0) {
+            $prioritizeData['framing'] = null;
+        } else {
+            $prioritizeData['framing'] = $this->prioritizeTemplates->buildFraming($items, false, $ambiguous, $seed);
+        }
     }
 
     /**
@@ -1406,7 +1472,7 @@ final class TaskAssistantService
 
         // Preserve explicit fresh-prioritize asks even when a draft schedule exists.
         $looksLikeFreshPrioritize = preg_match(
-            '/\b(top|priorit(?:y|ize)|what should i do|what are my top|rank|list)\b/u',
+            '/\b(top|priorit(?:y|ize)|what should i do|what are my top|what is my (?:number\s*1|no\.?\s*1|#\s*1|top|first) task|what is my task.{0,40}need to do|rank|list|order|sort)\b/u',
             $normalized
         ) === 1;
         if ($looksLikeFreshPrioritize) {

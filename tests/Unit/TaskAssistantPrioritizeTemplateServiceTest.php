@@ -120,6 +120,49 @@ it('keeps reasoning anchored to first-row facts and title', function (): void {
     expect($reasoning)->toContain('due tomorrow');
 });
 
+it('builds ranking method summary from prioritize payload seed', function (): void {
+    $service = app(TaskAssistantPrioritizeTemplateService::class);
+
+    $summary = $service->buildRankingMethodSummaryFromData([
+        'items' => [[
+            'entity_type' => 'task',
+            'entity_id' => 5,
+            'title' => 'Read chapter 4',
+        ]],
+        'doing_progress_coach' => null,
+    ], 77);
+
+    expect($summary)->not->toBe('');
+    expect(mb_strtolower($summary))->toContain('due');
+});
+
+it('builds processor-style reasoning dedupe copy with title placeholder', function (): void {
+    $service = app(TaskAssistantPrioritizeTemplateService::class);
+    $items = [[
+        'entity_type' => 'task',
+        'entity_id' => 9,
+        'title' => 'Exam cram block',
+        'priority' => 'high',
+        'due_phrase' => 'due tomorrow',
+        'complexity_label' => 'Moderate',
+    ]];
+    $seed = $service->buildSeedContextFromPrioritizePayload(['items' => $items], 3, 'dedupe_test');
+
+    $out = $service->buildReasoningProcessorDedupe($items, false, $seed);
+
+    expect($out)->toContain('Exam cram block');
+    expect(mb_strtolower($out))->toContain('first');
+});
+
+it('builds framing invalid fallback for empty ranked slice', function (): void {
+    $service = app(TaskAssistantPrioritizeTemplateService::class);
+    $seed = $service->buildSeedContextFromPrioritizePayload(['items' => []], 1, 'framing_invalid');
+
+    $framing = $service->buildFramingInvalidFallback(0, false, $seed);
+
+    expect(mb_strtolower($framing))->toContain('student-first');
+});
+
 it('rotates wording for different prompt fingerprints on same context/day', function (): void {
     $service = app(TaskAssistantPrioritizeTemplateService::class);
     $items = [[

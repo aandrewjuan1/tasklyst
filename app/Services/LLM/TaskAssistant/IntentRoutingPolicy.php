@@ -704,6 +704,10 @@ final class IntentRoutingPolicy
             return [1, true];
         }
 
+        if (preg_match('/\b(number\s*1|no\.?\s*1|#\s*1)\s+(task|item)\b/u', $normalized) === 1) {
+            return [1, true];
+        }
+
         // Word-based ordinal singles like:
         // - "schedule only the first one"
         // - "put last one in the evening"
@@ -965,7 +969,7 @@ final class IntentRoutingPolicy
         }
 
         return preg_match(
-            '/\b(my\s+)?(most\s+important|top|highest\s+priority|most\s+urgent|main|single)\s+(task|item)\b/u',
+            '/\b(my\s+)?(most\s+important|top|highest\s+priority|most\s+urgent|main|single|first|number\s*1|no\.?\s*1|#\s*1)\s+(task|item)\b/u',
             $normalized
         ) === 1;
     }

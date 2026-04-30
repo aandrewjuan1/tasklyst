@@ -29,3 +29,17 @@ test('time-finding phrasing boosts scheduling signal', function (): void {
 
     expect($signals['scheduling'])->toBeGreaterThan(0.65);
 });
+
+test('number one task ask yields strong prioritization signal', function (): void {
+    $extractor = new TaskAssistantIntentSignalExtractor;
+    $signals = $extractor->extract('WHAT IS MY NUMBER 1 TASK?');
+
+    expect($signals['prioritization'])->toBeGreaterThan(0.7);
+});
+
+test('prioritize my tasks ask yields strong prioritization signal', function (): void {
+    $extractor = new TaskAssistantIntentSignalExtractor;
+    $signals = $extractor->extract('prioritize my tasks');
+
+    expect($signals['prioritization'])->toBeGreaterThan(0.7);
+});

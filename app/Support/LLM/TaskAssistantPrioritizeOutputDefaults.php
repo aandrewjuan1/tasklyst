@@ -2,6 +2,8 @@
 
 namespace App\Support\LLM;
 
+use App\Services\LLM\TaskAssistant\TaskAssistantPrioritizeTemplateService;
+
 /**
  * User-visible clamps and defaults for the prioritize (rank) flow: narrative fields, doing coach, and formatter bridges.
  */
@@ -1514,24 +1516,49 @@ final class TaskAssistantPrioritizeOutputDefaults
         return __('Pick one task from this list to start so your first step stays light. If you share what you want to focus on, I can narrow it further or help map what to tackle first.');
     }
 
+    /**
+     * @deprecated Use {@see TaskAssistantPrioritizeTemplateService::buildReasoningInvalidFallback()}
+     */
     public static function reasoningWhenEmpty(): string
     {
-        return __('I could not add a custom explanation this time, but this order still follows your usual student-first ranking so you have a clear next step.');
+        $templates = app(TaskAssistantPrioritizeTemplateService::class);
+        $seed = $templates->buildSeedContextFromPrioritizePayload([], null, 'legacy_reasoning_when_empty');
+
+        return $templates->buildReasoningInvalidFallback([], false, $seed);
     }
 
+    /**
+     * @deprecated Use {@see TaskAssistantPrioritizeTemplateService::buildRankingMethodSummaryFromData()} or {@see TaskAssistantPrioritizeTemplateService::buildRankingMethodSummary()}
+     */
     public static function defaultRankingMethodSummary(): string
     {
-        return 'I put urgent work first, then priority and effort, so your next move is both important and realistic.';
+        $templates = app(TaskAssistantPrioritizeTemplateService::class);
+        $seed = $templates->buildSeedContextFromPrioritizePayload(['items' => []], null, 'legacy_default_ranking');
+
+        return $templates->buildRankingMethodSummary($seed);
     }
 
+    /**
+     * @deprecated Use {@see TaskAssistantPrioritizeTemplateService::buildRankingMethodSummary()}
+     */
     public static function buildBalancedPrioritizeRankingMethodSummary(): string
     {
         return self::defaultRankingMethodSummary();
     }
 
+    /**
+     * @deprecated Use {@see TaskAssistantPrioritizeTemplateService::buildOrderingRationaleLineBodyFallback()}
+     */
     public static function defaultOrderingRationaleLineBody(): string
     {
-        return 'This stays high because it is one of your clearest next moves right now.';
+        $templates = app(TaskAssistantPrioritizeTemplateService::class);
+        $seed = $templates->buildSeedContextFromPrioritizePayload(['items' => []], null, 'legacy_ordering_body');
+
+        return $templates->buildOrderingRationaleLineBodyFallback([
+            'entity_type' => 'task',
+            'entity_id' => 0,
+            'title' => '',
+        ], $seed);
     }
 
     public static function buildPrioritizeOrderingLine(int $rank, string $title, string $reason): string
@@ -1549,51 +1576,55 @@ final class TaskAssistantPrioritizeOutputDefaults
         return '#'.$safeRank.' '.$safeTitle.': '.$safeReason;
     }
 
+    /**
+     * @deprecated Use {@see TaskAssistantPrioritizeTemplateService::buildHybridPromptListingFraming()}
+     */
     public static function buildDeterministicPrioritizeFraming(int $count, bool $ambiguous): string
     {
-        if ($count === 0) {
-            return (string) __('Nothing matched that request yet—try widening filters or adding a task.');
-        }
+        $templates = app(TaskAssistantPrioritizeTemplateService::class);
+        $seed = $templates->buildSeedContextFromPrioritizePayload(
+            ['items' => []],
+            null,
+            'legacy_det_framing|'.$count.'|'.($ambiguous ? '1' : '0'),
+        );
 
-        if ($ambiguous) {
-            return (string) __('Here are your strongest next steps from what is currently visible in your list.');
-        }
-
-        return $count === 1
-            ? (string) __('Here is the strongest next step for this request.')
-            : (string) __('Here are the strongest next steps for this request.');
-    }
-
-    public static function buildDeterministicPrioritizeNextOptionsLine(int $itemsCount, bool $hasMoreUnseen): string
-    {
-        if ($itemsCount <= 1) {
-            return self::clampNextField('If you want, I can place this top task later today, tomorrow, or later this week.');
-        }
-
-        if (! $hasMoreUnseen) {
-            return self::clampNextField('This covers the key items for your request. If you want, I can place them later today, tomorrow, or later this week.');
-        }
-
-        return self::clampNextField('If you want, I can place these ranked tasks later today, tomorrow, or later this week.');
+        return self::clampFraming($templates->buildHybridPromptListingFraming($count, $ambiguous, $seed));
     }
 
     /**
+     * @deprecated Use {@see TaskAssistantPrioritizeTemplateService::buildNextOptions()}
+     */
+    public static function buildDeterministicPrioritizeNextOptionsLine(int $itemsCount, bool $hasMoreUnseen): string
+    {
+        $templates = app(TaskAssistantPrioritizeTemplateService::class);
+        $items = [];
+        $n = max(0, min($itemsCount, 10));
+        for ($i = 1; $i <= $n; $i++) {
+            $items[] = ['entity_type' => 'task', 'entity_id' => $i, 'title' => '—'];
+        }
+        $seed = $templates->buildSeedContextFromPrioritizePayload(['items' => $items], null, 'legacy_next_options_line');
+        $countArg = $itemsCount <= 0 ? 0 : ($itemsCount <= 1 ? 1 : $itemsCount);
+
+        return $templates->buildNextOptions($countArg, $hasMoreUnseen, $seed)['next_options'];
+    }
+
+    /**
+     * @deprecated Use {@see TaskAssistantPrioritizeTemplateService::buildNextOptions()}
+     *
      * @return list<string>
      */
     public static function buildDeterministicPrioritizeNextOptionChips(int $itemsCount): array
     {
-        if ($itemsCount <= 1) {
-            return [
-                self::clampNextOptionChipText('Schedule that task for later today'),
-                self::clampNextOptionChipText('Schedule that task for tomorrow'),
-            ];
+        $templates = app(TaskAssistantPrioritizeTemplateService::class);
+        $items = [];
+        $n = max(0, min($itemsCount, 10));
+        for ($i = 1; $i <= $n; $i++) {
+            $items[] = ['entity_type' => 'task', 'entity_id' => $i, 'title' => '—'];
         }
+        $seed = $templates->buildSeedContextFromPrioritizePayload(['items' => $items], null, 'legacy_next_option_chips');
+        $countArg = $itemsCount <= 0 ? 0 : ($itemsCount <= 1 ? 1 : $itemsCount);
 
-        return [
-            self::clampNextOptionChipText('Schedule those tasks for later today'),
-            self::clampNextOptionChipText('Schedule those tasks for tomorrow'),
-            self::clampNextOptionChipText('Schedule only the top task for later'),
-        ];
+        return $templates->buildNextOptions($countArg, true, $seed)['next_options_chip_texts'];
     }
 
     /**

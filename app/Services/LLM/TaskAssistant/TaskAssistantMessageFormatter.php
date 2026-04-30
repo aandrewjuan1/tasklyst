@@ -11,6 +11,10 @@ use App\Support\LLM\TaskAssistantScheduleNarrativeSanitizer;
  */
 final class TaskAssistantMessageFormatter
 {
+    public function __construct(
+        private readonly TaskAssistantPrioritizeTemplateService $prioritizeTemplates,
+    ) {}
+
     /**
      * @param  array<string, mixed>  $data
      * @param  array<string, mixed>  $snapshot
@@ -243,7 +247,12 @@ final class TaskAssistantMessageFormatter
             }
         } else {
             if ($framing === '') {
-                $framing = TaskAssistantPrioritizeOutputDefaults::reasoningWhenEmpty();
+                $seed = $this->prioritizeTemplates->buildSeedContextFromPrioritizePayload(
+                    $data,
+                    app()->bound('task_assistant.thread_id') ? (int) app('task_assistant.thread_id') : null,
+                    'formatter_framing_empty',
+                );
+                $framing = $this->prioritizeTemplates->buildFramingInvalidFallback($singularCoerceCount, false, $seed);
             }
             $paragraphs[] = $framing;
         }
@@ -274,7 +283,12 @@ final class TaskAssistantMessageFormatter
         }
 
         if ($reasoning === '') {
-            $reasoning = TaskAssistantPrioritizeOutputDefaults::reasoningWhenEmpty();
+            $seed = $this->prioritizeTemplates->buildSeedContextFromPrioritizePayload(
+                $data,
+                app()->bound('task_assistant.thread_id') ? (int) app('task_assistant.thread_id') : null,
+                'formatter_reasoning_empty',
+            );
+            $reasoning = $this->prioritizeTemplates->buildReasoningInvalidFallback($items, $hasDoingSection, $seed);
         }
 
         if ($orderingRationale !== []) {
@@ -293,8 +307,12 @@ final class TaskAssistantMessageFormatter
                     $this->normalizeForDedupe($reasoning)
                 ) >= 0.72
             ) {
-                $topTitle = trim((string) data_get($items, '0.title', 'this top task'));
-                $reasoning = "Start with {$topTitle} first, keep this block focused, then check in on your energy before choosing what comes next.";
+                $seed = $this->prioritizeTemplates->buildSeedContextFromPrioritizePayload(
+                    $data,
+                    app()->bound('task_assistant.thread_id') ? (int) app('task_assistant.thread_id') : null,
+                    'formatter_ordering_similarity',
+                );
+                $reasoning = $this->prioritizeTemplates->buildReasoning($items, $hasDoingSection, $seed);
             }
         }
 
@@ -305,9 +323,13 @@ final class TaskAssistantMessageFormatter
         $paragraphs[] = $reasoning;
 
         if ($nextOptions === '') {
-            $nextOptions = $singularCoerceCount === 1
-                ? __('If you want, I can help schedule this next step.')
-                : __('If you want, I can help schedule these next steps.');
+            $seed = $this->prioritizeTemplates->buildSeedContextFromPrioritizePayload(
+                $data,
+                app()->bound('task_assistant.thread_id') ? (int) app('task_assistant.thread_id') : null,
+                'formatter_next_empty',
+            );
+            $next = $this->prioritizeTemplates->buildNextOptionsInvalidFallback($singularCoerceCount, $seed);
+            $nextOptions = $next['next_options'];
         }
 
         if ($singularCoerceCount === 1) {

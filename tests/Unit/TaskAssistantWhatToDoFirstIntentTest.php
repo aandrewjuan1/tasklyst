@@ -6,6 +6,8 @@ test('matches what task should i do first and classic prioritize first phrases',
     expect(TaskAssistantWhatToDoFirstIntent::matches('yo what task should i do first right now'))->toBeTrue();
     expect(TaskAssistantWhatToDoFirstIntent::matches('What should I do first?'))->toBeTrue();
     expect(TaskAssistantWhatToDoFirstIntent::matches('where should I start'))->toBeTrue();
+    expect(TaskAssistantWhatToDoFirstIntent::matches('WHAT IS MY NUMBER 1 TASK?'))->toBeTrue();
+    expect(TaskAssistantWhatToDoFirstIntent::matches('i said what is my task that i need to do'))->toBeTrue();
 });
 
 test('matches plural top tasks prioritize asks for short circuit', function (): void {
@@ -16,6 +18,8 @@ test('matches plural top tasks prioritize asks for short circuit', function (): 
 
 test('implies multiple prioritized rows without bare do first substring', function (): void {
     expect(TaskAssistantWhatToDoFirstIntent::impliesMultiplePrioritizedRows('what top tasks should i do first'))->toBeTrue();
+    expect(TaskAssistantWhatToDoFirstIntent::impliesMultiplePrioritizedRows('prioritize my tasks'))->toBeTrue();
+    expect(TaskAssistantWhatToDoFirstIntent::impliesMultiplePrioritizedRows('rank my tasks by priority'))->toBeTrue();
     expect(TaskAssistantWhatToDoFirstIntent::impliesMultiplePrioritizedRows('in my tasks what should i do first'))->toBeFalse();
 });
 

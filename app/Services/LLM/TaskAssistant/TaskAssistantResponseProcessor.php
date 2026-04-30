@@ -14,6 +14,7 @@ final class TaskAssistantResponseProcessor
     public function __construct(
         private readonly TaskAssistantMessageFormatter $messageFormatter,
         private readonly TaskAssistantDeterministicReplyQualityService $deterministicReplyQuality,
+        private readonly TaskAssistantPrioritizeTemplateService $prioritizeTemplates,
     ) {}
 
     /**
@@ -201,11 +202,13 @@ final class TaskAssistantResponseProcessor
 
         if ($reasoning !== '' && $similarity >= $dedupeThreshold) {
             $items = is_array($data['items'] ?? null) ? $data['items'] : [];
-            $firstTitle = trim((string) data_get($items, '0.title', 'this top task'));
-            if ($firstTitle === '') {
-                $firstTitle = 'this top task';
-            }
-            $rewritten = "Start with {$firstTitle} first, then check your momentum before moving to the next item. Keep this step short so progress feels steady.";
+            $hasDoingCoach = trim((string) ($data['doing_progress_coach'] ?? '')) !== '';
+            $seed = $this->prioritizeTemplates->buildSeedContextFromPrioritizePayload(
+                $data,
+                app()->bound('task_assistant.thread_id') ? (int) app('task_assistant.thread_id') : null,
+                'reasoning_dedupe|'.substr(sha1($reasoning), 0, 12),
+            );
+            $rewritten = $this->prioritizeTemplates->buildReasoningProcessorDedupe($items, $hasDoingCoach, $seed);
             $data['reasoning'] = TaskAssistantPrioritizeOutputDefaults::clampPrioritizeReasoning($rewritten);
             $corrections['prioritize_reasoning_deduped'] = [
                 'similarity' => round($similarity, 3),
@@ -238,11 +241,13 @@ final class TaskAssistantResponseProcessor
         }
 
         if ($items !== [] && ! $this->reasoningMentionsTopTitle((string) ($data['reasoning'] ?? ''), $items)) {
-            $firstTitle = trim((string) data_get($items, '0.title', 'this top task'));
-            if ($firstTitle === '') {
-                $firstTitle = 'this top task';
-            }
-            $rewritten = "Start with {$firstTitle} first, then take a focused pass before moving to the next item. Keeping this step short helps you build momentum.";
+            $hasDoingCoach = trim((string) ($data['doing_progress_coach'] ?? '')) !== '';
+            $seed = $this->prioritizeTemplates->buildSeedContextFromPrioritizePayload(
+                $data,
+                app()->bound('task_assistant.thread_id') ? (int) app('task_assistant.thread_id') : null,
+                'reasoning_title_enforce',
+            );
+            $rewritten = $this->prioritizeTemplates->buildReasoningProcessorTopTitleEnforced($items, $hasDoingCoach, $seed);
             $data['reasoning'] = TaskAssistantPrioritizeOutputDefaults::clampPrioritizeReasoning($rewritten);
             $corrections['prioritize_reasoning_top_title_enforced'] = true;
         }
@@ -262,7 +267,10 @@ final class TaskAssistantResponseProcessor
 
         $rankingMethodSummary = trim((string) ($data['ranking_method_summary'] ?? ''));
         if ($rankingMethodSummary === '') {
-            $data['ranking_method_summary'] = TaskAssistantPrioritizeOutputDefaults::buildBalancedPrioritizeRankingMethodSummary();
+            $data['ranking_method_summary'] = $this->prioritizeTemplates->buildRankingMethodSummaryFromData(
+                $data,
+                app()->bound('task_assistant.thread_id') ? (int) app('task_assistant.thread_id') : null,
+            );
             $corrections['prioritize_ranking_method_summary_defaulted'] = true;
         }
 
@@ -658,14 +666,34 @@ final class TaskAssistantResponseProcessor
     {
         $itemsForDefaults = is_array($data['items'] ?? null) ? $data['items'] : [];
         if (! isset($data['ranking_method_summary']) || ! is_string($data['ranking_method_summary']) || trim((string) $data['ranking_method_summary']) === '') {
-            $data['ranking_method_summary'] = TaskAssistantPrioritizeOutputDefaults::defaultRankingMethodSummary();
+            $data['ranking_method_summary'] = $this->prioritizeTemplates->buildRankingMethodSummaryFromData(
+                $data,
+                app()->bound('task_assistant.thread_id') ? (int) app('task_assistant.thread_id') : null,
+            );
         }
         if (! isset($data['ordering_rationale']) || ! is_array($data['ordering_rationale'])) {
-            $data['ordering_rationale'] = array_map(
-                static fn (array $row, int $index): string => '#'.($index + 1).' '.trim((string) ($row['title'] ?? 'Item')).': '.trim((string) ($row['rank_reason'] ?? 'This is one of your clearest next moves right now.')),
-                $itemsForDefaults,
-                array_keys($itemsForDefaults),
+            $seed = $this->prioritizeTemplates->buildSeedContextFromPrioritizePayload(
+                $data,
+                app()->bound('task_assistant.thread_id') ? (int) app('task_assistant.thread_id') : null,
+                'validate_ordering_default',
             );
+            $lines = [];
+            foreach ($itemsForDefaults as $index => $row) {
+                if (! is_array($row)) {
+                    continue;
+                }
+                $title = trim((string) ($row['title'] ?? 'Item'));
+                if ($title === '') {
+                    continue;
+                }
+                $rank = $index + 1;
+                $body = trim((string) ($row['rank_reason'] ?? ''));
+                if ($body === '') {
+                    $body = $this->prioritizeTemplates->buildOrderingRationaleLineBodyFallback($row, array_merge($seed, ['rank' => $rank]));
+                }
+                $lines[] = TaskAssistantPrioritizeOutputDefaults::buildPrioritizeOrderingLine($rank, $title, $body);
+            }
+            $data['ordering_rationale'] = $lines;
         }
 
         $maxReasoning = TaskAssistantPrioritizeOutputDefaults::maxReasoningChars();
@@ -819,6 +847,11 @@ final class TaskAssistantResponseProcessor
         }
 
         if ($normalized === [] && $items !== []) {
+            $seedBase = $this->prioritizeTemplates->buildSeedContextFromPrioritizePayload(
+                ['items' => $items],
+                app()->bound('task_assistant.thread_id') ? (int) app('task_assistant.thread_id') : null,
+                'normalize_ordering_empty_lines',
+            );
             foreach ($items as $index => $item) {
                 if (! is_array($item)) {
                     continue;
@@ -828,16 +861,25 @@ final class TaskAssistantResponseProcessor
                     continue;
                 }
                 $rankReason = trim((string) ($item['rank_reason'] ?? ''));
+                $rank = $index + 1;
+                $body = $rankReason !== ''
+                    ? $rankReason
+                    : $this->prioritizeTemplates->buildOrderingRationaleLineBodyFallback($item, array_merge($seedBase, ['rank' => $rank]));
                 $normalized[] = TaskAssistantPrioritizeOutputDefaults::buildPrioritizeOrderingLine(
-                    $index + 1,
+                    $rank,
                     $title,
-                    $rankReason !== '' ? $rankReason : TaskAssistantPrioritizeOutputDefaults::defaultOrderingRationaleLineBody()
+                    $body
                 );
             }
 
             return array_slice($normalized, 0, 10);
         }
 
+        $seedBase = $this->prioritizeTemplates->buildSeedContextFromPrioritizePayload(
+            ['items' => $items],
+            app()->bound('task_assistant.thread_id') ? (int) app('task_assistant.thread_id') : null,
+            'normalize_ordering_rebuild',
+        );
         $result = [];
         $max = min(count($items), count($normalized));
         for ($index = 0; $index < $max; $index++) {
@@ -856,11 +898,12 @@ final class TaskAssistantResponseProcessor
             } elseif (preg_match('/^\s*.+?:\s+(.+)$/u', $line, $matches) === 1) {
                 $lineBody = trim((string) ($matches[1] ?? ''));
             }
+            $rank = $index + 1;
             if ($lineBody === '') {
-                $lineBody = TaskAssistantPrioritizeOutputDefaults::defaultOrderingRationaleLineBody();
+                $lineBody = $this->prioritizeTemplates->buildOrderingRationaleLineBodyFallback($item, array_merge($seedBase, ['rank' => $rank]));
             }
 
-            $result[] = TaskAssistantPrioritizeOutputDefaults::buildPrioritizeOrderingLine($index + 1, $title, $lineBody);
+            $result[] = TaskAssistantPrioritizeOutputDefaults::buildPrioritizeOrderingLine($rank, $title, $lineBody);
         }
 
         return array_slice($result, 0, 10);
