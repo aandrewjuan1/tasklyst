@@ -163,7 +163,37 @@ final class TaskAssistantResponseProcessor
     {
         $corrections = [];
         $reasoning = trim((string) ($data['reasoning'] ?? ''));
+        $items = is_array($data['items'] ?? null) ? $data['items'] : [];
         $orderingRationale = is_array($data['ordering_rationale'] ?? null) ? $data['ordering_rationale'] : [];
+        $normalizedOrderingRationale = $this->normalizePrioritizeOrderingRationaleForSingleList($orderingRationale, $items);
+        if ($normalizedOrderingRationale !== $orderingRationale) {
+            $data['ordering_rationale'] = $normalizedOrderingRationale;
+            $orderingRationale = $normalizedOrderingRationale;
+            $corrections['prioritize_ordering_rationale_normalized'] = true;
+        }
+
+        foreach (['acknowledgment', 'framing', 'reasoning', 'filter_interpretation', 'count_mismatch_explanation'] as $field) {
+            $rawValue = $data[$field] ?? '';
+            if (! is_string($rawValue)) {
+                continue;
+            }
+            $value = trim($rawValue);
+            if ($value === '' || ! $this->containsLegacyPrioritizeNumberedList($value)) {
+                continue;
+            }
+
+            $cleaned = $this->stripLegacyPrioritizeNumberedList($value);
+            if ($cleaned === '') {
+                continue;
+            }
+
+            $data[$field] = $cleaned;
+            if ($field === 'reasoning') {
+                $reasoning = $cleaned;
+            }
+            $corrections['prioritize_legacy_numbered_list_removed_'.$field] = true;
+        }
+
         $rationaleBlob = implode(' ', array_map(static fn (mixed $line): string => trim((string) $line), $orderingRationale));
         $similarity = $this->textSimilarityScore($reasoning, $rationaleBlob);
 
@@ -205,7 +235,6 @@ final class TaskAssistantResponseProcessor
             }
         }
 
-        $items = is_array($data['items'] ?? null) ? $data['items'] : [];
         if ($items !== [] && ! $this->reasoningMentionsTopTitle((string) ($data['reasoning'] ?? ''), $items)) {
             $firstTitle = trim((string) data_get($items, '0.title', 'this top task'));
             if ($firstTitle === '') {
@@ -227,6 +256,12 @@ final class TaskAssistantResponseProcessor
         $nextOptions = trim((string) ($data['next_options'] ?? ''));
         if ($nextOptions !== '') {
             $data['next_options'] = $this->clipToSentenceCount($nextOptions, 2, TaskAssistantPrioritizeOutputDefaults::maxNextFieldChars());
+        }
+
+        $rankingMethodSummary = trim((string) ($data['ranking_method_summary'] ?? ''));
+        if ($rankingMethodSummary === '') {
+            $data['ranking_method_summary'] = TaskAssistantPrioritizeOutputDefaults::buildBalancedPrioritizeRankingMethodSummary();
+            $corrections['prioritize_ranking_method_summary_defaulted'] = true;
         }
 
         return ['data' => $data, 'corrections' => $corrections];
@@ -251,6 +286,7 @@ final class TaskAssistantResponseProcessor
         }
 
         $reasoning = trim((string) ($data['reasoning'] ?? ''));
+        $focusHistoryWindowExplanation = trim((string) ($data['focus_history_window_explanation'] ?? ''));
         $orderingRationale = is_array($data['ordering_rationale'] ?? null) ? $data['ordering_rationale'] : [];
         $windowSelection = trim((string) ($data['window_selection_explanation'] ?? ''));
         $structBlob = $this->scheduleStructFactsBlob($data);
@@ -266,6 +302,17 @@ final class TaskAssistantResponseProcessor
             $corrections['schedule_reasoning_deduped'] = [
                 'similarity' => round($similarity, 3),
             ];
+        }
+
+        if ($focusHistoryWindowExplanation !== '') {
+            $updatedReasoning = trim((string) ($data['reasoning'] ?? ''));
+            if ($updatedReasoning !== '') {
+                $condensedReasoning = $this->clipToSentenceCount($updatedReasoning, 4, TaskAssistantPrioritizeOutputDefaults::maxReasoningChars());
+                if ($condensedReasoning !== $updatedReasoning) {
+                    $data['reasoning'] = $condensedReasoning;
+                    $corrections['schedule_reasoning_condensed_for_focus_history'] = true;
+                }
+            }
         }
 
         if (is_array($orderingRationale) && count($orderingRationale) > 8) {
@@ -698,6 +745,17 @@ final class TaskAssistantResponseProcessor
                 $validator->errors()->add('ordering_rationale', 'ordering_rationale must have one explanation line per ranked item.');
             }
 
+            foreach (['acknowledgment', 'framing', 'reasoning', 'filter_interpretation', 'count_mismatch_explanation'] as $field) {
+                $rawValue = $data[$field] ?? '';
+                if (! is_string($rawValue)) {
+                    continue;
+                }
+                $value = trim($rawValue);
+                if ($value !== '' && $this->containsLegacyPrioritizeNumberedList($value)) {
+                    $validator->errors()->add($field, $field.' must not include legacy numbered list prose when ordering_rationale is present.');
+                }
+            }
+
             $orderingBlob = implode(' ', array_map(static fn (mixed $line): string => trim((string) $line), $orderingRationale));
             if ($orderingBlob !== '' && $reasoning !== '' && $this->textSimilarityScore($orderingBlob, $reasoning) >= 0.62) {
                 $validator->errors()->add('reasoning', 'reasoning must add coaching value and not restate ordering_rationale verbatim.');
@@ -735,6 +793,92 @@ final class TaskAssistantResponseProcessor
             'data' => $data,
             'errors' => [],
         ];
+    }
+
+    /**
+     * @param  list<mixed>  $orderingRationale
+     * @param  list<array<string, mixed>>  $items
+     * @return list<string>
+     */
+    private function normalizePrioritizeOrderingRationaleForSingleList(array $orderingRationale, array $items): array
+    {
+        $normalized = [];
+        foreach ($orderingRationale as $line) {
+            $text = trim((string) $line);
+            if ($text === '') {
+                continue;
+            }
+            $text = preg_replace('/^\s*[•\-]\s*/u', '', $text) ?? $text;
+            $text = preg_replace('/^\s*#?\d+\.\s*/u', '', $text) ?? $text;
+            $text = trim($text);
+            if ($text !== '') {
+                $normalized[] = $text;
+            }
+        }
+
+        if ($normalized === [] && $items !== []) {
+            foreach ($items as $index => $item) {
+                if (! is_array($item)) {
+                    continue;
+                }
+                $title = trim((string) ($item['title'] ?? ''));
+                if ($title === '') {
+                    continue;
+                }
+                $rankReason = trim((string) ($item['rank_reason'] ?? ''));
+                $normalized[] = TaskAssistantPrioritizeOutputDefaults::buildPrioritizeOrderingLine(
+                    $index + 1,
+                    $title,
+                    $rankReason !== '' ? $rankReason : TaskAssistantPrioritizeOutputDefaults::defaultOrderingRationaleLineBody()
+                );
+            }
+
+            return array_slice($normalized, 0, 10);
+        }
+
+        $result = [];
+        $max = min(count($items), count($normalized));
+        for ($index = 0; $index < $max; $index++) {
+            $item = $items[$index] ?? null;
+            if (! is_array($item)) {
+                continue;
+            }
+            $title = trim((string) ($item['title'] ?? ''));
+            if ($title === '') {
+                continue;
+            }
+            $line = $normalized[$index] ?? '';
+            $lineBody = $line;
+            if (preg_match('/^\s*#?\d+\s+(.+?):\s+(.+)$/u', $line, $matches) === 1) {
+                $lineBody = trim((string) ($matches[2] ?? ''));
+            } elseif (preg_match('/^\s*.+?:\s+(.+)$/u', $line, $matches) === 1) {
+                $lineBody = trim((string) ($matches[1] ?? ''));
+            }
+            if ($lineBody === '') {
+                $lineBody = TaskAssistantPrioritizeOutputDefaults::defaultOrderingRationaleLineBody();
+            }
+
+            $result[] = TaskAssistantPrioritizeOutputDefaults::buildPrioritizeOrderingLine($index + 1, $title, $lineBody);
+        }
+
+        return array_slice($result, 0, 10);
+    }
+
+    private function containsLegacyPrioritizeNumberedList(string $text): bool
+    {
+        return preg_match('/^\s*\d+\.\s+/mu', $text) === 1;
+    }
+
+    private function stripLegacyPrioritizeNumberedList(string $text): string
+    {
+        $cleaned = preg_replace('/^\s*\d+\.\s+[^\r\n]*(?:\R|$)/mu', '', $text);
+        if (! is_string($cleaned)) {
+            return trim($text);
+        }
+
+        $cleaned = preg_replace('/\n{3,}/u', "\n\n", $cleaned) ?? $cleaned;
+
+        return trim($cleaned);
     }
 
     /**

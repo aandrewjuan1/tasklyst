@@ -234,9 +234,11 @@ final class TaskAssistantMessageFormatter
             $paragraphs[] = $acknowledgment;
         }
 
+        $hasOrderingRationale = $orderingRationale !== [];
+
         if ($hasDoingSection) {
             $paragraphs[] = $doingProgressCoach;
-            if ($lines !== []) {
+            if ($lines !== [] && ! $hasOrderingRationale) {
                 $paragraphs[] = TaskAssistantPrioritizeOutputDefaults::prioritizeFormatterBridgeAfterDoingCoach($singularCoerceCount);
             }
         } else {
@@ -246,7 +248,16 @@ final class TaskAssistantMessageFormatter
             $paragraphs[] = $framing;
         }
 
-        if ($hasRankedItems) {
+        if ($hasRankedItems && $rankingMethodSummary !== '') {
+            $paragraphs[] = $rankingMethodSummary;
+        }
+
+        if ($hasOrderingRationale) {
+            $paragraphs[] = implode("\n", array_map(
+                static fn (string $line): string => '• '.$line,
+                $orderingRationale
+            ));
+        } elseif ($hasRankedItems) {
             $paragraphs[] = implode("\n", $lines);
         }
 
@@ -256,16 +267,6 @@ final class TaskAssistantMessageFormatter
 
         if ($filterInterpretation !== '') {
             $paragraphs[] = $filterInterpretation;
-        }
-
-        if ($hasRankedItems && $rankingMethodSummary !== '') {
-            $paragraphs[] = $rankingMethodSummary;
-        }
-        if ($orderingRationale !== []) {
-            $paragraphs[] = "Why this order:\n".implode("\n", array_map(
-                static fn (string $line): string => '• '.$line,
-                $orderingRationale
-            ));
         }
         $assumptionsBlock = $this->formatAssumptionsPlain($assumptions);
         if ($assumptionsBlock !== null) {
@@ -669,6 +670,7 @@ final class TaskAssistantMessageFormatter
         $scheduleSource = trim((string) ($data['schedule_source'] ?? 'schedule'));
         $framing = TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy(trim((string) ($data['framing'] ?? '')));
         $reasoning = TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy(trim((string) ($data['reasoning'] ?? '')));
+        $focusHistoryWindowExplanation = TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy(trim((string) ($data['focus_history_window_explanation'] ?? '')));
         $confirmation = TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy(trim((string) ($data['confirmation'] ?? '')));
         $framing = $this->normalizeCommitmentTone($framing, $isPendingProposalNarrative);
         $reasoning = $this->normalizeCommitmentTone($reasoning, $isPendingProposalNarrative);
@@ -849,6 +851,9 @@ final class TaskAssistantMessageFormatter
 
         if ($reasoning !== '') {
             $paragraphs[] = $this->humanizeIsoDateRanges($reasoning);
+        }
+        if ($focusHistoryWindowExplanation !== '') {
+            $paragraphs[] = $this->humanizeIsoDateRanges($focusHistoryWindowExplanation);
         }
         if ($confirmation !== '') {
             $paragraphs[] = $this->humanizeIsoDateRanges($confirmation);

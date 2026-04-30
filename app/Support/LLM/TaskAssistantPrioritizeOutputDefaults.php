@@ -1524,6 +1524,78 @@ final class TaskAssistantPrioritizeOutputDefaults
         return 'I put urgent work first, then priority and effort, so your next move is both important and realistic.';
     }
 
+    public static function buildBalancedPrioritizeRankingMethodSummary(): string
+    {
+        return self::defaultRankingMethodSummary();
+    }
+
+    public static function defaultOrderingRationaleLineBody(): string
+    {
+        return 'This stays high because it is one of your clearest next moves right now.';
+    }
+
+    public static function buildPrioritizeOrderingLine(int $rank, string $title, string $reason): string
+    {
+        $safeRank = max(1, $rank);
+        $safeTitle = trim($title);
+        if ($safeTitle === '') {
+            $safeTitle = 'Item';
+        }
+        $safeReason = trim($reason);
+        if ($safeReason === '') {
+            $safeReason = self::defaultOrderingRationaleLineBody();
+        }
+
+        return '#'.$safeRank.' '.$safeTitle.': '.$safeReason;
+    }
+
+    public static function buildDeterministicPrioritizeFraming(int $count, bool $ambiguous): string
+    {
+        if ($count === 0) {
+            return (string) __('Nothing matched that request yet—try widening filters or adding a task.');
+        }
+
+        if ($ambiguous) {
+            return (string) __('Here are your strongest next steps from what is currently visible in your list.');
+        }
+
+        return $count === 1
+            ? (string) __('Here is the strongest next step for this request.')
+            : (string) __('Here are the strongest next steps for this request.');
+    }
+
+    public static function buildDeterministicPrioritizeNextOptionsLine(int $itemsCount, bool $hasMoreUnseen): string
+    {
+        if ($itemsCount <= 1) {
+            return self::clampNextField('If you want, I can place this top task later today, tomorrow, or later this week.');
+        }
+
+        if (! $hasMoreUnseen) {
+            return self::clampNextField('This covers the key items for your request. If you want, I can place them later today, tomorrow, or later this week.');
+        }
+
+        return self::clampNextField('If you want, I can place these ranked tasks later today, tomorrow, or later this week.');
+    }
+
+    /**
+     * @return list<string>
+     */
+    public static function buildDeterministicPrioritizeNextOptionChips(int $itemsCount): array
+    {
+        if ($itemsCount <= 1) {
+            return [
+                self::clampNextOptionChipText('Schedule that task for later today'),
+                self::clampNextOptionChipText('Schedule that task for tomorrow'),
+            ];
+        }
+
+        return [
+            self::clampNextOptionChipText('Schedule those tasks for later today'),
+            self::clampNextOptionChipText('Schedule those tasks for tomorrow'),
+            self::clampNextOptionChipText('Schedule only the top task for later'),
+        ];
+    }
+
     /**
      * Strip legacy prioritize reasoning tail appended by older assistant versions (robotic anchor line).
      */

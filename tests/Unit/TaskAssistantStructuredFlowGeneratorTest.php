@@ -416,11 +416,39 @@ it('adds focus-history window explanation when confidence meets threshold', func
 
     $result = $method->invoke($generator, $snapshot, [], [], ['unplaced_units' => []], []);
 
-    expect((string) ($result['focus_history_window_explanation'] ?? ''))->toContain('Based on your recent focus-session history');
+    $focusExplanation = (string) ($result['focus_history_window_explanation'] ?? '');
+    expect($focusExplanation)->toContain('Based on your recent focus-session history');
+    expect($focusExplanation)->toContain('9:00 AM-7:30 PM');
+    expect($focusExplanation)->toContain('morning to evening');
     expect((string) ($result['window_selection_explanation'] ?? ''))->not->toContain('Based on your recent focus-session history');
     expect((bool) data_get($result, 'focus_history_window_struct.applied', false))->toBeTrue();
     expect(data_get($result, 'focus_history_window_struct.signals', []))->not->toBe([]);
     expect((bool) data_get($result, 'window_selection_struct.focus_history_applied', false))->toBeTrue();
+});
+
+it('mentions morning productivity when focus history has morning energy bias', function (): void {
+    $generator = app(TaskAssistantStructuredFlowGenerator::class);
+    $method = new ReflectionMethod(TaskAssistantStructuredFlowGenerator::class, 'buildScheduleExplainability');
+    $method->setAccessible(true);
+
+    $snapshot = [
+        'time_window' => ['start' => '18:00', 'end' => '22:00'],
+        'schedule_horizon' => ['start_date' => '2026-04-22', 'end_date' => '2026-04-24'],
+        'schedule_preferences' => [
+            'energy_bias' => 'morning',
+        ],
+        'focus_session_signals' => [
+            'energy_bias_confidence' => 0.9,
+            'learning_meta' => ['work_sessions_count' => 9],
+        ],
+    ];
+
+    $result = $method->invoke($generator, $snapshot, [], [], ['unplaced_units' => []], []);
+    $focusExplanation = (string) ($result['focus_history_window_explanation'] ?? '');
+
+    expect($focusExplanation)->toContain('trend toward morning productivity');
+    expect((bool) data_get($result, 'focus_history_window_struct.applied', false))->toBeTrue();
+    expect((string) data_get($result, 'focus_history_window_struct.signals.0.signal', ''))->toBe('energy_bias');
 });
 
 it('does not add focus-history window explanation when confidence is below threshold', function (): void {
@@ -481,7 +509,7 @@ it('threads focus-history explanation into deterministic narrative metadata', fu
         []
     );
 
-    expect((string) ($narrative['reasoning'] ?? ''))->toContain('Based on your recent focus-session history');
+    expect((string) ($narrative['reasoning'] ?? ''))->not->toContain('Based on your recent focus-session history');
     expect((string) data_get($narrative, 'explanation_meta.focus_history_window_explanation', ''))->toContain('Based on your recent focus-session history');
     expect((bool) data_get($narrative, 'explanation_meta.focus_history_window_struct.applied', false))->toBeTrue();
 });

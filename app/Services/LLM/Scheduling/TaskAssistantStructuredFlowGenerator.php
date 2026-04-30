@@ -4207,11 +4207,6 @@ final class TaskAssistantStructuredFlowGenerator
 
         $focusHistoryWindowExplanation = trim((string) ($scheduleExplainability['focus_history_window_explanation'] ?? ''));
         if ($focusHistoryWindowExplanation !== '') {
-            $reasoning = trim((string) ($narrative['reasoning'] ?? ''));
-            if ($reasoning !== '') {
-                $narrative['reasoning'] = $this->appendSentenceIfMissing($reasoning, $focusHistoryWindowExplanation);
-            }
-
             $explanationMeta = is_array($narrative['explanation_meta'] ?? null) ? $narrative['explanation_meta'] : [];
             $explanationMeta['focus_history_window_explanation'] = $focusHistoryWindowExplanation;
             $explanationMeta['focus_history_window_struct'] = is_array($scheduleExplainability['focus_history_window_struct'] ?? null)
@@ -4270,8 +4265,8 @@ final class TaskAssistantStructuredFlowGenerator
 
         $energyBias = strtolower(trim((string) ($preferences['energy_bias'] ?? '')));
         $energyConfidence = (float) data_get($signals, 'energy_bias_confidence', 0.0);
-        if (in_array($energyBias, ['morning', 'evening'], true) && $energyConfidence >= $threshold) {
-            $windowLabel = $energyBias === 'morning' ? 'morning' : 'evening';
+        if (in_array($energyBias, ['morning', 'afternoon', 'evening'], true) && $energyConfidence >= $threshold) {
+            $windowLabel = $energyBias;
             $reasonParts[] = "your recent focus sessions trend toward {$windowLabel} productivity";
             $signalRows[] = [
                 'signal' => 'energy_bias',
@@ -4285,7 +4280,14 @@ final class TaskAssistantStructuredFlowGenerator
         $dayEnd = trim((string) ($dayBounds['end'] ?? ''));
         $dayBoundsConfidence = (float) data_get($signals, 'day_bounds_confidence', 0.0);
         if ($dayStart !== '' && $dayEnd !== '' && $dayBoundsConfidence >= $threshold) {
-            $reasonParts[] = 'your recent focus window clusters around '.$dayStart.'-'.$dayEnd;
+            $readableDayStart = $this->formatHhmmToMeridiem($dayStart);
+            $readableDayEnd = $this->formatHhmmToMeridiem($dayEnd);
+            $daypartLabel = $this->daypartRangeLabelFromBounds($dayStart, $dayEnd);
+            if ($readableDayStart !== '' && $readableDayEnd !== '') {
+                $reasonParts[] = "your recent focus window clusters around {$readableDayStart}-{$readableDayEnd} ({$daypartLabel})";
+            } else {
+                $reasonParts[] = "your recent focus window clusters around {$daypartLabel}";
+            }
             $signalRows[] = [
                 'signal' => 'day_bounds',
                 'value' => ['start' => $dayStart, 'end' => $dayEnd],
@@ -4332,6 +4334,63 @@ final class TaskAssistantStructuredFlowGenerator
                 ],
             ],
         ];
+    }
+
+    private function formatHhmmToMeridiem(string $value): string
+    {
+        $trimmed = trim($value);
+        if (! preg_match('/^(\d{1,2}):(\d{2})$/', $trimmed, $matches)) {
+            return '';
+        }
+
+        $hour = (int) ($matches[1] ?? -1);
+        $minute = (int) ($matches[2] ?? -1);
+        if ($hour < 0 || $hour > 23 || $minute < 0 || $minute > 59) {
+            return '';
+        }
+
+        $ampm = $hour >= 12 ? 'PM' : 'AM';
+        $hour12 = $hour % 12;
+        if ($hour12 === 0) {
+            $hour12 = 12;
+        }
+
+        return $hour12.':'.str_pad((string) $minute, 2, '0', STR_PAD_LEFT).' '.$ampm;
+    }
+
+    private function daypartFromHour(int $hour): string
+    {
+        return match (true) {
+            $hour < 12 => 'morning',
+            $hour < 18 => 'afternoon',
+            default => 'evening',
+        };
+    }
+
+    private function daypartRangeLabelFromBounds(string $start, string $end): string
+    {
+        $startHour = $this->extractHourFromHhmm($start);
+        $endHour = $this->extractHourFromHhmm($end);
+        if ($startHour === null || $endHour === null) {
+            return 'daytime';
+        }
+
+        $startPart = $this->daypartFromHour($startHour);
+        $endPart = $this->daypartFromHour($endHour);
+
+        return $startPart === $endPart ? $startPart : "{$startPart} to {$endPart}";
+    }
+
+    private function extractHourFromHhmm(string $value): ?int
+    {
+        $trimmed = trim($value);
+        if (preg_match('/^(\d{1,2}):\d{2}$/', $trimmed, $matches) !== 1) {
+            return null;
+        }
+
+        $hour = (int) ($matches[1] ?? -1);
+
+        return $hour >= 0 && $hour <= 23 ? $hour : null;
     }
 
     /**

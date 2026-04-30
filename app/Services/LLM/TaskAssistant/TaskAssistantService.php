@@ -1021,40 +1021,9 @@ final class TaskAssistantService
         $rows = is_array($items) ? array_values(array_filter($items, static fn (mixed $r): bool => is_array($r))) : [];
         $count = count($rows);
 
-        if ($count <= 1) {
-            return [
-                'next_options' => TaskAssistantPrioritizeOutputDefaults::clampNextField(
-                    'If you want, I can place this top task later today, tomorrow, or later this week.'
-                ),
-                'next_options_chip_texts' => [
-                    TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('Schedule that task for later today'),
-                    TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('Schedule that task for tomorrow'),
-                ],
-            ];
-        }
-
-        if (! $hasMoreUnseen) {
-            $nextOptions = 'This covers the key items for your request. If you want, I can place them later today, tomorrow, or later this week.';
-
-            return [
-                'next_options' => TaskAssistantPrioritizeOutputDefaults::clampNextField($nextOptions),
-                'next_options_chip_texts' => [
-                    TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('Schedule those tasks for later today'),
-                    TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('Schedule those tasks for tomorrow'),
-                    TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('Schedule only the top task for later'),
-                ],
-            ];
-        }
-
-        $nextOptions = 'If you want, I can place these ranked tasks later today, tomorrow, or later this week.';
-
         return [
-            'next_options' => TaskAssistantPrioritizeOutputDefaults::clampNextField($nextOptions),
-            'next_options_chip_texts' => [
-                TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('Schedule those tasks for later today'),
-                TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('Schedule those tasks for tomorrow'),
-                TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('Schedule only the top task for later'),
-            ],
+            'next_options' => TaskAssistantPrioritizeOutputDefaults::buildDeterministicPrioritizeNextOptionsLine($count, $hasMoreUnseen),
+            'next_options_chip_texts' => TaskAssistantPrioritizeOutputDefaults::buildDeterministicPrioritizeNextOptionChips($count),
         ];
     }
 
@@ -1145,17 +1114,7 @@ final class TaskAssistantService
 
     private function buildPrioritizeListingDeterministicSummary(int $count, bool $ambiguous): string
     {
-        if ($count === 0) {
-            return (string) __('Nothing matched that request yet—try widening filters or adding a task.');
-        }
-
-        if ($ambiguous) {
-            return (string) __('Here are :count tasks from your list, ordered by urgency and due dates:', ['count' => $count]);
-        }
-
-        return $count === 1
-            ? (string) __('Here’s one task that fits this request—ordered by urgency.')
-            : (string) __('Here are :count tasks that fit this request—ordered by urgency.', ['count' => $count]);
+        return TaskAssistantPrioritizeOutputDefaults::buildDeterministicPrioritizeFraming($count, $ambiguous);
     }
 
     /**
@@ -1293,7 +1252,7 @@ final class TaskAssistantService
 
     private function buildPrioritizeRankingMethodSummary(): string
     {
-        return TaskAssistantPrioritizeOutputDefaults::defaultRankingMethodSummary();
+        return TaskAssistantPrioritizeOutputDefaults::buildBalancedPrioritizeRankingMethodSummary();
     }
 
     /**
@@ -1314,9 +1273,9 @@ final class TaskAssistantService
             $rank = $index + 1;
             $rankReason = trim((string) ($item['rank_reason'] ?? ''));
             if ($rankReason === '') {
-                $rankReason = 'This is one of your clearest next moves right now.';
+                $rankReason = TaskAssistantPrioritizeOutputDefaults::defaultOrderingRationaleLineBody();
             }
-            $lines[] = "#{$rank} {$title}: {$rankReason}";
+            $lines[] = TaskAssistantPrioritizeOutputDefaults::buildPrioritizeOrderingLine($rank, $title, $rankReason);
         }
 
         return array_slice($lines, 0, 10);

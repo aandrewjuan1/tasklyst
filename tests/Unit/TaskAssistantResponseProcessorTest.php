@@ -1300,6 +1300,90 @@ class TaskAssistantResponseProcessorTest extends TestCase
         $this->assertStringNotContainsString('higher effort', (string) ($result['structured_data']['reasoning'] ?? ''));
     }
 
+    public function test_prioritize_quality_normalization_rewrites_ordering_rationale_into_aligned_single_list_contract(): void
+    {
+        $processor = app(TaskAssistantResponseProcessor::class);
+
+        $result = $processor->processResponse('prioritize', [
+            'items' => [
+                [
+                    'entity_type' => 'task',
+                    'entity_id' => 1,
+                    'title' => 'Top task',
+                    'priority' => 'high',
+                    'due_phrase' => 'due today',
+                    'due_on' => 'Apr 30, 2026',
+                    'complexity_label' => 'Moderate',
+                ],
+                [
+                    'entity_type' => 'task',
+                    'entity_id' => 2,
+                    'title' => 'Second task',
+                    'priority' => 'medium',
+                    'due_phrase' => 'due this week',
+                    'due_on' => 'May 2, 2026',
+                    'complexity_label' => 'Simple',
+                ],
+            ],
+            'limit_used' => 2,
+            'focus' => [
+                'main_task' => 'Top task',
+                'secondary_tasks' => ['Second task'],
+            ],
+            'framing' => 'Here is your focused next-step slice.',
+            'ordering_rationale' => [
+                '• #1 wrong title: Because it is urgent.',
+                '2. another wrong title: Because it can wait a little.',
+            ],
+            'reasoning' => 'Start with Top task first so momentum builds early.',
+            'next_options' => 'If you want, I can place these ranked tasks later today, tomorrow, or later this week.',
+            'next_options_chip_texts' => [
+                'Schedule those tasks for later today',
+            ],
+        ], []);
+
+        $this->assertTrue($result['valid']);
+        $ordering = is_array($result['structured_data']['ordering_rationale'] ?? null)
+            ? $result['structured_data']['ordering_rationale']
+            : [];
+        $this->assertCount(2, $ordering);
+        $this->assertSame('#1 Top task: Because it is urgent.', $ordering[0] ?? null);
+        $this->assertSame('#2 Second task: Because it can wait a little.', $ordering[1] ?? null);
+    }
+
+    public function test_prioritize_validation_rejects_legacy_numbered_list_rows_in_reasoning_when_ordering_rationale_exists(): void
+    {
+        $processor = app(TaskAssistantResponseProcessor::class);
+
+        $result = $processor->processResponse('prioritize', [
+            'items' => [[
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'title' => 'Top task',
+                'priority' => 'high',
+                'due_phrase' => 'due today',
+                'due_on' => 'Apr 30, 2026',
+                'complexity_label' => 'Moderate',
+            ]],
+            'limit_used' => 1,
+            'focus' => [
+                'main_task' => 'Top task',
+                'secondary_tasks' => [],
+            ],
+            'framing' => 'Here is your focused next-step slice.',
+            'ordering_rationale' => ['#1 Top task: Highest urgency right now.'],
+            'reasoning' => "1. Top task - High priority · due today (Apr 30, 2026) · Complexity: Moderate\n\nStart with Top task first and keep it focused.",
+            'next_options' => 'If you want, I can place this top task later today, tomorrow, or later this week.',
+            'next_options_chip_texts' => [
+                'Schedule that task for later today',
+            ],
+        ], []);
+
+        $this->assertFalse($result['valid']);
+        $this->assertNotEmpty($result['errors']);
+        $this->assertStringContainsString('reasoning must not include legacy numbered list prose', implode(' ', $result['errors']));
+    }
+
     public function test_daily_schedule_quality_normalization_rewrites_mixed_daypart_claims_in_narrative(): void
     {
         $processor = app(TaskAssistantResponseProcessor::class);
