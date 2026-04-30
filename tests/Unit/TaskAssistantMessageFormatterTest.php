@@ -91,6 +91,24 @@ class TaskAssistantMessageFormatterTest extends TestCase
         $this->assertStringNotContainsString('Start with the list below and keep your first pass short.', $out);
     }
 
+    public function test_prioritize_framing_cleanup_does_not_leave_dangling_comma_after_ranked_by_phrase_strip(): void
+    {
+        $out = $this->formatter->format('prioritize', [
+            'framing' => 'Here are the steps I would line up first right now, ranked by urgency and deadlines.',
+            'limit_used' => 3,
+            'items' => [
+                ['entity_type' => 'task', 'entity_id' => 1, 'title' => 'A', 'priority' => 'high', 'due_phrase' => 'due today', 'due_on' => 'Mar 22, 2026', 'complexity_label' => 'Simple'],
+                ['entity_type' => 'task', 'entity_id' => 2, 'title' => 'B', 'priority' => 'medium', 'due_phrase' => 'due tomorrow', 'due_on' => 'Mar 23, 2026', 'complexity_label' => 'Moderate'],
+                ['entity_type' => 'task', 'entity_id' => 3, 'title' => 'C', 'priority' => 'low', 'due_phrase' => 'due this week', 'due_on' => 'Mar 25, 2026', 'complexity_label' => 'Complex'],
+            ],
+            'reasoning' => 'Start with A first because it has the nearest due date.',
+            'next_options' => 'If you want, I can schedule these tasks for later.',
+        ]);
+
+        $this->assertStringNotContainsString('right now,.', $out);
+        $this->assertStringContainsString('Here are the steps I would line up first right now.', $out);
+    }
+
     public function test_prioritize_renders_assumptions_block_when_present(): void
     {
         $out = $this->formatter->format('prioritize', [

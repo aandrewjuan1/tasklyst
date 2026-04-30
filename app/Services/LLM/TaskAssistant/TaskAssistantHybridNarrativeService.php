@@ -2397,6 +2397,8 @@ TXT;
         // Avoid count/list-order restatement in framing (already rendered by list + method summary).
         $firstSentence = preg_replace('/\bhere (?:are|is)\s+\d+\s+(?:tasks?|items?|priorities)\b/iu', 'Here is your focused next-step slice', $firstSentence) ?? $firstSentence;
         $firstSentence = preg_replace('/\b(?:ordered by|ranked by)\b[^.?!]*/iu', '', $firstSentence) ?? $firstSentence;
+        $firstSentence = preg_replace('/,\s*(?=[.?!]|$)/u', '', $firstSentence) ?? $firstSentence;
+        $firstSentence = preg_replace('/\s+([.?!])$/u', '$1', $firstSentence) ?? $firstSentence;
         $firstSentence = preg_replace('/\s{2,}/u', ' ', $firstSentence) ?? $firstSentence;
 
         return trim(rtrim($firstSentence, " \t\n\r\0\x0B"));
@@ -2936,7 +2938,6 @@ TXT;
      * This keeps “simple prompts” from producing noisy optional fields while
      * still allowing richer output when the situation is likely non-obvious.
      *
-     * @param  array<string, mixed>  $userMessage
      * @param  list<array<string, mixed>>  $items
      * @return array{acknowledgment: bool}
      */

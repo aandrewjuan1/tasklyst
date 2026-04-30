@@ -339,6 +339,7 @@ final class TaskAssistantMessageFormatter
 
         $firstSentence = preg_replace('/\bhere (?:are|is)\s+\d+\s+(?:tasks?|items?|priorities)\b/iu', 'Here is your focused next-step slice', $firstSentence) ?? $firstSentence;
         $firstSentence = preg_replace('/\b(?:ordered by|ranked by)\b[^.?!]*/iu', '', $firstSentence) ?? $firstSentence;
+        $firstSentence = preg_replace('/,\s*(?=[.?!]|$)/u', '', $firstSentence) ?? $firstSentence;
         $firstSentence = preg_replace('/\b(it’s|it\'s|it is)\s*(?:[.?!])?\s*$/iu', '', trim($firstSentence)) ?? $firstSentence;
         $firstSentence = preg_replace('/[—–-]\s*$/u', '', trim($firstSentence)) ?? $firstSentence;
         $firstSentence = preg_replace('/\s+([.?!])$/u', '$1', $firstSentence) ?? $firstSentence;

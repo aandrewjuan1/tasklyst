@@ -66,6 +66,7 @@ final class TaskAssistantService
         private readonly TaskAssistantQuickChipResolver $quickChipResolver,
         private readonly IntentRoutingPolicy $routingPolicy,
         private readonly TaskAssistantHybridNarrativeService $hybridNarrative,
+        private readonly TaskAssistantPrioritizeTemplateService $prioritizeTemplates,
         private readonly ScheduleDraftMutationService $scheduleDraftMutationService,
         private readonly ScheduleDraftMetadataNormalizer $scheduleDraftMetadataNormalizer,
         private readonly ScheduleRefinementIntentResolver $scheduleRefinementIntentResolver,
@@ -635,8 +636,15 @@ final class TaskAssistantService
 
         $limit = max(1, min($plan->countLimit, 10));
         $items = array_values(array_slice($allItems, 0, $limit));
-        $rankingMethodSummary = $this->buildPrioritizeRankingMethodSummary();
-        $orderingRationale = $this->buildPrioritizeOrderingRationale($items);
+        $templateSeedContext = $this->buildPrioritizeTemplateSeedContext(
+            threadId: $thread->id,
+            items: $items,
+            hasDoingContext: $doingMeta['count'] > 0,
+            snapshot: $snapshot,
+            prompt: $content,
+        );
+        $rankingMethodSummary = $this->buildPrioritizeRankingMethodSummary($templateSeedContext);
+        $orderingRationale = $this->buildPrioritizeOrderingRationale($items, $templateSeedContext);
         $hasMoreUnseen = count($allItems) > count($items);
         $explicitRequestedCount = $this->extractExplicitRequestedCount($content);
         $countMismatchContext = [
@@ -677,7 +685,8 @@ final class TaskAssistantService
 
             $next = $this->buildDeterministicPrioritizeNextOptions(
                 $narrative['items'] ?? [],
-                $hasMoreUnseen
+                $hasMoreUnseen,
+                $templateSeedContext,
             );
 
             $prioritizeData = [
@@ -687,8 +696,12 @@ final class TaskAssistantService
                     ?? TaskAssistantPrioritizeOutputDefaults::buildDoingProgressCoach($doingTitlesForPayload, $doingMeta['count']),
                 'focus' => $narrative['focus'],
                 'acknowledgment' => $narrative['acknowledgment'] ?? null,
-                'framing' => $narrative['framing'] ?? null,
-                'reasoning' => (string) ($narrative['reasoning'] ?? TaskAssistantPrioritizeOutputDefaults::reasoningWhenEmpty()),
+                'framing' => null,
+                'reasoning' => $this->prioritizeTemplates->buildReasoning(
+                    is_array($narrative['items'] ?? null) ? $narrative['items'] : [],
+                    true,
+                    $templateSeedContext,
+                ),
                 'next_options' => $next['next_options'],
                 'next_options_chip_texts' => $next['next_options_chip_texts'],
                 'filter_interpretation' => $narrative['filter_interpretation'] ?? null,
@@ -698,11 +711,9 @@ final class TaskAssistantService
                 'ordering_rationale' => $orderingRationale,
             ];
         } elseif ($items === []) {
-            $framingText = trim((string) $deterministicSummary);
-            if ($framingText === '') {
-                $framingText = (string) __('No matches yet—try widening filters or adding a task that fits what you asked.');
-            }
-            $reasoningText = (string) __('When something matches, it will show up here in urgency order—you can adjust filters, add a task, or ask again in different words.');
+            $framingText = $this->prioritizeTemplates->buildFraming([], false, $ambiguous, $templateSeedContext);
+            $reasoningText = $this->prioritizeTemplates->buildReasoning([], false, $templateSeedContext);
+            $next = $this->prioritizeTemplates->buildNextOptions(0, $hasMoreUnseen, $templateSeedContext);
             $prioritizeData = [
                 'items' => [],
                 'limit_used' => 0,
@@ -712,12 +723,10 @@ final class TaskAssistantService
                     'secondary_tasks' => [],
                 ],
                 'acknowledgment' => null,
-                'framing' => TaskAssistantPrioritizeOutputDefaults::clampFraming($framingText),
-                'reasoning' => TaskAssistantPrioritizeOutputDefaults::clampPrioritizeReasoning($reasoningText),
-                'next_options' => TaskAssistantPrioritizeOutputDefaults::clampNextField(
-                    (string) __('After you add or adjust tasks, I can help sort what to do first or plan time for them.'),
-                ),
-                'next_options_chip_texts' => [],
+                'framing' => $framingText,
+                'reasoning' => $reasoningText,
+                'next_options' => $next['next_options'],
+                'next_options_chip_texts' => $next['next_options_chip_texts'],
                 'filter_interpretation' => null,
                 'assumptions' => null,
                 'count_mismatch_explanation' => null,
@@ -746,7 +755,8 @@ final class TaskAssistantService
 
             $next = $this->buildDeterministicPrioritizeNextOptions(
                 $narrative['items'] ?? [],
-                $hasMoreUnseen
+                $hasMoreUnseen,
+                $templateSeedContext,
             );
 
             $prioritizeData = [
@@ -758,8 +768,19 @@ final class TaskAssistantService
                     : null,
                 'focus' => $narrative['focus'],
                 'acknowledgment' => $narrative['acknowledgment'] ?? null,
-                'framing' => $narrative['framing'] ?? null,
-                'reasoning' => (string) ($narrative['reasoning'] ?? TaskAssistantPrioritizeOutputDefaults::reasoningWhenEmpty()),
+                'framing' => $doingMeta['count'] > 0
+                    ? null
+                    : $this->prioritizeTemplates->buildFraming(
+                        is_array($narrative['items'] ?? null) ? $narrative['items'] : [],
+                        false,
+                        $ambiguous,
+                        $templateSeedContext,
+                    ),
+                'reasoning' => $this->prioritizeTemplates->buildReasoning(
+                    is_array($narrative['items'] ?? null) ? $narrative['items'] : [],
+                    $doingMeta['count'] > 0,
+                    $templateSeedContext,
+                ),
                 'next_options' => $next['next_options'],
                 'next_options_chip_texts' => $next['next_options_chip_texts'],
                 'filter_interpretation' => $narrative['filter_interpretation'] ?? null,
@@ -1016,15 +1037,15 @@ final class TaskAssistantService
      *
      * @return array{next_options: string, next_options_chip_texts: list<string>}
      */
-    private function buildDeterministicPrioritizeNextOptions(mixed $items, bool $hasMoreUnseen = true): array
-    {
+    private function buildDeterministicPrioritizeNextOptions(
+        mixed $items,
+        bool $hasMoreUnseen = true,
+        array $seedContext = [],
+    ): array {
         $rows = is_array($items) ? array_values(array_filter($items, static fn (mixed $r): bool => is_array($r))) : [];
         $count = count($rows);
 
-        return [
-            'next_options' => TaskAssistantPrioritizeOutputDefaults::buildDeterministicPrioritizeNextOptionsLine($count, $hasMoreUnseen),
-            'next_options_chip_texts' => TaskAssistantPrioritizeOutputDefaults::buildDeterministicPrioritizeNextOptionChips($count),
-        ];
+        return $this->prioritizeTemplates->buildNextOptions($count, $hasMoreUnseen, $seedContext);
     }
 
     /**
@@ -1250,35 +1271,49 @@ final class TaskAssistantService
         return "This task stands out because it's {$priorityLabel} priority, {$dueDetail}, and {$effortPhrase}.";
     }
 
-    private function buildPrioritizeRankingMethodSummary(): string
+    private function buildPrioritizeRankingMethodSummary(array $seedContext = []): string
     {
-        return TaskAssistantPrioritizeOutputDefaults::buildBalancedPrioritizeRankingMethodSummary();
+        return $this->prioritizeTemplates->buildRankingMethodSummary($seedContext);
     }
 
     /**
      * @param  list<array<string, mixed>>  $items
      * @return list<string>
      */
-    private function buildPrioritizeOrderingRationale(array $items): array
+    private function buildPrioritizeOrderingRationale(array $items, array $seedContext = []): array
     {
-        $lines = [];
-        foreach ($items as $index => $item) {
-            if (! is_array($item)) {
-                continue;
-            }
-            $title = trim((string) ($item['title'] ?? ''));
-            if ($title === '') {
-                continue;
-            }
-            $rank = $index + 1;
-            $rankReason = trim((string) ($item['rank_reason'] ?? ''));
-            if ($rankReason === '') {
-                $rankReason = TaskAssistantPrioritizeOutputDefaults::defaultOrderingRationaleLineBody();
-            }
-            $lines[] = TaskAssistantPrioritizeOutputDefaults::buildPrioritizeOrderingLine($rank, $title, $rankReason);
-        }
+        return $this->prioritizeTemplates->buildOrderingRationale($items, $seedContext);
+    }
 
-        return array_slice($lines, 0, 10);
+    /**
+     * @param  list<array<string, mixed>>  $items
+     * @param  array<string, mixed>  $snapshot
+     * @return array<string, mixed>
+     */
+    private function buildPrioritizeTemplateSeedContext(
+        int $threadId,
+        array $items,
+        bool $hasDoingContext,
+        array $snapshot,
+        string $prompt,
+    ): array {
+        $top = is_array($items[0] ?? null) ? $items[0] : [];
+        $topType = trim((string) ($top['entity_type'] ?? 'task'));
+        $topId = (string) ($top['entity_id'] ?? '0');
+        $topTitle = trim((string) ($top['title'] ?? ''));
+        $dayBucket = trim((string) ($snapshot['today'] ?? ''));
+        $normalizedPrompt = mb_strtolower(trim((string) preg_replace('/\s+/u', ' ', $prompt)));
+        $promptKey = $normalizedPrompt !== '' ? substr(sha1($normalizedPrompt), 0, 16) : 'no_prompt';
+
+        return [
+            'thread_id' => $threadId,
+            'top_key' => $topType.':'.$topId.':'.$topTitle,
+            'items_count' => count($items),
+            'has_doing_context' => $hasDoingContext,
+            'day_bucket' => $dayBucket,
+            'prompt_key' => $promptKey,
+            'request_bucket' => $promptKey,
+        ];
     }
 
     private function maybeRewritePlanForScheduleRefinement(

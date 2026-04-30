@@ -196,8 +196,10 @@ final class TaskAssistantResponseProcessor
 
         $rationaleBlob = implode(' ', array_map(static fn (mixed $line): string => trim((string) $line), $orderingRationale));
         $similarity = $this->textSimilarityScore($reasoning, $rationaleBlob);
+        $templateReasoningSignature = (bool) preg_match('/\b(start with|i would start with|i put)\b/iu', $reasoning);
+        $dedupeThreshold = $templateReasoningSignature ? 0.74 : 0.62;
 
-        if ($reasoning !== '' && $similarity >= 0.62) {
+        if ($reasoning !== '' && $similarity >= $dedupeThreshold) {
             $items = is_array($data['items'] ?? null) ? $data['items'] : [];
             $firstTitle = trim((string) data_get($items, '0.title', 'this top task'));
             if ($firstTitle === '') {
