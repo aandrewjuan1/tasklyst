@@ -503,6 +503,28 @@ class TaskAssistantMessageFormatterTest extends TestCase
         $this->assertMatchesRegularExpression('/schedule[\s\S]{0,400}later today|later today[\s\S]{0,400}schedule/iu', $out);
     }
 
+    public function test_prioritize_normalizes_display_only_title_spacing_in_ranked_rows(): void
+    {
+        $out = $this->formatter->format('prioritize', [
+            'framing' => 'Here is your focused next-step slice.',
+            'limit_used' => 1,
+            'items' => [[
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'title' => 'STATIC AND DYNAMIC RESUME WEBSITE-  FINAL EXAM PROJECT',
+                'priority' => 'high',
+                'due_phrase' => 'due tomorrow',
+                'due_on' => 'May 1, 2026',
+                'complexity_label' => 'Moderate',
+            ]],
+            'reasoning' => 'Start with this first because it is time-sensitive.',
+            'next_options' => 'If you want, I can schedule this for tomorrow.',
+        ]);
+
+        $this->assertStringContainsString('STATIC AND DYNAMIC RESUME WEBSITE- FINAL EXAM PROJECT', $out);
+        $this->assertStringNotContainsString('WEBSITE-  FINAL', $out);
+    }
+
     public function test_prioritize_uses_default_framing_when_payload_omits_it(): void
     {
         $out = $this->formatter->format('prioritize', [
@@ -725,6 +747,31 @@ class TaskAssistantMessageFormatterTest extends TestCase
         $this->assertStringContainsString('5:30 PM', $out);
         $this->assertStringContainsString('Start gently', $out);
         $this->assertStringContainsString('stopping point', $out);
+    }
+
+    public function test_daily_schedule_normalizes_display_only_title_spacing_in_rendered_rows(): void
+    {
+        $out = $this->formatter->format('daily_schedule', [
+            'framing' => 'Here is your schedule.',
+            'reasoning' => 'This keeps your plan coherent.',
+            'confirmation' => 'Does this feel workable?',
+            'blocks' => [[
+                'start_time' => '15:43',
+                'end_time' => '16:53',
+                'task_id' => 31,
+            ]],
+            'items' => [[
+                'title' => 'STATIC AND DYNAMIC RESUME WEBSITE-  FINAL EXAM PROJECT',
+                'entity_type' => 'task',
+                'entity_id' => 31,
+                'start_datetime' => '2026-05-01T15:43:00+08:00',
+                'end_datetime' => '2026-05-01T16:53:00+08:00',
+                'duration_minutes' => 70,
+            ]],
+        ]);
+
+        $this->assertStringContainsString('STATIC AND DYNAMIC RESUME WEBSITE- FINAL EXAM PROJECT', $out);
+        $this->assertStringNotContainsString('WEBSITE-  FINAL', $out);
     }
 
     public function test_daily_schedule_message_sorts_rows_chronologically_for_student_clarity(): void
@@ -1260,6 +1307,49 @@ class TaskAssistantMessageFormatterTest extends TestCase
         $this->assertStringContainsString('morning', mb_strtolower($out));
     }
 
+    public function test_daily_schedule_start_daypart_claim_aligns_to_first_slot_instead_of_dominant_distribution(): void
+    {
+        $out = $this->formatter->format('daily_schedule', [
+            'framing' => 'I proposed a morning start because it fit your requested timing cleanly.',
+            'reasoning' => 'I proposed this at 10:20 AM because it is the closest open slot that fits your requested scope.',
+            'confirmation' => 'Do these times feel workable, or should I move them earlier/later before you confirm?',
+            'blocks' => [
+                ['start_time' => '10:20', 'end_time' => '11:30'],
+                ['start_time' => '13:05', 'end_time' => '14:15'],
+                ['start_time' => '14:33', 'end_time' => '15:43'],
+            ],
+            'items' => [
+                [
+                    'title' => 'Task A',
+                    'entity_type' => 'task',
+                    'entity_id' => 1,
+                    'start_datetime' => '2026-05-01T10:20:00+08:00',
+                    'end_datetime' => '2026-05-01T11:30:00+08:00',
+                    'duration_minutes' => 70,
+                ],
+                [
+                    'title' => 'Task B',
+                    'entity_type' => 'task',
+                    'entity_id' => 2,
+                    'start_datetime' => '2026-05-01T13:05:00+08:00',
+                    'end_datetime' => '2026-05-01T14:15:00+08:00',
+                    'duration_minutes' => 70,
+                ],
+                [
+                    'title' => 'Task C',
+                    'entity_type' => 'task',
+                    'entity_id' => 3,
+                    'start_datetime' => '2026-05-01T14:33:00+08:00',
+                    'end_datetime' => '2026-05-01T15:43:00+08:00',
+                    'duration_minutes' => 70,
+                ],
+            ],
+        ]);
+
+        $this->assertStringContainsString('morning start', mb_strtolower($out));
+        $this->assertStringNotContainsString('afternoon start', mb_strtolower($out));
+    }
+
     public function test_daily_schedule_renders_prose_explainability_without_why_heading_or_bullets(): void
     {
         $out = $this->formatter->format('daily_schedule', [
@@ -1364,6 +1454,32 @@ class TaskAssistantMessageFormatterTest extends TestCase
         $this->assertStringNotContainsString('These items are already scheduled in your requested window:', $out);
         $this->assertStringNotContainsString('Chemistry lab (9:30 AM-11:00 AM)', $out);
         $this->assertStringNotContainsString('placed in the strongest fit window', $out);
+    }
+
+    public function test_listing_followup_normalizes_display_only_title_spacing_in_bullet_rows(): void
+    {
+        $out = $this->formatter->format('listing_followup', [
+            'verdict' => 'partial',
+            'framing' => 'Some items match, but not all.',
+            'rationale' => 'A few other tasks are currently more urgent.',
+            'next_options' => 'If you want, I can show your latest ranked list.',
+            'compared_items' => [[
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'title' => 'STATIC AND DYNAMIC RESUME WEBSITE-  FINAL EXAM PROJECT',
+            ]],
+            'more_urgent_alternatives' => [[
+                'entity_type' => 'task',
+                'entity_id' => 2,
+                'title' => 'IS THE DIFFERENCE REALLY SIGNIFICANT? -  FINAL EXAM -',
+                'reason_short' => 'Due sooner.',
+            ]],
+        ]);
+
+        $this->assertStringContainsString('WEBSITE- FINAL', $out);
+        $this->assertStringContainsString('SIGNIFICANT? - FINAL EXAM -', $out);
+        $this->assertStringNotContainsString('WEBSITE-  FINAL', $out);
+        $this->assertStringNotContainsString('-  FINAL', $out);
     }
 
     public function test_daily_schedule_prioritize_schedule_success_adds_prioritized_lead_line(): void

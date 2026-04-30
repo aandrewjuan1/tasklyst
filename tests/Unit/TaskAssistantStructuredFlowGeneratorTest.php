@@ -418,7 +418,7 @@ it('adds focus-history window explanation when confidence meets threshold', func
 
     $focusExplanation = (string) ($result['focus_history_window_explanation'] ?? '');
     expect($focusExplanation)->toContain('Based on your recent focus-session history');
-    expect($focusExplanation)->toContain('9:00 AM-7:30 PM');
+    expect($focusExplanation)->toContain('9:00 AM–7:30 PM');
     expect($focusExplanation)->toContain('morning to evening');
     expect((string) ($result['window_selection_explanation'] ?? ''))->not->toContain('Based on your recent focus-session history');
     expect((bool) data_get($result, 'focus_history_window_struct.applied', false))->toBeTrue();

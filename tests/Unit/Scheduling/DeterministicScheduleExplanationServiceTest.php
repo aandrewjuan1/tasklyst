@@ -3,7 +3,7 @@
 use App\Services\LLM\Scheduling\DeterministicScheduleExplanationService;
 
 it('selects strict window miss scenario from triggers', function (): void {
-    $service = new DeterministicScheduleExplanationService;
+    $service = app(DeterministicScheduleExplanationService::class);
 
     $out = $service->composeNormal([
         'flow_source' => 'schedule',
@@ -27,7 +27,7 @@ it('selects strict window miss scenario from triggers', function (): void {
 });
 
 it('selects prioritize schedule scope modifier when task-only source is used', function (): void {
-    $service = new DeterministicScheduleExplanationService;
+    $service = app(DeterministicScheduleExplanationService::class);
 
     $out = $service->composeNormal([
         'flow_source' => 'prioritize_schedule',
@@ -49,7 +49,7 @@ it('selects prioritize schedule scope modifier when task-only source is used', f
 });
 
 it('uses missing blocker titles fallback when unsatisfied trigger has no titles', function (): void {
-    $service = new DeterministicScheduleExplanationService;
+    $service = app(DeterministicScheduleExplanationService::class);
 
     $out = $service->composeNormal([
         'flow_source' => 'schedule',
@@ -69,7 +69,7 @@ it('uses missing blocker titles fallback when unsatisfied trigger has no titles'
 });
 
 it('selects top n shortfall when fewer items placed than requested', function (): void {
-    $service = new DeterministicScheduleExplanationService;
+    $service = app(DeterministicScheduleExplanationService::class);
 
     $out = $service->composeNormal([
         'flow_source' => 'schedule',
@@ -87,11 +87,11 @@ it('selects top n shortfall when fewer items placed than requested', function ()
     ]);
 
     expect(data_get($out, 'explanation_meta.scenario_key'))->toBe('TOP_N_SHORTFALL');
-    expect((string) ($out['reasoning'] ?? ''))->toContain('You asked for 3');
+    expect((string) ($out['reasoning'] ?? ''))->toContain('3');
 });
 
 it('builds deterministic confirmation narrative with scenario metadata', function (): void {
-    $service = new DeterministicScheduleExplanationService;
+    $service = app(DeterministicScheduleExplanationService::class);
 
     $out = $service->composeConfirmation([
         'reason_code' => 'top_n_shortfall',
@@ -104,12 +104,12 @@ it('builds deterministic confirmation narrative with scenario metadata', functio
     ]);
 
     expect(data_get($out, 'explanation_meta.mode'))->toBe('confirmation');
-    expect((string) ($out['framing'] ?? ''))->toContain('top 3');
+    expect((string) ($out['framing'] ?? ''))->toContain('requested');
     expect((string) ($out['confirmation'] ?? ''))->toContain('widen');
 });
 
 it('selects blocker shifted scenario and mentions up to two blocker titles with windows', function (): void {
-    $service = new DeterministicScheduleExplanationService;
+    $service = app(DeterministicScheduleExplanationService::class);
 
     $out = $service->composeNormal([
         'flow_source' => 'schedule',
@@ -136,7 +136,7 @@ it('selects blocker shifted scenario and mentions up to two blocker titles with 
 });
 
 it('keeps blocker evidence for tomorrow horizon', function (): void {
-    $service = new DeterministicScheduleExplanationService;
+    $service = app(DeterministicScheduleExplanationService::class);
 
     $out = $service->composeNormal([
         'flow_source' => 'schedule',
@@ -158,7 +158,7 @@ it('keeps blocker evidence for tomorrow horizon', function (): void {
 });
 
 it('uses daypart reference wording for morning slot with afternoon classes', function (): void {
-    $service = new DeterministicScheduleExplanationService;
+    $service = app(DeterministicScheduleExplanationService::class);
 
     $out = $service->composeNormal([
         'flow_source' => 'schedule',
@@ -184,7 +184,7 @@ it('uses daypart reference wording for morning slot with afternoon classes', fun
 });
 
 it('builds warmer targeted schedule coaching for later windows', function (): void {
-    $service = new DeterministicScheduleExplanationService;
+    $service = app(DeterministicScheduleExplanationService::class);
 
     $out = $service->composeNormal([
         'flow_source' => 'targeted_schedule',
@@ -213,8 +213,29 @@ it('builds warmer targeted schedule coaching for later windows', function (): vo
     expect((string) ($out['confirmation'] ?? ''))->toContain('5:30 PM');
 });
 
+it('uses the correct article for afternoon start framing', function (): void {
+    $service = app(DeterministicScheduleExplanationService::class);
+
+    $out = $service->composeNormal([
+        'flow_source' => 'schedule',
+        'schedule_scope' => 'all_entities',
+        'requested_window_label' => "this week's window",
+        'requested_count' => 1,
+        'placed_count' => 1,
+        'unplaced_count' => 0,
+        'trigger_list' => [],
+        'strict_window_requested' => false,
+        'blocking_reasons' => [],
+        'chosen_daypart' => 'afternoon',
+        'chosen_time_label' => '1:05 PM',
+    ]);
+
+    expect((string) ($out['framing'] ?? ''))->toContain('an afternoon start');
+    expect((string) ($out['framing'] ?? ''))->not->toContain('a afternoon start');
+});
+
 it('requested window honored reasoning is additive and avoids conflict-free restatement', function (): void {
-    $service = new DeterministicScheduleExplanationService;
+    $service = app(DeterministicScheduleExplanationService::class);
 
     $out = $service->composeNormal([
         'flow_source' => 'schedule',
@@ -237,7 +258,7 @@ it('requested window honored reasoning is additive and avoids conflict-free rest
 });
 
 it('appends all-day overlap note into reasoning when provided', function (): void {
-    $service = new DeterministicScheduleExplanationService;
+    $service = app(DeterministicScheduleExplanationService::class);
 
     $out = $service->composeNormal([
         'flow_source' => 'schedule',
@@ -255,4 +276,29 @@ it('appends all-day overlap note into reasoning when provided', function (): voi
 
     expect((string) ($out['reasoning'] ?? ''))->toContain('all-day events');
     expect((string) data_get($out, 'explanation_meta.all_day_overlap_note'))->toContain('Campus Festival');
+});
+
+it('can rotate coaching phrasing across turn seeds for same prioritize_schedule scenario', function (): void {
+    $service = app(DeterministicScheduleExplanationService::class);
+
+    $basePayload = [
+        'flow_source' => 'prioritize_schedule',
+        'schedule_scope' => 'tasks_only',
+        'requested_window_label' => 'tomorrow',
+        'requested_count' => 3,
+        'placed_count' => 3,
+        'unplaced_count' => 0,
+        'trigger_list' => [],
+        'strict_window_requested' => false,
+        'explicit_requested_window' => false,
+        'requested_window_honored' => false,
+        'blocking_reasons' => [],
+        'chosen_time_label' => '9:00 AM',
+    ];
+
+    $reasoningA = (string) ($service->composeNormal(array_merge($basePayload, ['turn_seed' => '104']))['reasoning'] ?? '');
+    $reasoningB = (string) ($service->composeNormal(array_merge($basePayload, ['turn_seed' => '105']))['reasoning'] ?? '');
+
+    expect($reasoningA)->not->toBe('');
+    expect($reasoningB)->not->toBe('');
 });

@@ -317,7 +317,7 @@ test('prioritize_schedule schedules the top student-first task selection', funct
     expect($selectionExplanation['enabled'] ?? null)->toBeTrue();
     expect($selectionExplanation['selected_count'] ?? null)->toBe(1);
     expect(is_array($selectionExplanation['ordering_rationale'] ?? null))->toBeTrue();
-    expect((string) ($assistantMessage->content ?? ''))->toContain('I picked this task first because it stood out most clearly in your current priorities before I placed it into a time block.');
+    expect(mb_strtolower((string) ($assistantMessage->content ?? '')))->toContain('priority');
     expect((string) ($assistantMessage->content ?? ''))->not->toContain('Here are your prioritized items, placed into schedule blocks:');
     expect((string) ($assistantMessage->content ?? ''))->not->toContain('• #1 ');
 });
@@ -1904,7 +1904,7 @@ test('robotic fallback narrative is rejected in favor of deterministic student-f
     expect((string) $assistantMessage->content)->not->toContain('Confidence:');
     expect((string) $assistantMessage->content)->not->toContain('explicitly by the user');
     expect((string) $assistantMessage->content)->toContain('What got in the way:');
-    expect((string) $assistantMessage->content)->toContain('I prepared a draft and paused so you can review it before I finalize anything.');
+    expect(mb_strtolower((string) $assistantMessage->content))->toContain('draft');
 
     CarbonImmutable::setTestNow();
 });

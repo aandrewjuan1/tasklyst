@@ -2,8 +2,15 @@
 
 namespace App\Services\LLM\Scheduling;
 
+use App\Services\LLM\TaskAssistant\TaskAssistantScheduleTemplateService;
+use Carbon\CarbonImmutable;
+
 final class DeterministicScheduleExplanationService
 {
+    public function __construct(
+        private readonly TaskAssistantScheduleTemplateService $scheduleTemplateService,
+    ) {}
+
     /**
      * @param  array<string, mixed>  $payload
      * @return array{
@@ -73,6 +80,7 @@ final class DeterministicScheduleExplanationService
             scheduleScope: $scheduleScope,
             hasBlockerTitles: $blockerTitles !== [],
         );
+        $seedContext = $this->buildTemplateSeedContext($payload, $scenarioKey, $flowSource, $requestedWindowLabel, $placedCount);
 
         $framing = $this->buildFraming(
             scenarioKey: $scenarioKey,
@@ -83,6 +91,7 @@ final class DeterministicScheduleExplanationService
             chosenTimeLabel: $chosenTimeLabel,
             isTargetedSchedule: $isTargetedSchedule,
             targetedEntityTitle: $targetedEntityTitle,
+            seedContext: $seedContext,
         );
         $reasoning = $this->buildReasoning(
             scenarioKey: $scenarioKey,
@@ -100,6 +109,7 @@ final class DeterministicScheduleExplanationService
             isTargetedSchedule: $isTargetedSchedule,
             targetedEntityTitle: $targetedEntityTitle,
             timeWindowHintSource: $timeWindowHintSource,
+            seedContext: $seedContext,
         );
         $confirmation = $this->buildConfirmation(
             scenarioKey: $scenarioKey,
@@ -107,6 +117,7 @@ final class DeterministicScheduleExplanationService
             isTargetedSchedule: $isTargetedSchedule,
             chosenTimeLabel: $chosenTimeLabel,
             targetedEntityTitle: $targetedEntityTitle,
+            seedContext: $seedContext,
         );
 
         $framing = $this->applyNarrativeCommitmentTone($framing, $narrativeMode);
@@ -114,7 +125,10 @@ final class DeterministicScheduleExplanationService
         $confirmation = $this->applyNarrativeCommitmentTone($confirmation, $narrativeMode);
 
         $toneKey = $this->resolveCoachingToneKey($scenarioKey, $chosenDaypart, $chosenTimeLabel, $selectedBlockers);
-        $coachLine = $this->coachingLineForToneKey($toneKey);
+        $coachLine = $this->scheduleTemplateService->buildCoachingLineForToneKey($toneKey, array_merge($seedContext, [
+            'scenario_key' => 'coaching_'.$toneKey,
+            'request_bucket' => 'coaching_'.$toneKey,
+        ]));
         if ($coachLine !== '' && ! str_contains(mb_strtolower($reasoning), mb_strtolower($coachLine))) {
             $reasoning = trim($reasoning.' '.$coachLine);
         }
@@ -176,10 +190,19 @@ final class DeterministicScheduleExplanationService
         ), static fn (string $line): bool => $line !== ''));
 
         $framing = match ($reasonCode) {
-            'strict_window_no_fit', 'explicit_day_not_feasible' => 'I paused before finalizing because your original time request was too tight with current conflicts.',
-            'top_n_shortfall' => "I prepared the strongest draft I could for your top {$requestedCount} request.",
-            'empty_placement_no_fit', 'unplaced_explicit_targets' => 'I could not place every requested item in the current window, so I saved a safe draft for your decision.',
-            default => 'I prepared a draft and paused so you can decide the next move.',
+            'strict_window_no_fit', 'explicit_day_not_feasible' => $this->scheduleTemplateService->buildFraming(
+                'STRICT_WINDOW_NO_FIT',
+                $this->buildTemplateSeedContext($payload, 'STRICT_WINDOW_NO_FIT', 'schedule', $requestedWindowLabel, $placedCount),
+                ['requested_window_label' => $requestedWindowLabel]
+            ),
+            'top_n_shortfall' => $this->scheduleTemplateService->buildFraming(
+                'TOP_N_SHORTFALL',
+                $this->buildTemplateSeedContext($payload, 'TOP_N_SHORTFALL', 'schedule', $requestedWindowLabel, $placedCount)
+            ),
+            default => $this->scheduleTemplateService->buildFraming(
+                'DEFAULT_FEASIBLE_PLACEMENT',
+                $this->buildTemplateSeedContext($payload, 'DEFAULT_FEASIBLE_PLACEMENT', 'schedule', $requestedWindowLabel, $placedCount)
+            ),
         };
         $framing = $this->applyNarrativeCommitmentTone($framing, $narrativeMode);
 
@@ -199,7 +222,13 @@ final class DeterministicScheduleExplanationService
         }
 
         $toneKey = 'fallback_nearest';
-        $coachLine = $this->coachingLineForToneKey($toneKey);
+        $coachLine = $this->scheduleTemplateService->buildCoachingLineForToneKey($toneKey, $this->buildTemplateSeedContext(
+            $payload,
+            'coaching_'.$toneKey,
+            'schedule',
+            $requestedWindowLabel,
+            $placedCount
+        ));
         if ($coachLine !== '' && ! str_contains(mb_strtolower($reasoning), mb_strtolower($coachLine))) {
             $reasoning = trim($reasoning.' '.$coachLine);
         }
@@ -303,9 +332,10 @@ final class DeterministicScheduleExplanationService
         string $chosenTimeLabel,
         bool $isTargetedSchedule,
         string $targetedEntityTitle,
+        array $seedContext,
     ): string {
         if ($scenarioKey === 'FLOW_PRIORITIZE_SCHEDULE_TASKS_ONLY' || ($flowSource === 'prioritize_schedule' && $scheduleScope === 'tasks_only')) {
-            return 'I proposed time blocks for your top-ranked tasks so they fit into realistic open windows.';
+            return $this->scheduleTemplateService->buildFraming($scenarioKey, $seedContext);
         }
         if ($isTargetedSchedule) {
             return $this->buildTargetedFraming(
@@ -318,18 +348,20 @@ final class DeterministicScheduleExplanationService
         }
 
         return match ($scenarioKey) {
-            'STRICT_WINDOW_NO_FIT' => "I checked {$requestedWindowLabel} first and paused because that strict window could not fully fit.",
+            'STRICT_WINDOW_NO_FIT' => $this->scheduleTemplateService->buildFraming($scenarioKey, $seedContext, [
+                'requested_window_label' => $requestedWindowLabel,
+            ]),
             'AUTO_ROLL_LATER_TO_TOMORROW' => 'I finished checking today and moved this to the nearest open window tomorrow.',
             'ADAPTIVE_FALLBACK_RELAXED' => 'I widened the placement window to keep your plan feasible.',
-            'TOP_N_SHORTFALL' => 'I built the strongest draft possible for your requested count.',
+            'TOP_N_SHORTFALL' => $this->scheduleTemplateService->buildFraming($scenarioKey, $seedContext),
             'UNPLACED_TARGETS_EXIST' => 'I scheduled what fit cleanly and held the rest for your next decision.',
             'BLOCKED_WINDOW_SHIFTED' => 'I proposed the next conflict-free slot that still fits this plan.',
             'MISSING_BLOCKER_TITLES' => 'I proposed a later fit because earlier time was already occupied.',
             'REQUESTED_WINDOW_HONORED' => "I kept this in {$requestedWindowLabel} as requested.",
             'EMPTY_CANDIDATE_LIST' => 'I could not find schedulable items in this scope yet.',
             default => $chosenDaypart !== ''
-                ? "I proposed a {$chosenDaypart} start because it fit your requested timing cleanly."
-                : 'I proposed the closest feasible window for what you asked.',
+                ? 'I proposed '.$this->indefiniteArticleForDaypart($chosenDaypart)." {$chosenDaypart} start because it fit your requested timing cleanly."
+                : $this->scheduleTemplateService->buildFraming('DEFAULT_FEASIBLE_PLACEMENT', $seedContext),
         };
     }
 
@@ -349,6 +381,7 @@ final class DeterministicScheduleExplanationService
         bool $isTargetedSchedule,
         string $targetedEntityTitle,
         string $timeWindowHintSource,
+        array $seedContext,
     ): string {
         $blockersText = $this->joinBlockersWithWindows($selectedBlockers);
         $dayContext = $this->buildDayContextReasoning(
@@ -371,14 +404,20 @@ final class DeterministicScheduleExplanationService
         }
 
         return match ($scenarioKey) {
-            'STRICT_WINDOW_NO_FIT' => $hasBlockerTitles
-                ? "I could not fit {$requestedWindowLabel} because {$blockersText} occupied that period, so I used the nearest open slot{$this->suffixAtLabel($chosenTimeLabel)}."
-                : "I could not fit {$requestedWindowLabel} with current overlaps, so I used the nearest open slot{$this->suffixAtLabel($chosenTimeLabel)}.",
+            'STRICT_WINDOW_NO_FIT' => $this->scheduleTemplateService->buildReasoning('STRICT_WINDOW_NO_FIT', $seedContext, [
+                'requested_window_label' => $requestedWindowLabel,
+                'blockers_text' => $hasBlockerTitles ? $blockersText : 'current overlaps',
+                'chosen_suffix' => $this->suffixAtLabel($chosenTimeLabel),
+            ]),
             'AUTO_ROLL_LATER_TO_TOMORROW' => "There was not enough capacity left today, so this moved to tomorrow{$this->suffixAtLabel($chosenTimeLabel)}.",
             'ADAPTIVE_FALLBACK_RELAXED' => $nearestLabel !== ''
                 ? "Your first window was too tight, so I relaxed it and used {$nearestLabel}."
                 : "Your first window was too tight, so I relaxed it and used the next feasible slot{$this->suffixAtLabel($chosenTimeLabel)}.",
-            'TOP_N_SHORTFALL' => "You asked for {$requestedCount}, and {$placedCount} fit in {$requestedWindowLabel} in this pass.".($hasBlockerTitles ? " Main blockers were {$blockersText}." : ''),
+            'TOP_N_SHORTFALL' => $this->scheduleTemplateService->buildReasoning('TOP_N_SHORTFALL', $seedContext, [
+                'requested_count' => (string) $requestedCount,
+                'placed_count' => (string) $placedCount,
+                'requested_window_label' => $requestedWindowLabel,
+            ]).($hasBlockerTitles ? " Main blockers were {$blockersText}." : ''),
             'UNPLACED_TARGETS_EXIST' => "I scheduled what fit and left {$unplacedCount} unscheduled item(s) because no conflict-free slot remained in this window.".($hasBlockerTitles ? " The tightest constraints were {$blockersText}." : ''),
             'BLOCKED_WINDOW_SHIFTED' => $hasBlockerTitles
                 ? (
@@ -390,7 +429,7 @@ final class DeterministicScheduleExplanationService
             'PLACEMENT_OUTSIDE_HORIZON' => "The closest valid slot was outside the original horizon, so I drafted the nearest feasible alternative{$this->suffixAtLabel($chosenTimeLabel)}.",
             'REQUESTED_WINDOW_HONORED' => "Keeping this inside {$requestedWindowLabel} helps you execute without reshuffling the rest of your day.",
             'FLOW_PRIORITIZE_SCHEDULE_TASKS_ONLY' => $placedCount > 1
-                ? 'I spread these tasks across conflict-free windows that fit the rest of your schedule without overloading one block.'
+                ? $this->scheduleTemplateService->buildReasoning('FLOW_PRIORITIZE_SCHEDULE_TASKS_ONLY', $seedContext)
                 : 'I placed this task into a conflict-free window that fits the rest of your schedule.',
             'MISSING_BLOCKER_TITLES' => "I moved this{$this->suffixAtLabel($chosenTimeLabel)} because earlier windows were occupied even though blocker titles were not available.",
             'EMPTY_CANDIDATE_LIST' => 'There are no schedulable items in this scope right now. Add or unfilter tasks, then I can place them immediately.',
@@ -398,7 +437,9 @@ final class DeterministicScheduleExplanationService
                 ? "I used a safer fallback placement mode to keep this plan feasible{$this->suffixAtLabel($chosenTimeLabel)}."
                 : ($hasBlockerTitles
                     ? "I placed this{$this->suffixAtLabel($chosenTimeLabel)} because {$blockersText} occupied earlier windows."
-                    : "I placed this{$this->suffixAtLabel($chosenTimeLabel)} because it is the closest open slot that fits your requested scope."),
+                    : $this->scheduleTemplateService->buildReasoning('DEFAULT_FEASIBLE_PLACEMENT', $seedContext, [
+                        'chosen_suffix' => $this->suffixAtLabel($chosenTimeLabel),
+                    ])),
         };
     }
 
@@ -408,6 +449,7 @@ final class DeterministicScheduleExplanationService
         bool $isTargetedSchedule,
         string $chosenTimeLabel,
         string $targetedEntityTitle,
+        array $seedContext,
     ): string {
         if ($isTargetedSchedule) {
             $taskLabel = $targetedEntityTitle !== '' ? $targetedEntityTitle : 'this task';
@@ -419,14 +461,42 @@ final class DeterministicScheduleExplanationService
         }
 
         return match ($scenarioKey) {
-            'STRICT_WINDOW_NO_FIT' => 'Do you want me to keep this nearest-slot draft, or should we pick another time window?',
-            'TOP_N_SHORTFALL' => 'Do you want to continue with this draft or widen the window to fit more items?',
+            'STRICT_WINDOW_NO_FIT' => $this->scheduleTemplateService->buildConfirmation('STRICT_WINDOW_NO_FIT', $seedContext),
+            'TOP_N_SHORTFALL' => $this->scheduleTemplateService->buildConfirmation('TOP_N_SHORTFALL', $seedContext),
             'UNPLACED_TARGETS_EXIST' => $unplacedCount > 0
                 ? 'Want me to keep this feasible subset now, then schedule the remaining items next?'
                 : 'Do you want to continue with this draft or adjust the time window?',
             'EMPTY_CANDIDATE_LIST' => 'Want me to help you prioritize or adjust filters first so we can schedule right away?',
-            default => 'Do these times look workable, or should I shift earlier/later before you finalize?',
+            default => $this->scheduleTemplateService->buildConfirmation('DEFAULT_FEASIBLE_PLACEMENT', $seedContext),
         };
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    private function buildTemplateSeedContext(
+        array $payload,
+        string $scenarioKey,
+        string $flowSource,
+        string $requestedWindowLabel,
+        int $placedCount
+    ): array {
+        $threadId = app()->bound('task_assistant.thread_id') ? (int) app('task_assistant.thread_id') : 0;
+        $dayBucket = CarbonImmutable::now((string) config('app.timezone', 'UTC'))->toDateString();
+
+        return [
+            'thread_id' => $threadId,
+            'flow_source' => $flowSource,
+            'scenario_key' => $scenarioKey,
+            'requested_window_label' => $requestedWindowLabel,
+            'placed_count' => $placedCount,
+            'prompt_key' => substr(sha1($scenarioKey.'|'.$flowSource.'|'.$requestedWindowLabel.'|'.$placedCount), 0, 16),
+            'request_bucket' => strtolower($scenarioKey),
+            'day_bucket' => $dayBucket,
+            'is_targeted_schedule' => (bool) ($payload['is_targeted_schedule'] ?? false),
+            'turn_seed' => (string) ($payload['turn_seed'] ?? '0'),
+        ];
     }
 
     private function buildTargetedFraming(
@@ -807,21 +877,6 @@ final class DeterministicScheduleExplanationService
         return $latest;
     }
 
-    private function coachingLineForToneKey(string $toneKey): string
-    {
-        return match ($toneKey) {
-            'morning_momentum' => 'Starting earlier gives you stronger focus and more recovery time if plans shift.',
-            'afternoon_restart' => 'An afternoon block is a practical restart window after earlier commitments.',
-            'evening_closure' => 'A defined evening block helps you close the day with one clear win.',
-            'post_class_or_after_commitment' => 'Scheduling right after commitments reduces idle time and keeps momentum.',
-            'focus_protection' => 'Protecting one active focus block at a time improves completion rate.',
-            'fallback_nearest' => 'Using the closest open slot keeps progress moving instead of postponing the task.',
-            'partial_fit' => 'A realistic smaller plan is easier to execute than an overloaded one.',
-            'next_step_prompt' => 'Once one item is added or unblocked, I can schedule it immediately.',
-            default => 'Using real gaps is better than overbooking and slipping tasks.',
-        };
-    }
-
     private function resolveDaypartFromChosenTimeLabel(string $chosenTimeLabel): string
     {
         if ($chosenTimeLabel === '') {
@@ -848,6 +903,13 @@ final class DeterministicScheduleExplanationService
     private function suffixAtLabel(string $label): string
     {
         return $label !== '' ? " at {$label}" : '';
+    }
+
+    private function indefiniteArticleForDaypart(string $daypart): string
+    {
+        $normalized = mb_strtolower(trim($daypart));
+
+        return in_array($normalized, ['afternoon', 'evening'], true) ? 'an' : 'a';
     }
 
     private function guardrail(string $text, int $maxChars): string

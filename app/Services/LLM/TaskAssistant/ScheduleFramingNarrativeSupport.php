@@ -32,37 +32,28 @@ final class ScheduleFramingNarrativeSupport
         $primaryLabel = self::truncateLabel($primaryLabel);
 
         $seedMaterial = $seed.'|'.mb_substr(trim($userMessageContent), 0, self::USER_MESSAGE_MAX_SEED_CHARS);
-        $n = abs(crc32($seedMaterial));
 
-        if ($blockCount <= 1) {
-            $templates = [
-                "I set aside {$windowPhrase} for {$primaryLabel}; the row below shows the exact start and end.",
-                "I lined up one focused block for {$primaryLabel} {$windowPhrase}; the next line has the exact time.",
-                "{$windowLead}, I placed {$primaryLabel} on your plan—check the row below for the clock times.",
-                "Here is the {$windowPhrase} slot I prepared for {$primaryLabel}. You can see the exact window right below.",
-                "I matched your request with time for {$primaryLabel} {$windowPhrase}; the row underneath has start and end.",
-                "{$windowLead} I carved out time for {$primaryLabel}; details are right below so you can tweak easily.",
-                "I set one clear block for {$primaryLabel} {$windowPhrase}; look one line down for the timing.",
-                "This is the {$windowPhrase} slot I created for {$primaryLabel}—the row below locks in the timing.",
-            ];
-
-            return $templates[$n % count($templates)];
-        }
-
-        $count = max(2, $blockCount);
+        $count = max(1, $blockCount);
         $second = isset($labels[1]) ? self::truncateLabel($labels[1]) : 'the next item';
-        $multiTemplates = [
-            "I mapped {$count} blocks across {$windowPhrase}—each row below is one block you can tweak if needed.",
-            "Here is how {$count} blocks land {$windowPhrase}: one row per block under this note.",
-            "{$windowLead} you have {$count} stacked blocks; the rows below walk through each time window.",
-            "I fit {$count} tasks into {$windowPhrase}; every row below is a block we can refine in chat.",
-            "Across {$windowPhrase} I sequenced {$count} blocks starting with {$primaryLabel} and {$second}—times are listed below.",
-            "Your {$windowPhrase} plan spans {$count} blocks; scan the rows below for each start and end time.",
-            "{$windowLead} here is a {$count}-block run—each row below is ready to adjust before you save.",
-            "I queued {$count} blocks for {$windowPhrase}; the rows below list them in time order.",
-        ];
+        $templateService = app(TaskAssistantScheduleTemplateService::class);
 
-        return $multiTemplates[$n % count($multiTemplates)];
+        return $templateService->buildFramingFallbackForScheduleRows(
+            $count,
+            $windowPhrase,
+            $windowLead,
+            $primaryLabel,
+            $second,
+            [
+                'thread_id' => app()->bound('task_assistant.thread_id') ? (int) app('task_assistant.thread_id') : 0,
+                'flow_source' => 'schedule',
+                'scenario_key' => $count <= 1 ? 'schedule_rows_single' : 'schedule_rows_multi',
+                'placed_count' => $count,
+                'requested_window_label' => $windowPhrase,
+                'day_bucket' => CarbonImmutable::now((string) config('app.timezone', 'UTC'))->toDateString(),
+                'prompt_key' => substr(sha1($seedMaterial), 0, 16),
+                'request_bucket' => 'schedule_rows',
+            ]
+        );
     }
 
     public static function sanitizeModelFraming(string $framing): string

@@ -2111,6 +2111,7 @@ final class TaskAssistantService
                     'explicit_requested_count' => $explicitRequestedCount,
                     'is_strict_set_contract' => (bool) ($plan->constraints['is_strict_set_contract'] ?? false),
                     'schedule_user_id' => $thread->user_id,
+                    'assistant_message_id' => $assistantMessage->id,
                     'named_task_resolution' => $namedTaskResolution,
                     'refinement_anchor_date' => is_string($plan->constraints['refinement_anchor_date'] ?? null)
                         ? (string) $plan->constraints['refinement_anchor_date']
@@ -5029,6 +5030,7 @@ final class TaskAssistantService
                     'explicit_requested_count' => $explicitRequestedCount,
                     'is_strict_set_contract' => (bool) ($plan->constraints['is_strict_set_contract'] ?? false),
                     'schedule_user_id' => $thread->user_id,
+                    'assistant_message_id' => $assistantMessage->id,
                     'prioritize_selection_mode' => $prioritizeSelectionMode,
                     'named_task_resolution' => is_array($plan->constraints['named_task_resolution'] ?? null)
                         ? $plan->constraints['named_task_resolution']

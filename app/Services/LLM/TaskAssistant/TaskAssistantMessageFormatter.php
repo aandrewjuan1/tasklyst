@@ -469,6 +469,7 @@ final class TaskAssistantMessageFormatter
             if ($title === '') {
                 continue;
             }
+            $title = $this->normalizeDisplayTitleSpacing($title);
             $comparedLines[] = '• '.$title;
         }
 
@@ -482,6 +483,7 @@ final class TaskAssistantMessageFormatter
             if ($title === '') {
                 continue;
             }
+            $title = $this->normalizeDisplayTitleSpacing($title);
             $altLines[] = '• '.$title;
         }
 
@@ -631,6 +633,7 @@ final class TaskAssistantMessageFormatter
             if ($title === '') {
                 continue;
             }
+            $title = $this->normalizeDisplayTitleSpacing($title);
 
             $entityType = strtolower(trim((string) ($item['entity_type'] ?? 'task')));
 
@@ -742,6 +745,7 @@ final class TaskAssistantMessageFormatter
                 if ($title === '') {
                     $title = 'Focus time';
                 }
+                $title = $this->normalizeDisplayTitleSpacing($title);
                 $duration = $item['duration_minutes'] ?? null;
                 $durPart = is_numeric($duration) && (int) $duration > 0
                     ? ' ('.$this->formatScheduleDurationLabel((int) $duration).')'
@@ -1121,6 +1125,7 @@ final class TaskAssistantMessageFormatter
                 if ($title === '') {
                     continue;
                 }
+                $title = $this->normalizeDisplayTitleSpacing($title);
                 $block = is_array($blocks[$idx] ?? null) ? $blocks[$idx] : [];
                 $dateLabel = $this->formatDateLabel((string) ($item['start_datetime'] ?? ''));
                 $timeLabel = $this->resolveScheduleTimeLabelForRow(
@@ -1584,6 +1589,19 @@ final class TaskAssistantMessageFormatter
         return $this->formatHhmmLabel($date->format('H:i'));
     }
 
+    private function normalizeDisplayTitleSpacing(string $title): string
+    {
+        $normalized = trim($title);
+        if ($normalized === '') {
+            return '';
+        }
+
+        // Display-only cleanup: keep source title semantics, only collapse odd spacing.
+        $normalized = preg_replace('/\s+/u', ' ', $normalized) ?? $normalized;
+
+        return trim($normalized);
+    }
+
     /**
      * @param  list<array<string, mixed>>  $items
      */
@@ -1653,7 +1671,8 @@ final class TaskAssistantMessageFormatter
      * @return array{
      *   is_multi_day: bool,
      *   span_label: string,
-     *   dominant_daypart: string|null
+     *   dominant_daypart: string|null,
+     *   first_slot_daypart: string|null
      * }
      */
     private function buildScheduleNarrativeFacts(array $items, array $blocks, array $narrativeFacts = []): array
@@ -1708,6 +1727,7 @@ final class TaskAssistantMessageFormatter
             'is_multi_day' => $isMultiDay,
             'span_label' => $spanLabel,
             'dominant_daypart' => $this->dominantDaypartFromHours($hours),
+            'first_slot_daypart' => $this->firstSlotDaypartFromItems($items),
             'relative_day_label' => $relativeDayLabel,
         ];
     }
@@ -1717,6 +1737,7 @@ final class TaskAssistantMessageFormatter
      *   is_multi_day: bool,
      *   span_label: string,
      *   dominant_daypart: string|null,
+     *   first_slot_daypart: string|null,
      *   relative_day_label: string|null
      * }  $facts
      * @param  array<string, array{from: string, to: string}>  $corrections
@@ -1749,14 +1770,16 @@ final class TaskAssistantMessageFormatter
             }
         }
 
+        $firstSlotDaypart = is_string($facts['first_slot_daypart'] ?? null)
+            ? (string) $facts['first_slot_daypart']
+            : null;
+        if ($firstSlotDaypart !== null) {
+            $updated = $this->alignStartDaypartClaimToFirstSlot($updated, $firstSlotDaypart);
+        }
+
         $dominantDaypart = $facts['dominant_daypart'];
         if (is_string($dominantDaypart) && $dominantDaypart !== '') {
-            $updated = match ($dominantDaypart) {
-                'morning' => (string) preg_replace('/\b(evening|night|afternoon)\b/iu', 'morning', $updated),
-                'afternoon' => (string) preg_replace('/\b(evening|night|morning)\b/iu', 'afternoon', $updated),
-                'evening' => (string) preg_replace('/\b(morning|afternoon)\b/iu', 'evening', $updated),
-                default => $updated,
-            };
+            $updated = $this->alignGenericDaypartClaimsToDominantDaypart($updated, $dominantDaypart);
         }
 
         if ($updated !== $from) {
@@ -1784,6 +1807,67 @@ final class TaskAssistantMessageFormatter
         }
 
         return false;
+    }
+
+    private function alignGenericDaypartClaimsToDominantDaypart(string $text, string $dominantDaypart): string
+    {
+        $updated = $text;
+
+        return match ($dominantDaypart) {
+            'morning' => (string) preg_replace('/\b(evening|night|afternoon)\b(?!\s+start\b)/iu', 'morning', $updated),
+            'afternoon' => (string) preg_replace('/\b(evening|night|morning)\b(?!\s+start\b)/iu', 'afternoon', $updated),
+            'evening' => (string) preg_replace('/\b(morning|afternoon)\b(?!\s+start\b)/iu', 'evening', $updated),
+            default => $updated,
+        };
+    }
+
+    /**
+     * Keep "start" narratives grounded on the actual first scheduled slot.
+     * This avoids rewriting a concrete "10:20 AM start" into "afternoon start"
+     * when later rows dominate the schedule.
+     *
+     * @param  list<array<string, mixed>>  $items
+     */
+    private function firstSlotDaypartFromItems(array $items): ?string
+    {
+        $firstStart = trim((string) data_get($items, '0.start_datetime', ''));
+        if ($firstStart === '') {
+            return null;
+        }
+
+        try {
+            $hour = (int) (new \DateTimeImmutable($firstStart))->format('H');
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return match (true) {
+            $hour < 12 => 'morning',
+            $hour < 18 => 'afternoon',
+            default => 'evening',
+        };
+    }
+
+    private function alignStartDaypartClaimToFirstSlot(string $text, string $firstSlotDaypart): string
+    {
+        $updated = $text;
+
+        $patterns = [
+            '/\b(a|an)\s+(morning|afternoon|evening)\s+start\b/iu',
+            '/\b(morning|afternoon|evening)\s+start\b/iu',
+        ];
+
+        foreach ($patterns as $pattern) {
+            $updated = (string) preg_replace_callback($pattern, function (array $matches) use ($firstSlotDaypart): string {
+                $hasArticle = isset($matches[1]) && in_array(mb_strtolower((string) $matches[1]), ['a', 'an'], true);
+                $article = in_array($firstSlotDaypart, ['afternoon', 'evening'], true) ? 'an' : 'a';
+                $phrase = $hasArticle ? "{$article} {$firstSlotDaypart} start" : "{$firstSlotDaypart} start";
+
+                return $phrase;
+            }, $updated);
+        }
+
+        return $updated;
     }
 
     /**

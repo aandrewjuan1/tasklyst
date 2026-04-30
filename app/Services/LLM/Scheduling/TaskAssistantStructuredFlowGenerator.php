@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Services\LLM\Prioritization\TaskPrioritizationService;
 use App\Services\LLM\TaskAssistant\TaskAssistantHybridNarrativeService;
 use App\Services\LLM\TaskAssistant\TaskAssistantPromptData;
+use App\Services\LLM\TaskAssistant\TaskAssistantScheduleTemplateService;
 use App\Services\RecurrenceExpander;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
@@ -30,6 +31,7 @@ final class TaskAssistantStructuredFlowGenerator
         private readonly TaskAssistantWindowPlacementService $windowPlacementService,
         private readonly ScheduleConfirmationSignalsBuilder $confirmationSignalsBuilder,
         private readonly DeterministicScheduleExplanationService $deterministicExplanationService,
+        private readonly TaskAssistantScheduleTemplateService $scheduleTemplateService,
         private readonly RecurrenceExpander $recurrenceExpander,
     ) {}
 
@@ -306,16 +308,28 @@ final class TaskAssistantStructuredFlowGenerator
             return null;
         }
 
-        $summary = $selectedCount === 1
-            ? 'I picked this task first because it stood out most clearly in your current priorities before I placed it into a time block.'
-            : 'I picked these tasks first because they stood out most clearly in your current priorities before I placed them into time blocks.';
+        $selectionSeedContext = [
+            'thread_id' => app()->bound('task_assistant.thread_id') ? (int) app('task_assistant.thread_id') : 0,
+            'flow_source' => 'prioritize_schedule',
+            'scenario_key' => 'prioritize_selection',
+            'requested_window_label' => trim((string) ($scheduleOptions['requested_window_display_label'] ?? 'requested_window')),
+            'placed_count' => $selectedCount,
+            'day_bucket' => CarbonImmutable::now((string) config('app.timezone', 'UTC'))->toDateString(),
+            'prompt_key' => substr(sha1('selection|'.$selectedCount.'|'.implode('|', array_slice(array_map(
+                static fn (array $row): string => (string) ($row['title'] ?? ''),
+                array_values(array_filter($targets, static fn (mixed $row): bool => is_array($row)))
+            ), 0, 3))), 0, 16),
+            'request_bucket' => 'prioritize_selection',
+            'turn_seed' => (string) ($scheduleOptions['assistant_message_id'] ?? '0'),
+        ];
+        $summary = $this->scheduleTemplateService->buildPrioritizeSelectionSummary($selectedCount, $selectionSeedContext);
 
         return [
             'enabled' => true,
             'target_mode' => 'implicit_ranked',
             'selected_count' => $selectedCount,
             'summary' => $summary,
-            'selection_basis' => 'Urgency leads, then explicit priority and earlier deadlines. When tasks are otherwise close, shorter blocks can help break the tie.',
+            'selection_basis' => $this->scheduleTemplateService->buildPrioritizeSelectionBasis($selectionSeedContext),
             'ordering_rationale' => array_slice($orderingRationale, 0, 5),
         ];
     }
@@ -696,8 +710,23 @@ final class TaskAssistantStructuredFlowGenerator
             ? trim((string) $focusHistoryAttribution['explanation'])
             : '';
 
+        $templateSeedContext = [
+            'thread_id' => app()->bound('task_assistant.thread_id') ? (int) app('task_assistant.thread_id') : 0,
+            'flow_source' => (string) ($scheduleOptions['schedule_source'] ?? 'schedule'),
+            'scenario_key' => 'schedule_explainability',
+            'placed_count' => count($proposals),
+            'requested_window_label' => $requestedWindowDisplayLabel !== '' ? $requestedWindowDisplayLabel : 'your requested window',
+            'day_bucket' => CarbonImmutable::now((string) config('app.timezone', 'UTC'))->toDateString(),
+            'prompt_key' => substr(sha1((string) ($scheduleOptions['schedule_source'] ?? 'schedule').'|'.$requestedWindowDisplayLabel.'|'.count($proposals)), 0, 16),
+            'request_bucket' => 'schedule_explainability',
+            'turn_seed' => (string) ($scheduleOptions['assistant_message_id'] ?? '0'),
+        ];
+
         $windowSelectionExplanation = ($meaningfulWindow && $hasExplicitClockTime)
-            ? 'I prioritized slots between '.$this->formatClockLabel($windowStart).' and '.$this->formatClockLabel($windowEnd).' so this plan fits the time window you asked for.'
+            ? $this->scheduleTemplateService->buildWindowSelectionExplanation($templateSeedContext, [
+                'window_start' => $this->formatClockLabel($windowStart),
+                'window_end' => $this->formatClockLabel($windowEnd),
+            ])
             : '';
         if ($windowSelectionExplanation !== '' && $isPlacementMultiDay && $horizonStart !== '' && $horizonEnd !== '' && $horizonStart !== $horizonEnd) {
             $windowSelectionExplanation .= " I spread placements across {$horizonStart} to {$horizonEnd} when needed.";
@@ -722,8 +751,13 @@ final class TaskAssistantStructuredFlowGenerator
                     $startLabel = '';
                 }
             }
+            $orderingSeedContext = array_merge($templateSeedContext, ['scenario_key' => 'ordering_line', 'request_bucket' => 'rank_'.($index + 1)]);
             $orderingRationale[] = $startLabel !== ''
-                ? '#'.($index + 1)." {$title}: placed at {$startLabel} as one of the strongest fit windows."
+                ? $this->scheduleTemplateService->buildOrderingRationaleLine($orderingSeedContext, [
+                    'rank' => (string) ($index + 1),
+                    'title' => $title,
+                    'start_label' => $startLabel,
+                ])
                 : '#'.($index + 1)." {$title}: placed in the next strongest fit window.";
             $orderingRationaleStruct[] = [
                 'rank' => $index + 1,
@@ -786,10 +820,10 @@ final class TaskAssistantStructuredFlowGenerator
         $fallbackChoiceExplanation = null;
         $fallbackMode = trim((string) ($digest['fallback_mode'] ?? ''));
         if ($fallbackMode !== '') {
-            $fallbackChoiceExplanation = match ($fallbackMode) {
-                'auto_relaxed_today_or_tomorrow' => 'I widened placement to nearby days because the original window had no valid opening.',
-                default => 'I used a safer fallback schedule strategy to keep your plan realistic.',
-            };
+            $fallbackChoiceExplanation = $this->scheduleTemplateService->buildFallbackChoiceExplanation(
+                $fallbackMode,
+                array_merge($templateSeedContext, ['scenario_key' => 'fallback_choice', 'request_bucket' => $fallbackMode])
+            );
         }
 
         return [
@@ -4203,6 +4237,7 @@ final class TaskAssistantStructuredFlowGenerator
             'blocking_reasons' => is_array($scheduleExplainability['blocking_reasons'] ?? null) ? $scheduleExplainability['blocking_reasons'] : [],
             'all_day_overlap_note' => (string) ($scheduleExplainability['all_day_overlap_note'] ?? ''),
             'all_day_overlaps' => is_array($scheduleExplainability['all_day_overlaps'] ?? null) ? $scheduleExplainability['all_day_overlaps'] : [],
+            'turn_seed' => (string) ($options['assistant_message_id'] ?? '0'),
         ]);
 
         $focusHistoryWindowExplanation = trim((string) ($scheduleExplainability['focus_history_window_explanation'] ?? ''));
@@ -4284,7 +4319,7 @@ final class TaskAssistantStructuredFlowGenerator
             $readableDayEnd = $this->formatHhmmToMeridiem($dayEnd);
             $daypartLabel = $this->daypartRangeLabelFromBounds($dayStart, $dayEnd);
             if ($readableDayStart !== '' && $readableDayEnd !== '') {
-                $reasonParts[] = "your recent focus window clusters around {$readableDayStart}-{$readableDayEnd} ({$daypartLabel})";
+                $reasonParts[] = "your recent focus window clusters around {$readableDayStart}–{$readableDayEnd} ({$daypartLabel})";
             } else {
                 $reasonParts[] = "your recent focus window clusters around {$daypartLabel}";
             }
