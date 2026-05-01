@@ -96,12 +96,9 @@
 
     $currentUserId = auth()->id();
     $currentUserIsOwner = $currentUserId && (int) $item->user_id === (int) $currentUserId;
-    $hasCollaborators = ($item->collaborators ?? collect())->count() > 0;
-    $isCollaboratedView = $hasCollaborators && ! $currentUserIsOwner;
     $canEdit = auth()->user()?->can('update', $item) ?? false;
     $canEditRecurrence = $currentUserIsOwner && $canEdit;
     $canEditDates = $currentUserIsOwner && $canEdit;
-    $canEditTags = $currentUserIsOwner && $canEdit;
 
     $hasTaskTags = $item->tags->isNotEmpty();
     $hasProjectParent = (bool) ($item->project_id && $item->project);
@@ -1309,11 +1306,6 @@
 
     @endif
 
-    @php
-    $hideTagsSection = ($isCollaboratedView && $item->tags->isEmpty())
-        || ($embedInFocusModal ?? false);
-    @endphp
-
     @if($canEdit)
         <div class="w-full basis-full mt-1 flex flex-col gap-2">
             @if(($layout ?? 'list') === 'kanban' && ! $embedInFocusModal)
@@ -1376,27 +1368,6 @@
         </div>
     @endif
 
-    @unless($hideTagsSection)
-        <div @class([
-            'w-full basis-full flex flex-wrap items-center gap-2 border-t border-border/50 text-[10px]',
-            'pt-1 mt-0.5' => $useKanbanCompact,
-            'pt-1.5 mt-1' => ! $useKanbanCompact,
-        ])>
-            <div
-                @tag-toggled="toggleTag($event.detail.tagId)"
-                @tag-create-request="createTagOptimistic($event.detail.tagName)"
-                @tag-delete-request="deleteTagOptimistic($event.detail.tag)"
-            >
-                <x-workspace.tag-selection
-                    position="top"
-                    :align="$useKanbanCompact ? 'start' : 'end'"
-                    :selected-tags="$item->tags"
-                    :readonly="!$canEditTags"
-                    :compact="$useKanbanCompact"
-                />
-            </div>
-        </div>
-    @endunless
 </div>
 
 @unless($useKanbanCompact)
@@ -1411,7 +1382,7 @@
             >
                 <span
                     x-show="kind === 'task'"
-                    class="lic-project-chip"
+                    class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted/50 px-2.5 py-0.5 font-medium text-foreground/80"
                 >
                     <flux:icon name="folder" class="size-3" />
                     <span
@@ -1441,7 +1412,7 @@
             >
                 <span
                     x-show="kind === 'task'"
-                    class="lic-event-chip"
+                    class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted/50 px-2.5 py-0.5 font-medium text-foreground/80"
                 >
                     <flux:icon name="calendar" class="size-3" />
                     <span
@@ -1472,7 +1443,7 @@
             >
                 <span
                     x-show="kind === 'task'"
-                    class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-amber-500/10 px-2.5 py-0.5 font-medium text-amber-800 dark:border-white/10 dark:text-amber-200"
+                    class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted/50 px-2.5 py-0.5 font-medium text-foreground/80"
                 >
                     <flux:icon name="book-open" class="size-3" />
                     <span
@@ -1484,10 +1455,10 @@
                         <span class="truncate max-w-[120px] uppercase" x-text="itemSchoolClassSubject ?? ''">{{ $item->schoolClass?->subject_name ?? '' }}</span>
                         <span
                             x-show="itemSchoolClassTeacherName"
-                            x-cloak
+                            style="{{ filled($item->schoolClass?->teacher?->name) ? '' : 'display: none;' }}"
                             class="truncate max-w-[120px] uppercase opacity-70"
                             x-text="'· ' + (itemSchoolClassTeacherName ?? '')"
-                        ></span>
+                        >{{ filled($item->schoolClass?->teacher?->name) ? '· '.$item->schoolClass->teacher->name : '' }}</span>
                     </span>
                     <span
                         class="inline-flex items-baseline gap-1 text-[10px] font-semibold uppercase tracking-wide opacity-70"
@@ -1503,7 +1474,7 @@
         <span
             x-show="kind === 'task' && showProjectPill"
             x-cloak
-            class="lic-project-chip"
+            class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted/50 px-2.5 py-0.5 font-medium text-foreground/80"
         >
             <flux:icon name="folder" class="size-3" />
             <span class="inline-flex items-baseline gap-1">
@@ -1517,7 +1488,7 @@
         <span
             x-show="kind === 'task' && showEventPill"
             x-cloak
-            class="lic-event-chip"
+            class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted/50 px-2.5 py-0.5 font-medium text-foreground/80"
         >
             <flux:icon name="calendar" class="size-3" />
             <span class="inline-flex items-baseline gap-1">
@@ -1531,7 +1502,7 @@
         <span
             x-show="kind === 'task' && showSchoolClassPill"
             x-cloak
-            class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-amber-500/10 px-2.5 py-0.5 font-medium text-amber-800 dark:border-white/10 dark:text-amber-200"
+            class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted/50 px-2.5 py-0.5 font-medium text-foreground/80"
         >
             <flux:icon name="book-open" class="size-3" />
             <span class="inline-flex items-baseline gap-1">
@@ -1541,10 +1512,10 @@
                 <span class="truncate max-w-[120px] uppercase" x-text="itemSchoolClassSubject ?? ''">{{ $item->schoolClass?->subject_name ?? '' }}</span>
                 <span
                     x-show="itemSchoolClassTeacherName"
-                    x-cloak
+                    style="{{ filled($item->schoolClass?->teacher?->name) ? '' : 'display: none;' }}"
                     class="truncate max-w-[120px] uppercase opacity-70"
                     x-text="'· ' + (itemSchoolClassTeacherName ?? '')"
-                ></span>
+                >{{ filled($item->schoolClass?->teacher?->name) ? '· '.$item->schoolClass->teacher->name : '' }}</span>
             </span>
         </span>
     @endif

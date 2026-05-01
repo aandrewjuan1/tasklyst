@@ -195,8 +195,9 @@
 
         <div @class([
             'min-w-0',
-            'border-t border-border/50 pt-2' => $isKanbanLayout,
-            'border-t border-border/40 pt-2' => ! $isKanbanLayout,
+            'border-t border-border/50 pt-2' => $isKanbanLayout && $kind !== 'task',
+            'border-t border-border/40 pt-2' => ! $isKanbanLayout && $kind !== 'task',
+            'pt-1' => $kind === 'task',
         ])>
         <div class="flex flex-wrap items-center gap-2 text-xs">
             @if($kind === 'project')

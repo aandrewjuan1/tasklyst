@@ -26,6 +26,13 @@
         && $headerSourceUrl !== null
         && $headerSourceUrl !== ''
         && ($item->source_type === \App\Enums\TaskSourceType::Brightspace);
+    $currentHeaderUserId = auth()->id();
+    $headerCurrentUserIsOwner = $currentHeaderUserId && (int) $item->user_id === (int) $currentHeaderUserId;
+    $headerCanEditTags = $headerCurrentUserIsOwner && ($canEdit ?? false);
+    $headerHasCollaborators = ($item->collaborators ?? collect())->count() > 0;
+    $headerIsCollaboratedView = $headerHasCollaborators && ! $headerCurrentUserIsOwner;
+    $showHeaderTags = ($kind ?? '') === 'task'
+        && ! (($headerIsCollaboratedView && $item->tags->isEmpty()) || $embedInFocusModal);
 @endphp
 <div>
     <div class="flex items-start justify-between gap-2">
@@ -61,6 +68,185 @@
                     :maxlength="titleMaxLength"
                 />
             </div>
+
+            @if($showHeaderTags)
+            <div
+                class="mt-0.5 w-full"
+                x-data="{
+                    itemId: @js($item->id),
+                    updatePropertyMethod: @js($updatePropertyMethod),
+                    tagMessages: {
+                        tagAlreadyExists: @js(__('Tag already exists.')),
+                        tagError: @js(__('Something went wrong. Please try again.')),
+                        tagRemovedFromItem: @js(__('Tag ":tag" removed from :type ":item".')),
+                        tagDeleted: @js(__('Tag ":tag" deleted.')),
+                    },
+                    itemTitle: @js($item->title ?? ''),
+                    itemTypeLabel: @js(__('Task')),
+                    tags: @js($availableTags ?? []),
+                    formData: { item: { tagIds: @js($item->tags->pluck('id')->values()->all()) } },
+                    newTagName: '',
+                    creatingTag: false,
+                    deletingTagIds: new Set(),
+                    async updateTagIds(realTagIds, silentSuccessToast = false) {
+                        try {
+                            const ok = await $wire.$parent.$call(this.updatePropertyMethod, this.itemId, 'tagIds', realTagIds, silentSuccessToast);
+                            if (!ok) {
+                                $wire.$dispatch('toast', { type: 'error', message: this.tagMessages.tagError });
+                                return false;
+                            }
+                            return true;
+                        } catch (err) {
+                            $wire.$dispatch('toast', { type: 'error', message: err.message || this.tagMessages.tagError });
+                            return false;
+                        }
+                    },
+                    async toggleTag(tagId) {
+                        if (!this.formData.item.tagIds) this.formData.item.tagIds = [];
+                        const backup = [...this.formData.item.tagIds];
+                        const tagIdStr = String(tagId);
+                        const index = this.formData.item.tagIds.findIndex(id => String(id) === tagIdStr);
+                        if (index === -1) {
+                            this.formData.item.tagIds.push(tagId);
+                        } else {
+                            this.formData.item.tagIds.splice(index, 1);
+                        }
+                        const realTagIds = this.formData.item.tagIds.filter(id => !String(id).startsWith('temp-'));
+                        const ok = await this.updateTagIds(realTagIds);
+                        if (!ok) {
+                            this.formData.item.tagIds = backup;
+                        }
+                    },
+                    async createTagOptimistic(tagNameFromEvent) {
+                        const tagName = (tagNameFromEvent != null && tagNameFromEvent !== '' ? String(tagNameFromEvent).trim() : (this.newTagName || '').trim());
+                        if (!tagName || this.creatingTag) return;
+                        this.newTagName = '';
+                        const tagNameLower = tagName.toLowerCase();
+                        const existingTag = this.tags?.find(t => (t.name || '').trim().toLowerCase() === tagNameLower);
+                        if (existingTag && !String(existingTag.id).startsWith('temp-')) {
+                            if (!this.formData.item.tagIds) this.formData.item.tagIds = [];
+                            const alreadySelected = this.formData.item.tagIds.some(id => String(id) === String(existingTag.id));
+                            if (!alreadySelected) {
+                                this.formData.item.tagIds.push(existingTag.id);
+                                const realTagIds = this.formData.item.tagIds.filter(id => !String(id).startsWith('temp-'));
+                                await this.updateTagIds(realTagIds);
+                            }
+                            $wire.$dispatch('toast', { type: 'info', message: this.tagMessages.tagAlreadyExists });
+                            return;
+                        }
+                        const tempId = 'temp-' + Date.now();
+                        const tagsBackup = this.tags ? [...this.tags] : [];
+                        const tagIdsBackup = [...this.formData.item.tagIds];
+                        const newTagNameBackup = tagName;
+                        try {
+                            if (!this.tags) this.tags = [];
+                            this.tags.push({ id: tempId, name: tagName });
+                            this.tags.sort((a, b) => a.name.localeCompare(b.name));
+                            if (!this.formData.item.tagIds.includes(tempId)) this.formData.item.tagIds.push(tempId);
+                            this.creatingTag = true;
+                            await $wire.$parent.$call('createTag', tagName, true);
+                        } catch (err) {
+                            this.tags = tagsBackup;
+                            this.formData.item.tagIds = tagIdsBackup;
+                            this.newTagName = newTagNameBackup;
+                            $wire.$dispatch('toast', { type: 'error', message: this.tagMessages.tagError });
+                        } finally {
+                            this.creatingTag = false;
+                        }
+                    },
+                    async deleteTagOptimistic(tag) {
+                        if (this.deletingTagIds?.has(tag.id)) return;
+                        const isTempTag = String(tag.id).startsWith('temp-');
+                        const tagsBackup = this.tags ? [...this.tags] : [];
+                        const tagIdsBackup = [...this.formData.item.tagIds];
+                        const tagIndex = this.tags?.findIndex(t => String(t.id) === String(tag.id)) ?? -1;
+                        try {
+                            this.deletingTagIds = this.deletingTagIds || new Set();
+                            this.deletingTagIds.add(tag.id);
+                            if (this.tags && tagIndex !== -1) {
+                                this.tags = this.tags.filter(t => String(t.id) !== String(tag.id));
+                            }
+                            const selectedIndex = Array.isArray(this.formData.item.tagIds)
+                                ? this.formData.item.tagIds.findIndex(id => String(id) === String(tag.id))
+                                : -1;
+                            if (selectedIndex !== -1) {
+                                this.formData.item.tagIds.splice(selectedIndex, 1);
+                            }
+                            if (!isTempTag) {
+                                await $wire.$parent.$call('deleteTag', tag.id, true);
+                            }
+                            if (!isTempTag && tag.name && this.itemTitle) {
+                                const msg = this.tagMessages.tagRemovedFromItem
+                                    .replace(':tag', tag.name)
+                                    .replace(':type', this.itemTypeLabel)
+                                    .replace(':item', this.itemTitle);
+                                $wire.$dispatch('toast', { type: 'success', message: msg });
+                            } else if (!isTempTag && tag.name) {
+                                const msg = this.tagMessages.tagDeleted.replace(':tag', tag.name);
+                                $wire.$dispatch('toast', { type: 'success', message: msg });
+                            }
+                        } catch (err) {
+                            this.tags = tagsBackup;
+                            this.formData.item.tagIds = tagIdsBackup;
+                            $wire.$dispatch('toast', { type: 'error', message: this.tagMessages.tagError });
+                        } finally {
+                            this.deletingTagIds?.delete(tag.id);
+                        }
+                    },
+                    onTagCreated(event) {
+                        const { id, name } = event.detail || {};
+                        const nameLower = (name || '').toLowerCase();
+                        const tempTag = this.tags?.find(tag => (tag.name || '').toLowerCase() === nameLower && String(tag.id).startsWith('temp-'));
+                        if (tempTag) {
+                            const tempId = tempTag.id;
+                            const tempTagIndex = this.tags.findIndex(tag => tag.id === tempId);
+                            if (tempTagIndex !== -1) this.tags[tempTagIndex] = { id, name };
+                            if (this.formData?.item?.tagIds) {
+                                const tempIdIndex = this.formData.item.tagIds.indexOf(tempId);
+                                if (tempIdIndex !== -1) this.formData.item.tagIds[tempIdIndex] = id;
+                            }
+                            this.tags = this.tags.filter((tag, idx, arr) => arr.findIndex(t => String(t.id) === String(tag.id)) === idx);
+                            this.tags.sort((a, b) => a.name.localeCompare(b.name));
+                            const realTagIds = this.formData.item.tagIds.filter(tid => !String(tid).startsWith('temp-'));
+                            this.updateTagIds(realTagIds);
+                        } else {
+                            if (this.tags && !this.tags.find(tag => tag.id === id)) {
+                                this.tags.push({ id, name });
+                                this.tags.sort((a, b) => a.name.localeCompare(b.name));
+                            }
+                        }
+                    },
+                    onTagDeleted(event) {
+                        const { id } = event.detail || {};
+                        if (this.tags) {
+                            const tagIndex = this.tags.findIndex(tag => String(tag.id) === String(id));
+                            if (tagIndex !== -1) {
+                                this.tags.splice(tagIndex, 1);
+                            }
+                        }
+                        if (this.formData?.item?.tagIds) {
+                            const selectedIndex = this.formData.item.tagIds.findIndex(tagId => String(tagId) === String(id));
+                            if (selectedIndex !== -1) {
+                                this.formData.item.tagIds.splice(selectedIndex, 1);
+                            }
+                        }
+                    },
+                }"
+                @tag-created.window="onTagCreated($event)"
+                @tag-deleted.window="onTagDeleted($event)"
+                @tag-toggled="toggleTag($event.detail.tagId)"
+                @tag-create-request="createTagOptimistic($event.detail.tagName)"
+                @tag-delete-request="deleteTagOptimistic($event.detail.tag)"
+            >
+                <x-workspace.tag-selection
+                    position="top"
+                    :align="$isKanbanLayout ? 'start' : 'end'"
+                    :selected-tags="$item->tags"
+                    :readonly="!$headerCanEditTags"
+                    :compact="$isKanbanLayout"
+                />
+            </div>
+            @endif
 
             @if (! $isKanbanLayout && $kind !== 'schoolclass')
             <div class="mt-0.5" x-effect="isEditingDescription && $nextTick(() => requestAnimationFrame(() => { const el = $refs.descriptionInput; if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }))">
