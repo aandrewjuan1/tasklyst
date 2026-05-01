@@ -100,6 +100,9 @@ export function createFocusSessionController() {
                     }
                 );
                 ctx._pomodoroLastSavedPayload = JSON.stringify(ctx.getPomodoroSettingsPayload());
+                // Hydration path: when a session is already active on page load, the watcher
+                // above may not fire immediately, so bootstrap the countdown/ticker now.
+                ctx.syncFocusTicker();
             }
             if (ctx.kind === 'task') {
                 ctx._onPomodoroStartNextWork = (event) => {
@@ -721,6 +724,13 @@ export function createFocusSessionController() {
             try {
                 ctx.focusIsPaused = true;
                 ctx.focusPauseStartedAt = Date.now();
+                if (ctx.activeFocusSession) {
+                    ctx.activeFocusSession = {
+                        ...ctx.activeFocusSession,
+                        paused_at: new Date(ctx.focusPauseStartedAt).toISOString(),
+                        paused_seconds: Math.max(0, Math.floor(Number(ctx.focusPausedSecondsAccumulated ?? 0))),
+                    };
+                }
                 ctx.focusTickerNow = Date.now();
                 const remaining = getRemainingSecondsAt(ctx, Date.now());
                 const duration = Number(ctx.activeFocusSession?.duration_seconds ?? 0);
@@ -759,6 +769,13 @@ export function createFocusSessionController() {
                 ctx.focusPausedSecondsAccumulated += segmentSec;
                 ctx.focusPauseStartedAt = null;
                 ctx.focusIsPaused = false;
+                if (ctx.activeFocusSession) {
+                    ctx.activeFocusSession = {
+                        ...ctx.activeFocusSession,
+                        paused_at: null,
+                        paused_seconds: Math.max(0, Math.floor(Number(ctx.focusPausedSecondsAccumulated ?? 0))),
+                    };
+                }
                 ctx.focusTickerNow = Date.now();
                 const remaining = getRemainingSecondsAt(ctx, Date.now());
                 const duration = Number(ctx.activeFocusSession?.duration_seconds ?? 0);

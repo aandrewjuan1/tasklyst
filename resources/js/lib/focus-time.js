@@ -28,16 +28,27 @@ export function getFocusRemainingSeconds(session, nowMs, options = {}) {
     if (!Number.isFinite(startedMs)) return 0;
     const durationSec = Number(session.duration_seconds);
     const elapsedSec = Math.max(0, (nowMs - startedMs) / 1000);
-    let pausedSec = Number(options.pausedSecondsAccumulated) || 0;
-    if (session.paused_at) {
+    const hasOptionPausedAccumulated = Number.isFinite(Number(options.pausedSecondsAccumulated));
+    const hasOptionActivePause = options.isPaused && options.pauseStartedAtMs != null;
+    const hasRuntimePauseState =
+        Object.prototype.hasOwnProperty.call(options, 'pausedSecondsAccumulated')
+        || Object.prototype.hasOwnProperty.call(options, 'isPaused')
+        || Object.prototype.hasOwnProperty.call(options, 'pauseStartedAtMs');
+    let pausedSec = hasOptionPausedAccumulated
+        ? Math.max(0, Number(options.pausedSecondsAccumulated))
+        : (session.paused_seconds != null && Number.isFinite(Number(session.paused_seconds))
+            ? Math.max(0, Math.floor(Number(session.paused_seconds)))
+            : 0);
+
+    // Runtime pause state should be authoritative when provided by callers.
+    // This avoids stale `session.paused_at` values causing second jumps after resume.
+    if (hasOptionActivePause) {
+        pausedSec += (nowMs - options.pauseStartedAtMs) / 1000;
+    } else if (!hasRuntimePauseState && session.paused_at) {
         const pausedAtMs = parseFocusStartedAt(session.paused_at);
         if (Number.isFinite(pausedAtMs)) pausedSec += (nowMs - pausedAtMs) / 1000;
-    } else if (pausedSec === 0 && session.paused_seconds != null && Number.isFinite(Number(session.paused_seconds))) {
-        pausedSec = Math.max(0, Math.floor(Number(session.paused_seconds)));
     }
-    if (options.isPaused && options.pauseStartedAtMs != null) {
-        pausedSec += (nowMs - options.pauseStartedAtMs) / 1000;
-    }
+
     return Math.max(0, Math.floor(durationSec - elapsedSec + pausedSec));
 }
 
