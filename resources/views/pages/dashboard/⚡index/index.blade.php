@@ -101,6 +101,13 @@
         'urgent' => 'border-b border-red-200/45 dark:border-red-900/45',
     ];
     $dashboardItemLinkHoverClass = 'block rounded-md border border-transparent px-2 py-1 -mx-2 -my-1 transition-all duration-200 ease-out hover:-translate-y-0.5 hover:scale-[1.01] hover:border-border/80 hover:bg-muted/70 dark:hover:border-zinc-700/90 dark:hover:bg-zinc-800/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/35';
+    $deadlineBadgeClass = static function (?array $badge): string {
+        return match ($badge['tone'] ?? 'normal') {
+            'overdue' => 'border-red-200/55 bg-red-100 text-red-700 dark:border-red-900/40 dark:bg-red-950/50 dark:text-red-200',
+            'soon' => 'border-amber-200/55 bg-amber-100 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/50 dark:text-amber-200',
+            default => 'border-border/70 bg-muted/40 text-foreground',
+        };
+    };
 @endphp
 
 <section class="space-y-6">
@@ -235,9 +242,14 @@
                                                         <span class="inline-flex items-center rounded-full border border-border/70 bg-muted/40 px-2 py-0.5 font-medium {{ $urgencyTone }}">
                                                             {{ __('Urgency: :value', ['value' => \Illuminate\Support\Str::headline((string) $row['urgency_level'])]) }}
                                                         </span>
-                                                        @if (! empty($row['ends_at']))
-                                                            <span class="inline-flex items-center rounded-full border border-border/70 bg-muted/40 px-2 py-0.5 font-medium text-foreground">
-                                                                {{ __('Due: :date', ['date' => \Carbon\Carbon::parse($row['ends_at'])->translatedFormat('M j · H:i')]) }}
+                                                        @php
+                                                            $urgentDeadlineBadge = ! empty($row['ends_at'])
+                                                                ? \App\Support\DeadlineLabel::from(\Carbon\Carbon::parse($row['ends_at']))
+                                                                : null;
+                                                        @endphp
+                                                        @if ($urgentDeadlineBadge !== null)
+                                                            <span class="inline-flex items-center rounded-full border px-2 py-0.5 font-medium {{ $deadlineBadgeClass($urgentDeadlineBadge) }}">
+                                                                {{ $urgentDeadlineBadge['label'] }}
                                                             </span>
                                                         @endif
                                                         @if (! empty($row['priority']))
@@ -315,9 +327,14 @@
                                                         @endif
                                                     </p>
                                                     <div class="mt-1 flex flex-wrap gap-1.5 text-[11px]">
-                                                        <span class="inline-flex items-center rounded-full border border-border/70 bg-muted/40 px-2 py-0.5 font-medium text-foreground">
-                                                            {{ __('Due: :date', ['date' => $task->end_datetime?->translatedFormat('M j · H:i') ?? __('No date')]) }}
-                                                        </span>
+                                                        @php
+                                                            $doingDeadlineBadge = \App\Support\DeadlineLabel::from($task->end_datetime);
+                                                        @endphp
+                                                        @if ($doingDeadlineBadge !== null)
+                                                            <span class="inline-flex items-center rounded-full border px-2 py-0.5 font-medium {{ $deadlineBadgeClass($doingDeadlineBadge) }}">
+                                                                {{ $doingDeadlineBadge['label'] }}
+                                                            </span>
+                                                        @endif
                                                         @if ($task->priority !== null)
                                                             <span class="inline-flex items-center rounded-full border border-border/70 bg-muted/40 px-2 py-0.5 font-medium text-foreground">
                                                                 {{ __('Priority: :value', ['value' => $task->priority->label()]) }}
@@ -446,6 +463,14 @@
                                                         <span>{{ $task->project?->name ?? __('No project') }}</span>
                                                     </p>
                                                     <div class="mt-1 flex flex-wrap gap-1.5 text-[11px]">
+                                                        @php
+                                                            $recurringDeadlineBadge = \App\Support\DeadlineLabel::from($task->end_datetime);
+                                                        @endphp
+                                                        @if ($recurringDeadlineBadge !== null)
+                                                            <span class="inline-flex items-center rounded-full border px-2 py-0.5 font-medium {{ $deadlineBadgeClass($recurringDeadlineBadge) }}">
+                                                                {{ $recurringDeadlineBadge['label'] }}
+                                                            </span>
+                                                        @endif
                                                         <span class="inline-flex items-center rounded-full border border-border/70 bg-muted/40 px-2 py-0.5 font-medium text-foreground">
                                                             {{ __('Recurrence: :value', ['value' => \Illuminate\Support\Str::headline((string) ($task->recurringTask?->recurrence_type?->value ?? __('Repeating')))]) }}
                                                         </span>
@@ -514,7 +539,7 @@
                                                     </p>
                                                     <div class="mt-1 flex flex-wrap gap-1.5 text-[11px]">
                                                         <span class="inline-flex items-center rounded-full border border-border/70 bg-muted/40 px-2 py-0.5 font-medium text-foreground">
-                                                            {{ __('Due: :date', ['date' => __('No date')]) }}
+                                                            {{ __('No date') }}
                                                         </span>
                                                         @if ($task->priority !== null)
                                                             <span class="inline-flex items-center rounded-full border border-border/70 bg-muted/40 px-2 py-0.5 font-medium text-foreground">

@@ -8,7 +8,6 @@
     use App\Enums\EventStatus;
     use App\Enums\TaskComplexity;
     use App\Enums\TaskPriority;
-    use App\Enums\TaskSourceType;
     use App\Enums\TaskStatus;
 
     $taskStatuses = collect(TaskStatus::cases())->mapWithKeys(fn ($c) => [$c->value => $c->label()])->all();
@@ -23,12 +22,6 @@
     $taskPriorityOptions = ['' => __('All')] + $taskPriorities;
     $taskComplexityOptions = ['' => __('All')] + $taskComplexities;
     $eventStatusOptions = ['' => __('All')] + $eventStatuses;
-    $recurringOptions = ['' => __('All'), 'recurring' => __('Recurring'), 'oneTime' => __('One-time')];
-    $taskSourceOptions = [
-        '' => __('All'),
-        'brightspace' => TaskSourceType::Brightspace->label(),
-        'manual' => TaskSourceType::Manual->label(),
-    ];
 @endphp
 
 <div
@@ -420,99 +413,6 @@
                     </div>
                 </div>
             @endif
-
-            <div
-                class="workspace-filter-category-wrap"
-                @mouseenter="openSubmenuFine('recurring')"
-                @mouseleave="prefersFineHover && scheduleCloseSubmenu()"
-            >
-                <button
-                    type="button"
-                    class="workspace-filter-category-row workspace-filter-category-row--recurring"
-                    :class="activeSubmenu === 'recurring' ? 'workspace-filter-category-row--active' : ''"
-                    @click="handleCategoryActivate('recurring', $event)"
-                    :aria-expanded="activeSubmenu === 'recurring'"
-                    aria-controls="wff-flyout-recurring"
-                    id="wff-row-recurring"
-                >
-                    <span class="workspace-filter-category-icon" aria-hidden="true">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
-                        </svg>
-                    </span>
-                    <span class="min-w-0 flex-1 truncate">{{ __('Recurring') }}</span>
-                    <svg class="size-4 shrink-0 text-zinc-400 dark:text-zinc-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-                    </svg>
-                </button>
-                <div
-                    x-cloak
-                    x-show="activeSubmenu === 'recurring'"
-                    id="wff-flyout-recurring"
-                    role="group"
-                    aria-labelledby="wff-row-recurring"
-                    class="workspace-filter-flyout"
-                >
-                    @foreach ($recurringOptions as $value => $label)
-                        <label wire:key="fb-rec-{{ $value === '' ? 'all' : $value }}" class="workspace-filter-option" @click="closeFlyoutOnly()">
-                            <input
-                                type="radio"
-                                class="sr-only"
-                                wire:model.live="filterRecurring"
-                                value="{{ $value }}"
-                                @click="window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'recurring', value: @js($value === '' ? null : $value) } }))"
-                            />
-                            <span class="min-w-0 flex-1">{{ $label }}</span>
-                        </label>
-                    @endforeach
-                </div>
-            </div>
-
-            {{-- Task source (Brightspace / Manual) — last filter row before Clear --}}
-            <div
-                class="workspace-filter-category-wrap"
-                @mouseenter="openSubmenuFine('taskSource')"
-                @mouseleave="prefersFineHover && scheduleCloseSubmenu()"
-            >
-                <button
-                    type="button"
-                    class="workspace-filter-category-row workspace-filter-category-row--task-source"
-                    :class="activeSubmenu === 'taskSource' ? 'workspace-filter-category-row--active' : ''"
-                    @click="handleCategoryActivate('taskSource', $event)"
-                    :aria-expanded="activeSubmenu === 'taskSource'"
-                    aria-controls="wff-flyout-task-source"
-                    id="wff-row-task-source"
-                >
-                    <span class="workspace-filter-category-icon" aria-hidden="true">
-                        <img src="{{ asset('images/brightspace-icon.png') }}" alt="" class="object-contain" />
-                    </span>
-                    <span class="min-w-0 flex-1 truncate">{{ __('Source') }}</span>
-                    <svg class="size-4 shrink-0 text-zinc-400 dark:text-zinc-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-                    </svg>
-                </button>
-                <div
-                    x-cloak
-                    x-show="activeSubmenu === 'taskSource'"
-                    id="wff-flyout-task-source"
-                    role="group"
-                    aria-labelledby="wff-row-task-source"
-                    class="workspace-filter-flyout"
-                >
-                    @foreach ($taskSourceOptions as $value => $label)
-                        <label wire:key="fb-tsrc-{{ $value === '' ? 'all' : $value }}" class="workspace-filter-option" @click="closeFlyoutOnly()">
-                            <input
-                                type="radio"
-                                class="sr-only"
-                                wire:model.live="filterTaskSource"
-                                value="{{ $value }}"
-                                @click="window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'taskSource', value: @js($value === '' ? null : $value) } }))"
-                            />
-                            <span class="min-w-0 flex-1">{{ $label }}</span>
-                        </label>
-                    @endforeach
-                </div>
-            </div>
 
             <div x-show="hasActiveFilters" class="mx-1 my-1 border-t border-zinc-200/80 pt-1 dark:border-zinc-700/60">
                 <button

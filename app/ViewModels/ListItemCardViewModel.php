@@ -7,6 +7,7 @@ use App\Enums\TaskComplexity;
 use App\Enums\TaskPriority;
 use App\Enums\TaskStatus;
 use App\Models\FocusSession;
+use App\Support\DeadlineLabel;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
@@ -249,6 +250,10 @@ class ListItemCardViewModel
             default => null,
         };
 
+        $deadlineBadge = in_array($kind, ['task', 'event'], true)
+            ? DeadlineLabel::from($item->end_datetime)
+            : null;
+
         return [
             'kind' => $kind,
             'title' => $title,
@@ -292,6 +297,7 @@ class ListItemCardViewModel
             'eventEndDatetimeInitial' => $eventEndDatetimeInitial,
             'eventRecurrenceInitial' => $eventRecurrenceInitial,
             'headerRecurrenceInitial' => $headerRecurrenceInitial,
+            'deadlineBadge' => $deadlineBadge,
             'item' => $item,
             'listFilterDate' => $this->listFilterDate,
             'filters' => $this->filters,

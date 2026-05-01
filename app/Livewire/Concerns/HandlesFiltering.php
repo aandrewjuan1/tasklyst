@@ -17,6 +17,14 @@ use Livewire\Attributes\Url;
 
 trait HandlesFiltering
 {
+    private const QUICK_PRESET_EXAMS_ONLY = 'exams_only';
+
+    private const QUICK_PRESET_QUIZZES_ACTIVITIES_ONLY = 'quizzes_activities_only';
+
+    private const QUICK_PRESET_BRIGHTSPACE_ONLY = 'brightspace_only';
+
+    private const QUICK_PRESET_RECURRING_ONLY = 'recurring_only';
+
     #[Url(as: 'status')]
     public ?string $filterTaskStatus = null;
 
@@ -58,6 +66,10 @@ trait HandlesFiltering
     #[Url(as: 'completed')]
     public string $showCompleted = '0';
 
+    /** @var string|null Background workspace quick-preset filter key. */
+    #[Url(as: 'preset')]
+    public ?string $quickFilterPreset = null;
+
     /** @var bool Whether user manually set item type; skip auto-sync override when both event and task filters are set */
     protected bool $userManuallySetItemType = false;
 
@@ -86,6 +98,12 @@ trait HandlesFiltering
         } else {
             $this->filterTagId = '';
         }
+    }
+
+    public function initializeQuickFilterPresetState(): void
+    {
+        $this->quickFilterPreset = $this->normalizeQuickFilterPreset($this->quickFilterPreset);
+        $this->applyQuickPresetLinkedFilters($this->quickFilterPreset);
     }
 
     /**
@@ -206,7 +224,7 @@ trait HandlesFiltering
         }
 
         if ($key === 'dueState') {
-            $allowed = ['all', 'overdue', 'due'];
+            $allowed = ['all', 'overdue', 'due', 'no_date'];
             if ($value === null || $value === '' || $value === 'all') {
                 $value = null;
             } elseif (! in_array($value, $allowed, true)) {
@@ -352,7 +370,7 @@ trait HandlesFiltering
     {
         if ($value === '' || $value === 'all') {
             $this->filterDueState = null;
-        } elseif ($value !== 'overdue' && $value !== 'due') {
+        } elseif (! in_array($value, ['overdue', 'due', 'no_date'], true)) {
             $this->filterDueState = null;
         }
 
@@ -369,6 +387,7 @@ trait HandlesFiltering
             $this->{$property} = null;
         }
         $this->filterTagId = null;
+        $this->quickFilterPreset = null;
         $this->searchQuery = null;
         $this->searchScope = 'selected_date';
         $this->refreshListAfterFilterChange();
@@ -392,7 +411,7 @@ trait HandlesFiltering
     {
         $value = $this->normalizeFilterValue($this->filterDueState);
 
-        return in_array($value, ['overdue', 'due'], true) ? $value : null;
+        return in_array($value, ['overdue', 'due', 'no_date'], true) ? $value : null;
     }
 
     public function isOverdueStateFilterActive(): bool
@@ -403,6 +422,72 @@ trait HandlesFiltering
     public function isDueStateFilterActive(): bool
     {
         return $this->getNormalizedDueStateFilter() === 'due';
+    }
+
+    public function isNoDateStateFilterActive(): bool
+    {
+        return $this->getNormalizedDueStateFilter() === 'no_date';
+    }
+
+    public function applyQuickFilterPreset(string $preset): void
+    {
+        $normalized = $this->normalizeQuickFilterPreset($preset);
+        if ($normalized === null) {
+            return;
+        }
+
+        $nextPreset = $this->quickFilterPreset === $normalized ? null : $normalized;
+        $this->quickFilterPreset = $nextPreset;
+
+        $this->applyQuickPresetLinkedFilters($nextPreset);
+        $this->syncItemTypeFromTypeSpecificFilters();
+
+        $this->refreshListAfterFilterChange();
+    }
+
+    public function isQuickFilterPresetActive(string $preset): bool
+    {
+        $normalized = $this->normalizeQuickFilterPreset($preset);
+
+        return $normalized !== null && $this->quickFilterPreset === $normalized;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function getQuickFilterPresetTokens(): array
+    {
+        return match ($this->quickFilterPreset) {
+            self::QUICK_PRESET_EXAMS_ONLY => ['exam', 'exams'],
+            self::QUICK_PRESET_QUIZZES_ACTIVITIES_ONLY => ['quiz', 'quizzes', 'activity', 'activities'],
+            default => [],
+        };
+    }
+
+    private function normalizeQuickFilterPreset(?string $preset): ?string
+    {
+        $normalized = Str::lower(trim((string) $preset));
+
+        return in_array($normalized, [
+            self::QUICK_PRESET_EXAMS_ONLY,
+            self::QUICK_PRESET_QUIZZES_ACTIVITIES_ONLY,
+            self::QUICK_PRESET_BRIGHTSPACE_ONLY,
+            self::QUICK_PRESET_RECURRING_ONLY,
+        ], true) ? $normalized : null;
+    }
+
+    private function applyQuickPresetLinkedFilters(?string $preset): void
+    {
+        $this->filterTaskSource = null;
+        $this->filterRecurring = null;
+
+        if ($preset === self::QUICK_PRESET_BRIGHTSPACE_ONLY) {
+            $this->filterTaskSource = TaskSourceType::Brightspace->value;
+        }
+
+        if ($preset === self::QUICK_PRESET_RECURRING_ONLY) {
+            $this->filterRecurring = 'recurring';
+        }
     }
 
     /**
@@ -552,19 +637,19 @@ trait HandlesFiltering
     public function applyWorkspaceSearchToTaskQuery(Builder $query): void
     {
         $tokens = $this->getWorkspaceSearchTokens();
-        if ($tokens === []) {
-            return;
+        if ($tokens !== []) {
+            $query->where(function (Builder $outer) use ($tokens): void {
+                foreach ($tokens as $i => $token) {
+                    $pattern = '%'.$this->escapeWorkspaceSearchLikeToken($token).'%';
+                    $method = $i === 0 ? 'where' : 'orWhere';
+                    $outer->{$method}(function (Builder $group) use ($pattern): void {
+                        $this->applyWorkspaceSearchTokenToTaskQuery($group, $pattern);
+                    });
+                }
+            });
         }
 
-        $query->where(function (Builder $outer) use ($tokens): void {
-            foreach ($tokens as $i => $token) {
-                $pattern = '%'.$this->escapeWorkspaceSearchLikeToken($token).'%';
-                $method = $i === 0 ? 'where' : 'orWhere';
-                $outer->{$method}(function (Builder $group) use ($pattern): void {
-                    $this->applyWorkspaceSearchTokenToTaskQuery($group, $pattern);
-                });
-            }
-        });
+        $this->applyWorkspaceQuickPresetToTaskQuery($query);
     }
 
     /**
@@ -573,25 +658,46 @@ trait HandlesFiltering
     public function applyWorkspaceSearchToEventQuery(Builder $query): void
     {
         $tokens = $this->getWorkspaceSearchTokens();
-        if ($tokens === []) {
-            return;
+        if ($tokens !== []) {
+            $query->where(function (Builder $outer) use ($tokens): void {
+                foreach ($tokens as $i => $token) {
+                    $pattern = '%'.$this->escapeWorkspaceSearchLikeToken($token).'%';
+                    $method = $i === 0 ? 'where' : 'orWhere';
+                    $outer->{$method}(function (Builder $group) use ($pattern): void {
+                        $group->where('title', 'like', $pattern)
+                            ->orWhere('description', 'like', $pattern)
+                            ->orWhereHas('tags', function (Builder $tagQuery) use ($pattern): void {
+                                $tagQuery->where('tags.name', 'like', $pattern);
+                            })
+                            ->orWhereHas('tasks', function (Builder $taskQuery) use ($pattern): void {
+                                $this->applyWorkspaceSearchTokenToTaskQuery($taskQuery, $pattern);
+                            });
+                    });
+                }
+            });
         }
 
-        $query->where(function (Builder $outer) use ($tokens): void {
-            foreach ($tokens as $i => $token) {
-                $pattern = '%'.$this->escapeWorkspaceSearchLikeToken($token).'%';
-                $method = $i === 0 ? 'where' : 'orWhere';
-                $outer->{$method}(function (Builder $group) use ($pattern): void {
-                    $group->where('title', 'like', $pattern)
-                        ->orWhere('description', 'like', $pattern)
-                        ->orWhereHas('tags', function (Builder $tagQuery) use ($pattern): void {
-                            $tagQuery->where('tags.name', 'like', $pattern);
-                        })
-                        ->orWhereHas('tasks', function (Builder $taskQuery) use ($pattern): void {
-                            $this->applyWorkspaceSearchTokenToTaskQuery($taskQuery, $pattern);
-                        });
+        $this->applyWorkspaceQuickPresetToEventQuery($query);
+    }
+
+    protected function applyWorkspaceQuickPresetToTaskQuery(Builder $query): void
+    {
+        $this->applyWorkspaceQuickPresetTokensToQuery($query, function (Builder $group, string $pattern): void {
+            $this->applyWorkspaceSearchTokenToTaskQuery($group, $pattern);
+        });
+    }
+
+    protected function applyWorkspaceQuickPresetToEventQuery(Builder $query): void
+    {
+        $this->applyWorkspaceQuickPresetTokensToQuery($query, function (Builder $group, string $pattern): void {
+            $group->where('title', 'like', $pattern)
+                ->orWhere('description', 'like', $pattern)
+                ->orWhereHas('tags', function (Builder $tagQuery) use ($pattern): void {
+                    $tagQuery->where('tags.name', 'like', $pattern);
+                })
+                ->orWhereHas('tasks', function (Builder $taskQuery) use ($pattern): void {
+                    $this->applyWorkspaceSearchTokenToTaskQuery($taskQuery, $pattern);
                 });
-            }
         });
     }
 
@@ -601,23 +707,23 @@ trait HandlesFiltering
     public function applyWorkspaceSearchToProjectQuery(Builder $query): void
     {
         $tokens = $this->getWorkspaceSearchTokens();
-        if ($tokens === []) {
-            return;
+        if ($tokens !== []) {
+            $query->where(function (Builder $outer) use ($tokens): void {
+                foreach ($tokens as $i => $token) {
+                    $pattern = '%'.$this->escapeWorkspaceSearchLikeToken($token).'%';
+                    $method = $i === 0 ? 'where' : 'orWhere';
+                    $outer->{$method}(function (Builder $group) use ($pattern): void {
+                        $group->where('name', 'like', $pattern)
+                            ->orWhere('description', 'like', $pattern)
+                            ->orWhereHas('tasks', function (Builder $taskQuery) use ($pattern): void {
+                                $this->applyWorkspaceSearchTokenToTaskQuery($taskQuery, $pattern);
+                            });
+                    });
+                }
+            });
         }
 
-        $query->where(function (Builder $outer) use ($tokens): void {
-            foreach ($tokens as $i => $token) {
-                $pattern = '%'.$this->escapeWorkspaceSearchLikeToken($token).'%';
-                $method = $i === 0 ? 'where' : 'orWhere';
-                $outer->{$method}(function (Builder $group) use ($pattern): void {
-                    $group->where('name', 'like', $pattern)
-                        ->orWhere('description', 'like', $pattern)
-                        ->orWhereHas('tasks', function (Builder $taskQuery) use ($pattern): void {
-                            $this->applyWorkspaceSearchTokenToTaskQuery($taskQuery, $pattern);
-                        });
-                });
-            }
-        });
+        $this->applyWorkspaceQuickPresetToProjectQuery($query);
     }
 
     /**
@@ -626,22 +732,67 @@ trait HandlesFiltering
     public function applyWorkspaceSearchToSchoolClassQuery(Builder $query): void
     {
         $tokens = $this->getWorkspaceSearchTokens();
+        if ($tokens !== []) {
+            $query->where(function (Builder $outer) use ($tokens): void {
+                foreach ($tokens as $i => $token) {
+                    $pattern = '%'.$this->escapeWorkspaceSearchLikeToken($token).'%';
+                    $method = $i === 0 ? 'where' : 'orWhere';
+                    $outer->{$method}(function (Builder $group) use ($pattern): void {
+                        $group->where('subject_name', 'like', $pattern)
+                            ->orWhereHas('teacher', function (Builder $teacherQuery) use ($pattern): void {
+                                $teacherQuery->where('name', 'like', $pattern);
+                            })
+                            ->orWhereHas('tasks', function (Builder $taskQuery) use ($pattern): void {
+                                $this->applyWorkspaceSearchTokenToTaskQuery($taskQuery, $pattern);
+                            });
+                    });
+                }
+            });
+        }
+
+        $this->applyWorkspaceQuickPresetToSchoolClassQuery($query);
+    }
+
+    protected function applyWorkspaceQuickPresetToProjectQuery(Builder $query): void
+    {
+        $this->applyWorkspaceQuickPresetTokensToQuery($query, function (Builder $group, string $pattern): void {
+            $group->where('name', 'like', $pattern)
+                ->orWhere('description', 'like', $pattern)
+                ->orWhereHas('tasks', function (Builder $taskQuery) use ($pattern): void {
+                    $this->applyWorkspaceSearchTokenToTaskQuery($taskQuery, $pattern);
+                });
+        });
+    }
+
+    protected function applyWorkspaceQuickPresetToSchoolClassQuery(Builder $query): void
+    {
+        $this->applyWorkspaceQuickPresetTokensToQuery($query, function (Builder $group, string $pattern): void {
+            $group->where('subject_name', 'like', $pattern)
+                ->orWhereHas('teacher', function (Builder $teacherQuery) use ($pattern): void {
+                    $teacherQuery->where('name', 'like', $pattern);
+                })
+                ->orWhereHas('tasks', function (Builder $taskQuery) use ($pattern): void {
+                    $this->applyWorkspaceSearchTokenToTaskQuery($taskQuery, $pattern);
+                });
+        });
+    }
+
+    /**
+     * @param  callable(Builder,string):void  $constraint
+     */
+    protected function applyWorkspaceQuickPresetTokensToQuery(Builder $query, callable $constraint): void
+    {
+        $tokens = $this->getQuickFilterPresetTokens();
         if ($tokens === []) {
             return;
         }
 
-        $query->where(function (Builder $outer) use ($tokens): void {
+        $query->where(function (Builder $outer) use ($tokens, $constraint): void {
             foreach ($tokens as $i => $token) {
                 $pattern = '%'.$this->escapeWorkspaceSearchLikeToken($token).'%';
                 $method = $i === 0 ? 'where' : 'orWhere';
-                $outer->{$method}(function (Builder $group) use ($pattern): void {
-                    $group->where('subject_name', 'like', $pattern)
-                        ->orWhereHas('teacher', function (Builder $teacherQuery) use ($pattern): void {
-                            $teacherQuery->where('name', 'like', $pattern);
-                        })
-                        ->orWhereHas('tasks', function (Builder $taskQuery) use ($pattern): void {
-                            $this->applyWorkspaceSearchTokenToTaskQuery($taskQuery, $pattern);
-                        });
+                $outer->{$method}(function (Builder $group) use ($constraint, $pattern): void {
+                    $constraint($group, $pattern);
                 });
             }
         });
@@ -667,7 +818,8 @@ trait HandlesFiltering
             || $this->normalizeFilterValue($this->filterEventStatus) !== null
             || $this->normalizeFilterValue($this->filterRecurring) !== null
             || $this->normalizeFilterValue($this->filterTaskSource) !== null
-            || $this->getNormalizedDueStateFilter() !== null;
+            || $this->getNormalizedDueStateFilter() !== null
+            || $this->quickFilterPreset !== null;
     }
 
     /**
@@ -710,6 +862,7 @@ trait HandlesFiltering
             'recurring' => $this->normalizeFilterValue($this->filterRecurring),
             'taskSource' => $this->normalizeFilterValue($this->filterTaskSource),
             'dueState' => $this->getNormalizedDueStateFilter(),
+            'quickPreset' => $this->quickFilterPreset,
             'hasActiveFilters' => $this->hasActiveFilters(),
             'hasActiveTaskBoardFilters' => $this->hasActiveTaskBoardFilters(),
             'searchQuery' => $this->getTrimmedSearchQuery(),

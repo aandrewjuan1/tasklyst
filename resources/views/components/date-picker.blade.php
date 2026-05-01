@@ -10,6 +10,9 @@
     'itemId' => null,
     'readonly' => false,
     'compact' => false,
+    'useDeadlineLabel' => false,
+    'deadlineLabel' => null,
+    'deadlineTone' => null,
     /** School class item creation: trigger matches schedule chip style ("One meeting" + optional date); parent uses named group `group/sc` + `data-schedule-mode`. */
     'schoolClassMeetingDay' => false,
 ])
@@ -40,6 +43,19 @@
     $initialTriggerLabelText = ($isEndDatePicker && $initialEffectiveOverdue && (string) $triggerLabel === 'Due')
         ? 'Overdue'
         : (string) $triggerLabel;
+    $useDeadlineLabel = filter_var($useDeadlineLabel, FILTER_VALIDATE_BOOLEAN);
+    if ($useDeadlineLabel && $isEndDatePicker && $initialParsedDate !== null) {
+        $initialDeadlineMeta = \App\Support\DeadlineLabel::from($initialParsedDate);
+        if (is_array($initialDeadlineMeta)) {
+            $deadlineLabel = $initialDeadlineMeta['label'] ?? $deadlineLabel;
+            $deadlineTone = $initialDeadlineMeta['tone'] ?? $deadlineTone;
+        }
+    }
+    $initialEffectiveSoon = $useDeadlineLabel
+        && $isEndDatePicker
+        && ! $initialEffectiveOverdue
+        && $initialParsedDate !== null
+        && (string) $deadlineTone === 'soon';
 
     $compact = filter_var($compact, FILTER_VALIDATE_BOOLEAN);
     $schoolClassMeetingDay = filter_var($schoolClassMeetingDay, FILTER_VALIDATE_BOOLEAN);
@@ -78,6 +94,36 @@
     .dark .date-picker-root-overdue .date-picker-trigger-value {
         color: #f87171;
     }
+    .date-picker-root-soon .date-picker-trigger {
+        border-color: rgb(251 191 36 / 0.55);
+        background-color: rgb(254 243 199);
+        color: #b45309;
+    }
+    .dark .date-picker-root-soon .date-picker-trigger {
+        border-color: rgb(146 64 14 / 0.4);
+        background-color: rgb(120 53 15 / 0.5);
+        color: #fcd34d;
+    }
+    .date-picker-root-soon .date-picker-trigger-icon {
+        color: #d97706;
+    }
+    .dark .date-picker-root-soon .date-picker-trigger-icon {
+        color: #fbbf24;
+    }
+    .date-picker-root-soon .date-picker-trigger-label {
+        color: #d97706;
+        opacity: 0.9;
+    }
+    .dark .date-picker-root-soon .date-picker-trigger-label {
+        color: #fbbf24;
+    }
+    .date-picker-root-soon .date-picker-trigger-value {
+        font-weight: 600;
+        color: #b45309;
+    }
+    .dark .date-picker-root-soon .date-picker-trigger-value {
+        color: #fcd34d;
+    }
 </style>
 
 <div
@@ -106,6 +152,9 @@
         todayCache: null,
         valueChangedDebounceTimer: null,
         effectiveOverdue: @js($initialEffectiveOverdue),
+        useDeadlineLabel: @js($useDeadlineLabel),
+        initialDeadlineLabel: @js($deadlineLabel),
+        initialDeadlineTone: @js($deadlineTone),
         baseTriggerLabel: @js((string) $triggerLabel),
 
         get disabled() {
@@ -446,6 +495,9 @@
 
         get triggerLabelText() {
             const isEndDate = this.modelPath && String(this.modelPath).includes('endDatetime');
+            if (isEndDate && this.useDeadlineLabel && this.currentValue) {
+                return this.resolveDeadlineMeta().label;
+            }
             if (!isEndDate || !this.effectiveOverdue) {
                 return this.baseTriggerLabel;
             }
@@ -456,6 +508,68 @@
             }
 
             return this.baseTriggerLabel;
+        },
+
+        resolveDeadlineMeta() {
+            const fallbackLabel = this.initialDeadlineLabel || this.baseTriggerLabel;
+            const fallbackTone = this.initialDeadlineTone || (this.effectiveOverdue ? 'overdue' : 'normal');
+
+            if (!this.useDeadlineLabel || !this.currentValue) {
+                return { label: fallbackLabel, tone: fallbackTone };
+            }
+
+            const parsed = this.parseIsoLocalDate(this.currentValue);
+            if (!parsed || Number.isNaN(parsed.getTime())) {
+                return { label: fallbackLabel, tone: fallbackTone };
+            }
+
+            const now = new Date();
+            const diffMs = parsed.getTime() - now.getTime();
+            if (diffMs < 0) {
+                const minutesLate = Math.max(1, Math.floor(Math.abs(diffMs) / 60000));
+                if (minutesLate < 60) {
+                    return { label: `Overdue by ${minutesLate} min`, tone: 'overdue' };
+                }
+                const hoursLate = Math.floor(minutesLate / 60);
+                if (hoursLate < 24) {
+                    return { label: `Overdue by ${hoursLate} h`, tone: 'overdue' };
+                }
+                const daysLate = Math.floor(hoursLate / 24);
+                return { label: `Overdue by ${daysLate} d`, tone: 'overdue' };
+            }
+
+            const startOfNow = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            const startOfDeadline = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+            const daysUntil = Math.floor((startOfDeadline.getTime() - startOfNow.getTime()) / 86400000);
+
+            if (daysUntil === 0) {
+                return { label: 'Due today', tone: 'soon' };
+            }
+            if (daysUntil === 1) {
+                return { label: 'Due tomorrow', tone: 'soon' };
+            }
+            if (daysUntil >= 0 && daysUntil <= 7) {
+                return { label: `Due in ${daysUntil} d`, tone: 'soon' };
+            }
+
+            const dateLabel = parsed.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+            return { label: `Due ${dateLabel}`, tone: 'normal' };
+        },
+
+        triggerToneClass() {
+            if (!this.useDeadlineLabel || !this.currentValue) {
+                return '';
+            }
+
+            const tone = this.resolveDeadlineMeta().tone;
+            if (tone === 'overdue') {
+                return 'border-red-200/55 bg-red-100 text-red-700 dark:border-red-900/40 dark:bg-red-950/50 dark:text-red-200';
+            }
+            if (tone === 'soon') {
+                return 'border-amber-200/55 bg-amber-100 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/50 dark:text-amber-200';
+            }
+
+            return 'border-border/60 bg-muted text-muted-foreground';
         },
 
         formatDisplayValue(value) {
@@ -546,8 +660,11 @@
     @workspace-item-property-updated.window="handleWorkspaceItemUpdated($event)"
     @keydown.escape.prevent.stop="close($refs.button)"
     x-id="['date-picker-dropdown']"
-    class="relative inline-block date-picker-root {{ $initialEffectiveOverdue ? 'date-picker-root-overdue' : '' }}"
-    :class="{ 'date-picker-root-overdue': effectiveOverdue }"
+    class="relative inline-block date-picker-root {{ $initialEffectiveOverdue ? 'date-picker-root-overdue' : '' }} {{ $initialEffectiveSoon ? 'date-picker-root-soon' : '' }}"
+    :class="{
+        'date-picker-root-overdue': effectiveOverdue,
+        'date-picker-root-soon': useDeadlineLabel && !effectiveOverdue && currentValue && resolveDeadlineMeta().tone === 'soon',
+    }"
     data-task-creation-safe
     {{ $attributes }}
 >
@@ -601,6 +718,7 @@
             :class="[
                 { 'pointer-events-none': open, 'shadow-md scale-[1.02]': open },
                 readonly ? 'cursor-default pointer-events-none opacity-90' : 'cursor-pointer',
+                triggerToneClass(),
             ]"
             data-task-creation-safe
         >
@@ -610,12 +728,15 @@
             @if (! $compact)
                 <span class="inline-flex items-baseline gap-1">
                     <span class="date-picker-trigger-label text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                        <span x-text="triggerLabelText">{{ $initialTriggerLabelText }}</span>:
+                        <span x-text="triggerLabelText">{{ $useDeadlineLabel && $deadlineLabel ? $deadlineLabel : $initialTriggerLabelText }}</span>:
                     </span>
                     <span class="date-picker-trigger-value text-xs font-bold uppercase" x-text="formatDisplayValue(currentValue)">{{ $initialDisplayText }}</span>
                 </span>
             @else
-                <span class="date-picker-trigger-value max-w-[9rem] truncate text-left text-[11px] font-semibold tabular-nums text-muted-foreground sm:max-w-[11rem]" x-text="formatDisplayValue(currentValue)">{{ $initialDisplayText }}</span>
+                <span
+                    class="date-picker-trigger-value max-w-[9rem] truncate text-left text-[11px] font-semibold tabular-nums text-muted-foreground sm:max-w-[11rem]"
+                    x-text="useDeadlineLabel && currentValue ? resolveDeadlineMeta().label : formatDisplayValue(currentValue)"
+                >{{ $useDeadlineLabel && $deadlineLabel ? $deadlineLabel : $initialDisplayText }}</span>
             @endif
             @if (! $readonly)
                 <flux:icon name="chevron-down" class="size-3 shrink-0 focus-hide-chevron" />

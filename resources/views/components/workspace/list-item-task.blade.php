@@ -141,6 +141,7 @@
 
     $useKanbanCompact = ($layout ?? 'list') === 'kanban' && ! ($embedInFocusModal ?? false);
     $taskDropdownAlign = $useKanbanCompact ? 'start' : 'end';
+    $deadlineBadge = \App\Support\DeadlineLabel::from($item->end_datetime);
 @endphp
 
 <div
@@ -728,6 +729,9 @@
                 :overdue="$showOverdueVisual ?? $isOverdue"
                 :item-id="$item->id"
                 :readonly="!$canEditDates"
+                :use-deadline-label="true"
+                :deadline-label="$deadlineBadge['label'] ?? null"
+                :deadline-tone="$deadlineBadge['tone'] ?? null"
                 compact
                 data-task-creation-safe
             />
@@ -1292,6 +1296,9 @@
         :overdue="$showOverdueVisual ?? $isOverdue"
         :item-id="$item->id"
         :readonly="!$canEditDates"
+        :use-deadline-label="true"
+        :deadline-label="$deadlineBadge['label'] ?? null"
+        :deadline-tone="$deadlineBadge['tone'] ?? null"
         data-task-creation-safe
     />
 

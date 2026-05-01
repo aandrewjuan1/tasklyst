@@ -416,6 +416,7 @@ class extends Component
             $this->viewMode = 'list';
         }
         $this->syncFilterTagIdFromTagIds();
+        $this->initializeQuickFilterPresetState();
         $this->activeFocusSession = $this->getActiveFocusSession();
         $this->applyWorkspaceDeepLinkFocus();
         $this->handleDashboardFilterToastOnLoad();

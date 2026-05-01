@@ -14,7 +14,7 @@
         trash restore (same: afterTrashRestored bumps workspaceItemsVersion; no full-area skeleton).
     --}}
     @php
-        $listHeavyLoadingTargets = 'searchQuery,searchScope,showCompleted,viewMode,filterItemType,filterTaskStatus,filterTaskPriority,filterTaskComplexity,filterTaskSource,filterEventStatus,filterTagId,filterRecurring,filterDueState,setFilter,clearFilter,setTagFilter,clearAllFilters';
+        $listHeavyLoadingTargets = 'searchQuery,searchScope,showCompleted,viewMode,filterItemType,filterTaskStatus,filterTaskPriority,filterTaskComplexity,filterTaskSource,filterEventStatus,filterTagId,filterRecurring,filterDueState,setFilter,clearFilter,setTagFilter,clearAllFilters,applyQuickFilterPreset';
         $selectedDateLoadingTarget = 'selectedDate,jumpCalendarToToday';
         $listRegionLoadingTargets = $listHeavyLoadingTargets.','.$selectedDateLoadingTarget;
         $workspaceMobileSelectedLabel = \Illuminate\Support\Carbon::parse($this->selectedDate)->translatedFormat('D, M j, Y');
@@ -124,6 +124,64 @@
             <div
                 class="workspace-filter-strip overflow-visible rounded-xl border border-border/60 bg-muted/30 px-3 py-2.5 shadow-sm ring-1 ring-brand-purple/10 dark:border-border/50 dark:bg-muted/15 dark:ring-zinc-600/35 sm:px-4 sm:py-3.5"
             >
+                <div class="mb-3 flex flex-wrap items-center gap-2">
+                    <button
+                        type="button"
+                        wire:click="applyQuickFilterPreset('exams_only')"
+                        @class([
+                            'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold transition',
+                            'border-amber-300/60 bg-amber-100 text-amber-800 dark:border-amber-900/45 dark:bg-amber-950/50 dark:text-amber-200' => $this->isQuickFilterPresetActive('exams_only'),
+                            'border-border/70 bg-background text-foreground hover:bg-muted/70 dark:bg-zinc-900/70' => ! $this->isQuickFilterPresetActive('exams_only'),
+                        ])
+                    >
+                        <svg class="size-3.5 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 14.25L3 9.75l9-4.5 9 4.5-9 4.5z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M3 9.75v4.5L12 18.75l9-4.5v-4.5" />
+                        </svg>
+                        {{ __('Exams only') }}
+                    </button>
+                    <button
+                        type="button"
+                        wire:click="applyQuickFilterPreset('quizzes_activities_only')"
+                        @class([
+                            'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold transition',
+                            'border-blue-300/60 bg-blue-100 text-blue-800 dark:border-blue-900/45 dark:bg-blue-950/50 dark:text-blue-200' => $this->isQuickFilterPresetActive('quizzes_activities_only'),
+                            'border-border/70 bg-background text-foreground hover:bg-muted/70 dark:bg-zinc-900/70' => ! $this->isQuickFilterPresetActive('quizzes_activities_only'),
+                        ])
+                    >
+                        <svg class="size-3.5 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75A2.25 2.25 0 016 4.5h12a2.25 2.25 0 012.25 2.25v10.5A2.25 2.25 0 0118 19.5H6a2.25 2.25 0 01-2.25-2.25V6.75z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 9h9M7.5 12h6M7.5 15h4.5" />
+                        </svg>
+                        {{ __('Quizzes/Activities only') }}
+                    </button>
+                    <button
+                        type="button"
+                        wire:click="applyQuickFilterPreset('brightspace_only')"
+                        @class([
+                            'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold transition',
+                            'border-blue-500/35 bg-blue-500/12 text-blue-800 dark:border-blue-500/45 dark:bg-blue-500/18 dark:text-blue-200' => $this->isQuickFilterPresetActive('brightspace_only'),
+                            'border-border/70 bg-background text-foreground hover:bg-muted/70 dark:bg-zinc-900/70' => ! $this->isQuickFilterPresetActive('brightspace_only'),
+                        ])
+                    >
+                        <img src="{{ asset('images/brightspace-icon.png') }}" alt="" class="size-3.5 shrink-0 object-contain" />
+                        {{ __('Brigthspace only') }}
+                    </button>
+                    <button
+                        type="button"
+                        wire:click="applyQuickFilterPreset('recurring_only')"
+                        @class([
+                            'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold transition',
+                            'border-amber-300/60 bg-amber-100 text-amber-800 dark:border-amber-900/45 dark:bg-amber-950/50 dark:text-amber-200' => $this->isQuickFilterPresetActive('recurring_only'),
+                            'border-border/70 bg-background text-foreground hover:bg-muted/70 dark:bg-zinc-900/70' => ! $this->isQuickFilterPresetActive('recurring_only'),
+                        ])
+                    >
+                        <svg class="size-3.5 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                        </svg>
+                        {{ __('Recurring only') }}
+                    </button>
+                </div>
                 <div class="flex flex-col gap-3 md:flex-row-reverse md:items-center md:justify-between md:gap-5">
                     <div class="flex shrink-0 items-center md:justify-end">
                         <x-workspace.filter-bar

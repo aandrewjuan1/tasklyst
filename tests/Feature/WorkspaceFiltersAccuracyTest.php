@@ -69,6 +69,48 @@ test('recurring-only filter hides overdue bucket', function (): void {
     expect($component->instance()->overdue())->toBeEmpty();
 });
 
+test('workspace exposes brightspace and recurring quick toggle buttons', function (): void {
+    $this->actingAs($this->user);
+
+    $this->get(route('workspace'))
+        ->assertSuccessful()
+        ->assertSee(__('Brigthspace only'), false)
+        ->assertSee(__('Recurring only'), false)
+        ->assertDontSee('wff-row-task-source', false)
+        ->assertDontSee('wff-row-recurring', false);
+});
+
+test('quick preset buttons are mutually exclusive across all four presets', function (): void {
+    $this->actingAs($this->user);
+
+    $component = Livewire::test('pages::workspace.index')
+        ->call('applyQuickFilterPreset', 'brightspace_only');
+
+    expect($component->get('quickFilterPreset'))->toBe('brightspace_only');
+    expect($component->get('filterTaskSource'))->toBe('brightspace');
+    expect($component->get('filterRecurring'))->toBeNull();
+
+    $component->call('applyQuickFilterPreset', 'recurring_only');
+    expect($component->get('quickFilterPreset'))->toBe('recurring_only');
+    expect($component->get('filterTaskSource'))->toBeNull();
+    expect($component->get('filterRecurring'))->toBe('recurring');
+
+    $component->call('applyQuickFilterPreset', 'exams_only');
+    expect($component->get('quickFilterPreset'))->toBe('exams_only');
+    expect($component->get('filterTaskSource'))->toBeNull();
+    expect($component->get('filterRecurring'))->toBeNull();
+
+    $component->call('applyQuickFilterPreset', 'quizzes_activities_only');
+    expect($component->get('quickFilterPreset'))->toBe('quizzes_activities_only');
+    expect($component->get('filterTaskSource'))->toBeNull();
+    expect($component->get('filterRecurring'))->toBeNull();
+
+    $component->call('applyQuickFilterPreset', 'quizzes_activities_only');
+    expect($component->get('quickFilterPreset'))->toBeNull();
+    expect($component->get('filterTaskSource'))->toBeNull();
+    expect($component->get('filterRecurring'))->toBeNull();
+});
+
 test('task source filter brightspace shows only Brightspace-sourced tasks', function (): void {
     Task::factory()->for($this->user)->create([
         'title' => 'BrightspaceFilteredTask',
@@ -291,6 +333,15 @@ test('due state filter is exposed via workspace filter payload', function (): vo
     expect($component->instance()->getFilters()['dueState'])->toBe('due');
 });
 
+test('no-date due state filter is exposed via workspace filter payload', function (): void {
+    $this->actingAs($this->user);
+
+    $component = Livewire::test('pages::workspace.index')
+        ->set('filterDueState', 'no_date');
+
+    expect($component->instance()->getFilters()['dueState'])->toBe('no_date');
+});
+
 test('due state hides overdue bucket and keeps selected-date entries', function (): void {
     $this->actingAs($this->user);
 
@@ -337,7 +388,7 @@ test('due state hides overdue bucket and keeps selected-date entries', function 
     expect($component->instance()->tasks()->pluck('title'))->toContain('DueState Due Task')
         ->not->toContain('DueState Overdue Task')
         ->not->toContain('DueState Tomorrow Task');
-    expect($component->instance()->projects()->pluck('name'))->toContain('DueState Project');
+    expect($component->instance()->projects())->toBeEmpty();
     expect($component->instance()->schoolClassesForWorkspaceList()->pluck('subject_name'))->toContain('DueState Class');
 });
 
@@ -386,6 +437,174 @@ test('clear all filters resets due state filter', function (): void {
 
     expect($component->get('filterDueState'))->toBeNull();
     expect($component->instance()->getFilters()['dueState'])->toBeNull();
+});
+
+test('quick filter presets toggle and stay independent from search input', function (): void {
+    $this->actingAs($this->user);
+
+    $component = Livewire::test('pages::workspace.index')
+        ->set('searchQuery', 'Math')
+        ->call('applyQuickFilterPreset', 'quizzes_activities_only');
+
+    expect($component->get('searchQuery'))->toBe('Math');
+    expect($component->instance()->isQuickFilterPresetActive('quizzes_activities_only'))->toBeTrue();
+    expect($component->instance()->isQuickFilterPresetActive('exams_only'))->toBeFalse();
+
+    $component->call('applyQuickFilterPreset', 'exams_only');
+    expect($component->instance()->isQuickFilterPresetActive('exams_only'))->toBeTrue();
+    expect($component->instance()->isQuickFilterPresetActive('quizzes_activities_only'))->toBeFalse();
+    expect($component->get('searchQuery'))->toBe('Math');
+
+    $component->call('applyQuickFilterPreset', 'exams_only');
+    expect($component->instance()->isQuickFilterPresetActive('exams_only'))->toBeFalse();
+    expect($component->get('quickFilterPreset'))->toBeNull();
+});
+
+test('quick preset can be initialized from url for server-rendered active styling', function (): void {
+    $this->actingAs($this->user);
+
+    $component = Livewire::withQueryParams([
+        'preset' => 'brightspace_only',
+    ])->test('pages::workspace.index');
+
+    expect($component->get('quickFilterPreset'))->toBe('brightspace_only');
+    expect($component->get('filterTaskSource'))->toBe('brightspace');
+    $component->assertSee('border-blue-500/35');
+});
+
+test('quick preset combines with search query using and logic', function (): void {
+    $this->actingAs($this->user);
+
+    Task::factory()->for($this->user)->create([
+        'title' => 'Math Exam Preparation',
+        'status' => TaskStatus::ToDo,
+        'start_datetime' => now()->addHour(),
+        'end_datetime' => now()->addHours(2),
+    ]);
+
+    Task::factory()->for($this->user)->create([
+        'title' => 'Science Exam Preparation',
+        'status' => TaskStatus::ToDo,
+        'start_datetime' => now()->addHour(),
+        'end_datetime' => now()->addHours(2),
+    ]);
+
+    $component = Livewire::test('pages::workspace.index')
+        ->set('selectedDate', now()->toDateString())
+        ->set('searchQuery', 'Math')
+        ->call('applyQuickFilterPreset', 'exams_only');
+
+    expect($component->instance()->tasks()->pluck('title'))
+        ->toContain('Math Exam Preparation')
+        ->not->toContain('Science Exam Preparation');
+});
+
+test('quick presets filter tasks by keyword across title description and tags', function (): void {
+    $this->actingAs($this->user);
+
+    Task::factory()->for($this->user)->create([
+        'title' => 'Physics Exam Reviewer',
+        'status' => TaskStatus::ToDo,
+        'start_datetime' => now()->addHour(),
+        'end_datetime' => now()->addHours(2),
+    ]);
+
+    Task::factory()->for($this->user)->create([
+        'title' => 'Finals study',
+        'description' => 'Prepare for exams week',
+        'status' => TaskStatus::ToDo,
+        'start_datetime' => now()->addHour(),
+        'end_datetime' => now()->addHours(2),
+    ]);
+
+    Task::factory()->for($this->user)->create([
+        'title' => 'Generic Homework',
+        'description' => 'Prepare quiz handout',
+        'status' => TaskStatus::ToDo,
+        'start_datetime' => now()->addHour(),
+        'end_datetime' => now()->addHours(2),
+    ]);
+
+    $taggedTask = Task::factory()->for($this->user)->create([
+        'title' => 'School chore',
+        'status' => TaskStatus::ToDo,
+        'start_datetime' => now()->addHour(),
+        'end_datetime' => now()->addHours(2),
+    ]);
+    $activityTag = Tag::factory()->for($this->user)->create(['name' => 'Activity']);
+    $taggedTask->tags()->attach($activityTag->id);
+
+    $quizzesTaggedTask = Task::factory()->for($this->user)->create([
+        'title' => 'Review packet',
+        'status' => TaskStatus::ToDo,
+        'start_datetime' => now()->addHour(),
+        'end_datetime' => now()->addHours(2),
+    ]);
+    $quizzesTag = Tag::factory()->for($this->user)->create(['name' => 'Quizzes']);
+    $quizzesTaggedTask->tags()->attach($quizzesTag->id);
+
+    Task::factory()->for($this->user)->create([
+        'title' => 'No preset keyword',
+        'status' => TaskStatus::ToDo,
+        'start_datetime' => now()->addHour(),
+        'end_datetime' => now()->addHours(2),
+    ]);
+
+    $component = Livewire::test('pages::workspace.index')
+        ->set('selectedDate', now()->toDateString())
+        ->call('applyQuickFilterPreset', 'exams_only');
+
+    expect($component->instance()->tasks()->pluck('title'))
+        ->toContain('Physics Exam Reviewer')
+        ->toContain('Finals study')
+        ->not->toContain('Generic Homework');
+
+    $component->call('clearAllFilters')
+        ->set('selectedDate', now()->toDateString())
+        ->call('applyQuickFilterPreset', 'quizzes_activities_only');
+
+    expect($component->instance()->tasks()->pluck('title'))
+        ->toContain('Generic Homework')
+        ->toContain('School chore')
+        ->toContain('Review packet')
+        ->not->toContain('No preset keyword');
+});
+
+test('clear all filters resets quick preset state', function (): void {
+    $this->actingAs($this->user);
+
+    $component = Livewire::test('pages::workspace.index')
+        ->call('applyQuickFilterPreset', 'exams_only')
+        ->call('clearAllFilters');
+
+    expect($component->get('quickFilterPreset'))->toBeNull();
+    expect($component->instance()->isQuickFilterPresetActive('exams_only'))->toBeFalse();
+});
+
+test('quick preset is treated as an active filter in filter payload', function (): void {
+    $this->actingAs($this->user);
+
+    $component = Livewire::test('pages::workspace.index')
+        ->call('applyQuickFilterPreset', 'exams_only');
+
+    expect($component->instance()->getFilters()['quickPreset'])->toBe('exams_only');
+    expect($component->instance()->getFilters()['hasActiveFilters'])->toBeTrue();
+});
+
+test('removed quick presets are ignored and never active', function (): void {
+    $this->actingAs($this->user);
+
+    $component = Livewire::test('pages::workspace.index')
+        ->set('filterItemType', 'events')
+        ->set('searchQuery', 'existing query')
+        ->call('applyQuickFilterPreset', 'classes_now_today');
+
+    expect($component->get('filterItemType'))->toBe('events');
+    expect($component->get('searchQuery'))->toBe('existing query');
+    expect($component->instance()->isQuickFilterPresetActive('classes_now_today'))->toBeFalse();
+    expect($component->instance()->isQuickFilterPresetActive('no_date_cleanup'))->toBeFalse();
+    expect($component->instance()->isQuickFilterPresetActive('exam_week'))->toBeFalse();
+    expect($component->instance()->isQuickFilterPresetActive('assignments_only'))->toBeFalse();
 });
 
 test('when filter pill is visible in both list and kanban workspace views', function (): void {

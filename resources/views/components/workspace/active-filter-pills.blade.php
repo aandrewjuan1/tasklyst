@@ -34,6 +34,7 @@
         '' => __('Any'),
         'overdue' => __('Overdue'),
         'due' => __('Due'),
+        'no_date' => __('No date'),
     ];
 
     $tags = $tags instanceof \Illuminate\Support\Collection ? $tags : collect($tags);
@@ -69,7 +70,8 @@
     $hasOtherActiveFilters = ($filters['taskStatus'] ?? null) || ($filters['taskPriority'] ?? null)
         || ($filters['taskComplexity'] ?? null) || ($filters['eventStatus'] ?? null)
         || (is_array($tagIds) && $tagIds !== []) || ($filters['recurring'] ?? null)
-        || ($filters['taskSource'] ?? null) || ($filters['dueState'] ?? null);
+        || ($filters['taskSource'] ?? null) || ($filters['dueState'] ?? null)
+        || ($filters['quickPreset'] ?? null);
 
     $filterPillEnumFillClass = static fn (string $color): string => 'bg-' . $color . '/10 text-' . $color;
 
@@ -98,6 +100,8 @@
         'border-red-200/55 bg-red-100 text-red-700 shadow-sm dark:border-red-900/40 dark:bg-red-950/50 dark:text-red-200';
     $filterPillDueStateDue =
         'border-amber-200/55 bg-amber-100 text-amber-700 shadow-sm dark:border-amber-900/40 dark:bg-amber-950/50 dark:text-amber-200';
+    $filterPillDueStateNoDate =
+        'border-zinc-300/70 bg-zinc-100 text-zinc-700 shadow-sm dark:border-zinc-700/70 dark:bg-zinc-900 dark:text-zinc-200';
 
     $initialItemType = $filters['itemType'] ?? null;
     $initialTaskStatus = $filters['taskStatus'] ?? null;
@@ -132,6 +136,7 @@
     $initialDueStateClass = match ($initialDueState) {
         'overdue' => $filterPillDueStateOverdue,
         'due' => $filterPillDueStateDue,
+        'no_date' => $filterPillDueStateNoDate,
         default => $filterPillDefaultClass,
     };
 @endphp
@@ -173,6 +178,7 @@
             recurring: @js($filters['recurring'] ?? null),
             taskSource: @js($filters['taskSource'] ?? null),
             dueState: @js($filters['dueState'] ?? null),
+            quickPreset: @js($filters['quickPreset'] ?? null),
             showCompleted: @js((bool) ($filters['showCompleted'] ?? false)),
         },
         _m(cls) {
@@ -186,6 +192,7 @@
         filterPillTaskSourceBrightspace: @js($filterPillTaskSourceBrightspace),
         filterPillDueStateOverdue: @js($filterPillDueStateOverdue),
         filterPillDueStateDue: @js($filterPillDueStateDue),
+        filterPillDueStateNoDate: @js($filterPillDueStateNoDate),
         pillClassesTaskSource() {
             const v = this.displayFilters.taskSource;
             if (v === 'brightspace') {
@@ -230,6 +237,9 @@
             if (v === 'due') {
                 return this._m(this.filterPillDueStateDue);
             }
+            if (v === 'no_date') {
+                return this._m(this.filterPillDueStateNoDate);
+            }
             const fill = 'bg-muted text-muted-foreground';
             return [...this._m(fill), 'border', 'border-black/10', 'dark:border-white/10'];
         },
@@ -267,6 +277,7 @@
                 this.displayFilters.recurring = $wire.filterRecurring ?? null;
                 this.displayFilters.taskSource = $wire.filterTaskSource ?? null;
                 this.displayFilters.dueState = $wire.filterDueState ?? null;
+                this.displayFilters.quickPreset = $wire.quickFilterPreset ?? null;
                 this.displayFilters.showCompleted = ($wire.showCompleted ?? '0') === '1';
             };
             this.$watch('$wire.filterItemType', () => { this.displayFilters.itemType = $wire.filterItemType ?? null; });
@@ -278,6 +289,7 @@
             this.$watch('$wire.filterRecurring', () => { this.displayFilters.recurring = $wire.filterRecurring ?? null; });
             this.$watch('$wire.filterTaskSource', () => { this.displayFilters.taskSource = $wire.filterTaskSource ?? null; });
             this.$watch('$wire.filterDueState', () => { this.displayFilters.dueState = $wire.filterDueState ?? null; });
+            this.$watch('$wire.quickFilterPreset', () => { this.displayFilters.quickPreset = $wire.quickFilterPreset ?? null; });
             this.$watch('$wire.showCompleted', () => { this.displayFilters.showCompleted = ($wire.showCompleted ?? '0') === '1'; });
             const typeSpecificKeys = ['taskStatus', 'taskPriority', 'taskComplexity', 'taskSource', 'eventStatus'];
             const handler = (e) => {
@@ -296,6 +308,7 @@
                     this.displayFilters.recurring = null;
                     this.displayFilters.taskSource = null;
                     this.displayFilters.dueState = null;
+                    this.displayFilters.quickPreset = null;
                 } else if (key === 'tagIds') {
                     this.displayFilters.tagIds = Array.isArray(value) ? value : (value ? [value] : []);
                 } else if (key) {
@@ -325,13 +338,13 @@
             return this.displayFilters.itemType || this.displayFilters.taskStatus || this.displayFilters.taskPriority ||
                 this.displayFilters.taskComplexity || this.displayFilters.eventStatus ||
                 (this.displayFilters.tagIds?.length > 0) || this.displayFilters.recurring || this.displayFilters.taskSource ||
-                this.displayFilters.dueState;
+                this.displayFilters.dueState || this.displayFilters.quickPreset;
         },
         hasOtherActiveFilters() {
             return this.displayFilters.taskStatus || this.displayFilters.taskPriority ||
                 this.displayFilters.taskComplexity || this.displayFilters.eventStatus ||
                 (this.displayFilters.tagIds?.length > 0) || this.displayFilters.recurring || this.displayFilters.taskSource ||
-                this.displayFilters.dueState;
+                this.displayFilters.dueState || this.displayFilters.quickPreset;
         },
         setItemType(value) {
             this.displayFilters.itemType = value || null;
@@ -356,6 +369,7 @@
             this.displayFilters.recurring = null;
             this.displayFilters.taskSource = null;
             this.displayFilters.dueState = null;
+            this.displayFilters.quickPreset = null;
             window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'clearAll' } }));
             $wire.clearAllFilters();
         },
@@ -686,68 +700,6 @@
         </button>
     </span>
 
-    {{-- Task source (Brightspace / Manual) --}}
-    <span
-        x-show="showValue('taskSource')"
-        style="{{ ($filters['taskSource'] ?? null) ? '' : 'display:none' }}"
-        class="workspace-filter-property-pill max-w-full {{ $initialTaskSourceClass }}"
-        :class="pillClassesTaskSource()"
-    >
-        <div class="relative min-w-0" @click.outside="closePillMenu('taskSource')">
-            <button
-                type="button"
-                class="workspace-filter-pill-trigger"
-                @click.stop="togglePillMenu('taskSource')"
-                :aria-expanded="menus.taskSource"
-                aria-haspopup="menu"
-            >
-                <span class="inline-flex min-w-0 items-center gap-1">
-                    <img
-                        x-show="displayFilters.taskSource === 'brightspace'"
-                        src="{{ asset('images/brightspace-icon.png') }}"
-                        alt=""
-                        class="size-3 shrink-0 object-contain"
-                        @if(($filters['taskSource'] ?? null) !== 'brightspace') style="display: none" @endif
-                    />
-                    <span class="truncate" x-text="pillLabels.taskSource + ': ' + showValue('taskSource')">{{ $pillLabels['taskSource'] }}: {{ ($filters['taskSource'] ?? null) ? ($taskSourceLabels[$filters['taskSource']] ?? '') : '' }}</span>
-                </span>
-                <svg class="size-3.5 shrink-0 opacity-70" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-                </svg>
-            </button>
-            <div
-                x-cloak
-                x-show="menus.taskSource"
-                x-transition
-                class="workspace-filter-panel workspace-filter-panel--start top-full z-[60] mt-1"
-                role="menu"
-            >
-                @foreach ($taskSourceLabels as $value => $label)
-                    <label wire:key="pill-tsrc-{{ $value }}" class="workspace-filter-option" @click="closePillMenu('taskSource')">
-                        <input
-                            type="radio"
-                            class="sr-only"
-                            wire:model.live="filterTaskSource"
-                            value="{{ $value }}"
-                            @click="window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'taskSource', value: @js($value) } }))"
-                        />
-                        <span class="min-w-0 flex-1">{{ $label }}</span>
-                    </label>
-                @endforeach
-            </div>
-        </div>
-        <button
-            type="button"
-            class="workspace-filter-pill-clear"
-            :aria-label="'{{ __('Clear :filter filter', ['filter' => '__PLACEHOLDER__']) }}'.replace('__PLACEHOLDER__', pillLabels.taskSource)"
-            @click.stop="clearFilter('taskSource')"
-        >
-            <svg class="size-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-        </button>
-    </span>
-
     @if ($showListScopedFilters)
         {{-- Event status --}}
         <span
@@ -856,59 +808,6 @@
             </button>
         </span>
     @endif
-
-    {{-- Recurring --}}
-    <span
-        x-show="showValue('recurring')"
-        style="{{ ($filters['recurring'] ?? null) ? '' : 'display:none' }}"
-        class="workspace-filter-property-pill max-w-full {{ $initialRecurringClass }}"
-        :class="pillClassesRecurring()"
-    >
-        <div class="relative min-w-0" @click.outside="closePillMenu('recurring')">
-            <button
-                type="button"
-                class="workspace-filter-pill-trigger"
-                @click.stop="togglePillMenu('recurring')"
-                :aria-expanded="menus.recurring"
-                aria-haspopup="menu"
-            >
-                <span class="truncate" x-text="pillLabels.recurring + ': ' + showValue('recurring')">{{ $pillLabels['recurring'] }}: {{ ($filters['recurring'] ?? null) ? ($recurringLabels[$filters['recurring']] ?? '') : '' }}</span>
-                <svg class="size-3.5 shrink-0 opacity-70" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-                </svg>
-            </button>
-            <div
-                x-cloak
-                x-show="menus.recurring"
-                x-transition
-                class="workspace-filter-panel workspace-filter-panel--start top-full z-[60] mt-1"
-                role="menu"
-            >
-                @foreach (['recurring' => __('Recurring'), 'oneTime' => __('One-time')] as $value => $label)
-                    <label wire:key="pill-rec-{{ $value }}" class="workspace-filter-option" @click="closePillMenu('recurring')">
-                        <input
-                            type="radio"
-                            class="sr-only"
-                            wire:model.live="filterRecurring"
-                            value="{{ $value }}"
-                            @click="window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'recurring', value: @js($value) } }))"
-                        />
-                        <span class="min-w-0 flex-1">{{ $label }}</span>
-                    </label>
-                @endforeach
-            </div>
-        </div>
-        <button
-            type="button"
-            class="workspace-filter-pill-clear"
-            :aria-label="'{{ __('Clear :filter filter', ['filter' => '__PLACEHOLDER__']) }}'.replace('__PLACEHOLDER__', pillLabels.recurring)"
-            @click.stop="clearFilter('recurring')"
-        >
-            <svg class="size-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-        </button>
-    </span>
 
     <button
         x-show="hasOtherActiveFilters()"

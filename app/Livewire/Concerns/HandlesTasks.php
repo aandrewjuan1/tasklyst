@@ -466,6 +466,7 @@ trait HandlesTasks
     {
         $isOverdueStateFilterActive = method_exists($this, 'isOverdueStateFilterActive') && $this->isOverdueStateFilterActive();
         $isDueStateFilterActive = method_exists($this, 'isDueStateFilterActive') && $this->isDueStateFilterActive();
+        $isNoDateStateFilterActive = method_exists($this, 'isNoDateStateFilterActive') && $this->isNoDateStateFilterActive();
 
         // Early return: Skip if filtered to other item types (before any work). Kanban is tasks-only but
         // still loads tasks when list is filtered to events/projects so the board stays meaningful.
@@ -555,6 +556,10 @@ trait HandlesTasks
                 : Carbon::parse($this->selectedDate);
             $taskQuery->whereNotNull('end_datetime')
                 ->whereDate('end_datetime', $selectedDate->toDateString());
+        }
+
+        if ($isNoDateStateFilterActive) {
+            $taskQuery->withNoDate();
         }
 
         if (property_exists($this, 'listContextProjectId') && $this->listContextProjectId !== null && $this->listContextProjectId !== '') {
@@ -706,6 +711,10 @@ trait HandlesTasks
                 : Carbon::parse($this->selectedDate);
             $taskQuery->whereNotNull('end_datetime')
                 ->whereDate('end_datetime', $selectedDate->toDateString());
+        }
+
+        if (method_exists($this, 'isNoDateStateFilterActive') && $this->isNoDateStateFilterActive()) {
+            $taskQuery->withNoDate();
         }
 
         if (property_exists($this, 'listContextProjectId') && $this->listContextProjectId !== null && $this->listContextProjectId !== '') {

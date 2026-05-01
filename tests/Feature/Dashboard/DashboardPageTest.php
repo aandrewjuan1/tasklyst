@@ -58,7 +58,7 @@ test('dashboard hero keeps single primary focus header controls', function () {
     $html = (string) $this->actingAs($user)->get(route('dashboard'))->getContent();
 
     expect($html)->toContain('Focus on what needs attention right now.');
-    expect($html)->toContain('Ask AI assistant');
+    expect($html)->toContain('Use AI assistant');
     expect($html)->toContain('data-test="notifications-bell-button"');
     expect(substr_count($html, 'data-test="notifications-bell-button"'))->toBe(1);
 });
@@ -711,6 +711,25 @@ test('dashboard no-date backlog shows see all in workspace when more than three 
     $response->assertSee('See all in Workspace', false);
     expect(preg_match('/data-testid="dashboard-no-date-backlog-count"[^>]*>\s*(\d+)\s*</', $response->getContent(), $matches))->toBe(1);
     expect($matches[1])->toBe('4');
+});
+
+test('dashboard task chips show relative deadline labels', function () {
+    Carbon::setTestNow(Carbon::parse('2026-04-12 09:00:00'));
+    $user = User::factory()->create();
+
+    Task::factory()->for($user)->create([
+        'title' => 'Doing Relative Deadline Task',
+        'status' => TaskStatus::Doing,
+        'end_datetime' => Carbon::parse('2026-04-13 14:00:00'),
+        'completed_at' => null,
+    ]);
+
+    $response = $this->actingAs($user)->get(route('dashboard', ['date' => '2026-04-12']));
+
+    $response->assertSuccessful();
+    $response->assertSee('Due tomorrow', false);
+
+    Carbon::setTestNow();
 });
 
 test('dashboard calendar renders selected-day agenda and summary counts', function () {
