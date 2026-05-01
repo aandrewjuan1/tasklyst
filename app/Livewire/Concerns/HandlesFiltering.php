@@ -612,21 +612,23 @@ trait HandlesFiltering
      */
     protected function applyWorkspaceSearchTokenToTaskQuery(Builder $query, string $pattern): void
     {
-        $query->where(function (Builder $group) use ($pattern): void {
-            $group->where('title', 'like', $pattern)
-                ->orWhere('description', 'like', $pattern)
-                ->orWhere('teacher_name', 'like', $pattern)
-                ->orWhere('subject_name', 'like', $pattern)
-                ->orWhereExists(function ($sub) use ($pattern): void {
+        $normalizedPattern = Str::lower($pattern);
+
+        $query->where(function (Builder $group) use ($normalizedPattern): void {
+            $group->whereRaw('LOWER(title) LIKE ?', [$normalizedPattern])
+                ->orWhereRaw('LOWER(description) LIKE ?', [$normalizedPattern])
+                ->orWhereRaw('LOWER(teacher_name) LIKE ?', [$normalizedPattern])
+                ->orWhereRaw('LOWER(subject_name) LIKE ?', [$normalizedPattern])
+                ->orWhereExists(function ($sub) use ($normalizedPattern): void {
                     $sub->select(DB::raw(1))
                         ->from('school_classes')
                         ->join('teachers', 'teachers.id', '=', 'school_classes.teacher_id')
                         ->whereColumn('school_classes.id', 'tasks.school_class_id')
                         ->whereNull('school_classes.deleted_at')
-                        ->where('teachers.name', 'like', $pattern);
+                        ->whereRaw('LOWER(teachers.name) LIKE ?', [$normalizedPattern]);
                 })
-                ->orWhereHas('tags', function (Builder $tagQuery) use ($pattern): void {
-                    $tagQuery->where('tags.name', 'like', $pattern);
+                ->orWhereHas('tags', function (Builder $tagQuery) use ($normalizedPattern): void {
+                    $tagQuery->whereRaw('LOWER(tags.name) LIKE ?', [$normalizedPattern]);
                 });
         });
     }
@@ -690,10 +692,12 @@ trait HandlesFiltering
     protected function applyWorkspaceQuickPresetToEventQuery(Builder $query): void
     {
         $this->applyWorkspaceQuickPresetTokensToQuery($query, function (Builder $group, string $pattern): void {
-            $group->where('title', 'like', $pattern)
-                ->orWhere('description', 'like', $pattern)
-                ->orWhereHas('tags', function (Builder $tagQuery) use ($pattern): void {
-                    $tagQuery->where('tags.name', 'like', $pattern);
+            $normalizedPattern = Str::lower($pattern);
+
+            $group->whereRaw('LOWER(title) LIKE ?', [$normalizedPattern])
+                ->orWhereRaw('LOWER(description) LIKE ?', [$normalizedPattern])
+                ->orWhereHas('tags', function (Builder $tagQuery) use ($normalizedPattern): void {
+                    $tagQuery->whereRaw('LOWER(tags.name) LIKE ?', [$normalizedPattern]);
                 })
                 ->orWhereHas('tasks', function (Builder $taskQuery) use ($pattern): void {
                     $this->applyWorkspaceSearchTokenToTaskQuery($taskQuery, $pattern);
@@ -756,8 +760,10 @@ trait HandlesFiltering
     protected function applyWorkspaceQuickPresetToProjectQuery(Builder $query): void
     {
         $this->applyWorkspaceQuickPresetTokensToQuery($query, function (Builder $group, string $pattern): void {
-            $group->where('name', 'like', $pattern)
-                ->orWhere('description', 'like', $pattern)
+            $normalizedPattern = Str::lower($pattern);
+
+            $group->whereRaw('LOWER(name) LIKE ?', [$normalizedPattern])
+                ->orWhereRaw('LOWER(description) LIKE ?', [$normalizedPattern])
                 ->orWhereHas('tasks', function (Builder $taskQuery) use ($pattern): void {
                     $this->applyWorkspaceSearchTokenToTaskQuery($taskQuery, $pattern);
                 });
@@ -767,9 +773,11 @@ trait HandlesFiltering
     protected function applyWorkspaceQuickPresetToSchoolClassQuery(Builder $query): void
     {
         $this->applyWorkspaceQuickPresetTokensToQuery($query, function (Builder $group, string $pattern): void {
-            $group->where('subject_name', 'like', $pattern)
-                ->orWhereHas('teacher', function (Builder $teacherQuery) use ($pattern): void {
-                    $teacherQuery->where('name', 'like', $pattern);
+            $normalizedPattern = Str::lower($pattern);
+
+            $group->whereRaw('LOWER(subject_name) LIKE ?', [$normalizedPattern])
+                ->orWhereHas('teacher', function (Builder $teacherQuery) use ($normalizedPattern): void {
+                    $teacherQuery->whereRaw('LOWER(name) LIKE ?', [$normalizedPattern]);
                 })
                 ->orWhereHas('tasks', function (Builder $taskQuery) use ($pattern): void {
                     $this->applyWorkspaceSearchTokenToTaskQuery($taskQuery, $pattern);

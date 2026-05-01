@@ -525,6 +525,13 @@ test('quick presets filter tasks by keyword across title description and tags', 
         'end_datetime' => now()->addHours(2),
     ]);
 
+    Task::factory()->for($this->user)->create([
+        'title' => 'QUIZ practice set',
+        'status' => TaskStatus::ToDo,
+        'start_datetime' => now()->addHour(),
+        'end_datetime' => now()->addHours(2),
+    ]);
+
     $taggedTask = Task::factory()->for($this->user)->create([
         'title' => 'School chore',
         'status' => TaskStatus::ToDo,
@@ -565,6 +572,7 @@ test('quick presets filter tasks by keyword across title description and tags', 
 
     expect($component->instance()->tasks()->pluck('title'))
         ->toContain('Generic Homework')
+        ->toContain('QUIZ practice set')
         ->toContain('School chore')
         ->toContain('Review packet')
         ->not->toContain('No preset keyword');
