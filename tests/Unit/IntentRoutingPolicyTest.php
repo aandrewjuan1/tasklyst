@@ -1020,6 +1020,37 @@ test('schedule named task resolves explicit target entity from user tasks', func
     expect((int) $decision->constraints['target_entities'][0]['entity_id'])->toBe($target->id);
 });
 
+test('schedule my task with ordering words still routes to targeted schedule flow', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+    $target = \App\Models\Task::factory()->for($user)->create([
+        'title' => 'ORDER MANAGEMENT SYSTEM - MIDTERM EXAM PROJECT -',
+    ]);
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'Schedule my task ORDER MANAGEMENT SYSTEM - MIDTERM EXAM PROJECT -');
+
+    expect($decision->flow)->toBe('schedule');
+    expect($decision->reasonCodes)->toContain('targeted_single_task_schedule_shortcircuit');
+    expect($decision->constraints['count_limit'])->toBe(1);
+    expect($decision->constraints['target_entities'])->toHaveCount(1);
+    expect((int) $decision->constraints['target_entities'][0]['entity_id'])->toBe($target->id);
+});
+
+test('explicit single-task scheduling prompt without matched task stays in schedule flow', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'Schedule my task impossible ghost title');
+
+    expect($decision->flow)->toBe('schedule');
+    expect($decision->reasonCodes)->toContain('targeted_single_task_schedule_shortcircuit');
+    expect($decision->constraints['count_limit'])->toBe(1);
+});
+
 test('schedule multiple named tasks resolves up to three explicit targets', function (): void {
     config()->set('task-assistant.intent.use_llm', false);
 

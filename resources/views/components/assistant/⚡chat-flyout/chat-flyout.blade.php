@@ -28,6 +28,17 @@
         flyoutVisibilityObserver: null,
         allowAutoScrollOnStreamEnd: true,
         noRealtimeBroadcast: false,
+        typingStartRetryTimer: null,
+        typingState: {
+            activeMessageId: null,
+            pendingMessageId: null,
+            fullText: '',
+            visibleText: '',
+            queueIndex: 0,
+            isTyping: false,
+            timer: null,
+            completedMessageIds: {},
+        },
         currentLoadingPhrase() {
             return this.loadingPhrases[this.loadingPhraseIndex] ?? this.loadingPhrases[0];
         },
@@ -253,6 +264,223 @@
                 }
             });
         },
+        clearTypingTimer() {
+            if (this.typingState.timer) {
+                clearTimeout(this.typingState.timer);
+                this.typingState.timer = null;
+            }
+        },
+        clearTypingStartRetryTimer() {
+            if (this.typingStartRetryTimer) {
+                clearTimeout(this.typingStartRetryTimer);
+                this.typingStartRetryTimer = null;
+            }
+        },
+        markTypedMessageComplete(messageId) {
+            if (!Number.isInteger(messageId) || messageId <= 0) {
+                return;
+            }
+
+            this.typingState.completedMessageIds[messageId] = true;
+        },
+        finishTypingReveal(markComplete = true) {
+            const messageId = Number(this.typingState.activeMessageId ?? 0);
+            if (messageId > 0 && markComplete) {
+                this.markTypedMessageComplete(messageId);
+            }
+
+            this.clearTypingTimer();
+            this.typingState.activeMessageId = null;
+            this.typingState.pendingMessageId = null;
+            this.typingState.fullText = '';
+            this.typingState.visibleText = '';
+            this.typingState.queueIndex = 0;
+            this.typingState.isTyping = false;
+
+            if (markComplete) {
+                this.$nextTick(() => {
+                    this.queueScrollToBottomWhenVisible('smooth');
+                });
+            }
+        },
+        getTypingChunk(remainingText) {
+            const remainingLength = remainingText.length;
+            if (remainingLength <= 0) {
+                return '';
+            }
+
+            const baseLength = remainingLength > 400
+                ? 10
+                : (remainingLength > 220 ? 8 : (remainingLength > 100 ? 6 : 4));
+            let chunk = remainingText.slice(0, Math.min(baseLength, remainingLength));
+            const wordRemainder = remainingText.slice(chunk.length).match(/^[^\s,.!?;:\n]*/u);
+            if (wordRemainder && wordRemainder[0].length > 0) {
+                chunk += wordRemainder[0].slice(0, 8);
+            }
+
+            return chunk.length > 0 ? chunk : remainingText.charAt(0);
+        },
+        getTypingDelayMs(chunk) {
+            const lastChar = chunk.slice(-1);
+            if (/[.!?]/u.test(lastChar)) {
+                return 150;
+            }
+            if (/[,;:]/u.test(lastChar)) {
+                return 95;
+            }
+            if (/\n/u.test(lastChar)) {
+                return 80;
+            }
+            if (/\s/u.test(lastChar)) {
+                return 52;
+            }
+
+            return 38;
+        },
+        queueTypingTick(delayMs = 45) {
+            this.clearTypingTimer();
+            this.typingState.timer = setTimeout(() => {
+                this.typingState.timer = null;
+                this.advanceTypingReveal();
+            }, Math.max(20, delayMs));
+        },
+        advanceTypingReveal() {
+            if (!this.typingState.isTyping || !Number.isInteger(this.typingState.activeMessageId)) {
+                this.finishTypingReveal(false);
+
+                return;
+            }
+
+            const remainingText = this.typingState.fullText.slice(this.typingState.queueIndex);
+            if (remainingText.length === 0) {
+                this.finishTypingReveal(true);
+
+                return;
+            }
+
+            const chunk = this.getTypingChunk(remainingText);
+            this.typingState.visibleText += chunk;
+            this.typingState.queueIndex += chunk.length;
+
+            if (this.isNearBottom(170)) {
+                this.queueScrollToBottom('auto');
+            }
+
+            if (this.typingState.queueIndex >= this.typingState.fullText.length) {
+                this.finishTypingReveal(true);
+
+                return;
+            }
+
+            this.queueTypingTick(this.getTypingDelayMs(chunk));
+        },
+        primeTypingRevealStart() {
+            const messageId = Number(this.$wire.latestAssistantMessageId ?? this.$wire.streamingMessageId ?? 0);
+            if (!Number.isInteger(messageId) || messageId <= 0) {
+                return;
+            }
+
+            if (this.typingState.completedMessageIds[messageId]) {
+                return;
+            }
+
+            this.typingState.pendingMessageId = messageId;
+        },
+        resolveLatestCompletedAssistantMessage(preferredMessageId = null) {
+            const container = this.$refs.messagesContainer ?? null;
+            if (!container) {
+                return null;
+            }
+
+            const assistantNodes = Array.from(container.querySelectorAll('[data-assistant-message-id]'));
+            const preferredId = Number(preferredMessageId ?? 0);
+            if (Number.isInteger(preferredId) && preferredId > 0) {
+                const preferredNode = assistantNodes.find((node) => Number(node.getAttribute('data-assistant-message-id') ?? 0) === preferredId);
+                if (preferredNode) {
+                    const preferredSource = preferredNode.querySelector('[data-assistant-display-source=true]');
+                    const preferredText = (preferredSource?.textContent ?? '').replace(/\r\n/g, '\n');
+                    if (preferredText.trim().length > 0) {
+                        return { id: preferredId, text: preferredText };
+                    }
+                }
+            }
+
+            for (let index = assistantNodes.length - 1; index >= 0; index--) {
+                const node = assistantNodes[index];
+                const messageId = Number(node.getAttribute('data-assistant-message-id') ?? 0);
+                if (!Number.isInteger(messageId) || messageId <= 0) {
+                    continue;
+                }
+
+                const source = node.querySelector('[data-assistant-display-source=true]');
+                const text = (source?.textContent ?? '').replace(/\r\n/g, '\n');
+                if (text.trim().length === 0) {
+                    continue;
+                }
+
+                return { id: messageId, text };
+            }
+
+            return null;
+        },
+        beginTypingForLatestCompletedAssistant() {
+            if (this.$wire.isStreaming) {
+                return false;
+            }
+
+            const latest = this.resolveLatestCompletedAssistantMessage(this.typingState.pendingMessageId);
+            if (!latest) {
+                return false;
+            }
+
+            if (this.typingState.completedMessageIds[latest.id]) {
+                return false;
+            }
+
+            if (this.typingState.isTyping && this.typingState.activeMessageId === latest.id) {
+                return true;
+            }
+
+            this.clearTypingTimer();
+            this.typingState.activeMessageId = latest.id;
+            this.typingState.pendingMessageId = latest.id;
+            this.typingState.fullText = latest.text;
+            this.typingState.visibleText = '';
+            this.typingState.queueIndex = 0;
+            this.typingState.isTyping = true;
+            this.clearTypingStartRetryTimer();
+            this.queueTypingTick(35);
+
+            return true;
+        },
+        scheduleTypingRevealStart(attempt = 0) {
+            this.$nextTick(() => {
+                const started = this.beginTypingForLatestCompletedAssistant();
+                if (!started && attempt < 4) {
+                    this.clearTypingStartRetryTimer();
+                    this.typingStartRetryTimer = setTimeout(() => {
+                        this.typingStartRetryTimer = null;
+                        this.scheduleTypingRevealStart(attempt + 1);
+                    }, 45);
+                }
+            });
+        },
+        shouldRenderTypedMessage(messageId) {
+            return Number(this.typingState.activeMessageId) === Number(messageId) && this.typingState.isTyping;
+        },
+        shouldHideSourceMessage(messageId) {
+            const normalizedMessageId = Number(messageId);
+            if (!Number.isInteger(normalizedMessageId) || normalizedMessageId <= 0) {
+                return false;
+            }
+
+            if (this.shouldRenderTypedMessage(normalizedMessageId)) {
+                return true;
+            }
+
+            return Number(this.typingState.pendingMessageId) === normalizedMessageId
+                && !this.typingState.completedMessageIds[normalizedMessageId];
+        },
         init() {
             this.detectRealtimeBroadcastAvailability();
             this.registerVisibilityPollingListener();
@@ -278,6 +506,8 @@
                 this.wasStreaming = !! value;
 
                 if (value) {
+                    this.finishTypingReveal(false);
+                    this.clearTypingStartRetryTimer();
                     this.allowAutoScrollOnStreamEnd = this.isNearBottom(180);
                     this.startLoadingPhraseRotation();
                     this.startStreamingTimeoutPolling();
@@ -290,6 +520,11 @@
                     // Stream just finished; only snap if user did not scroll away while waiting.
                     if (wasStreaming && this.allowAutoScrollOnStreamEnd) {
                         this.queueScrollToBottom('smooth');
+                    }
+
+                    if (wasStreaming) {
+                        this.primeTypingRevealStart();
+                        this.scheduleTypingRevealStart();
                     }
                 }
             });
@@ -314,8 +549,11 @@
                 cancelAnimationFrame(this.scrollStateRaf);
                 this.scrollStateRaf = null;
             }
+            this.clearTypingStartRetryTimer();
+            this.finishTypingReveal(false);
         },
     }"
+    x-on:assistant-chat-scroll-bottom-requested="queueScrollToBottomWhenVisible('smooth')"
 >
     <div class="relative z-20 flex shrink-0 items-start gap-3 overflow-visible border-b border-border/60 px-4 py-3 dark:border-zinc-800">
         <div class="flex size-10 shrink-0 items-center justify-center rounded-2xl border border-brand-blue/20 bg-white text-brand-blue shadow-sm dark:border-brand-blue/30 dark:bg-zinc-900/20 dark:text-brand-light-blue">
@@ -458,6 +696,7 @@
                     <div
                         wire:key="message-{{ $message->id }}"
                         class="flex justify-start"
+                        data-assistant-message-id="{{ (int) $message->id }}"
                     >
                         <div class="flex max-w-[85%] items-start gap-3">
                             <div class="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-xl border border-brand-blue/20 bg-white text-brand-blue shadow-sm dark:border-brand-blue/30 dark:bg-zinc-900/20 dark:text-brand-light-blue">
@@ -520,47 +759,65 @@
                                 </div>
                             @endif
                             @if ($display !== '')
-                                <flux:text class="wrap-break-word whitespace-pre-wrap text-base text-black dark:text-black">{{ $display }}</flux:text>
+                                <flux:text
+                                    x-cloak
+                                    x-show="!shouldHideSourceMessage({{ (int) $message->id }})"
+                                    data-assistant-display-source="true"
+                                    class="wrap-break-word whitespace-pre-wrap text-base text-black dark:text-black"
+                                >{{ $display }}</flux:text>
+                                <flux:text
+                                    x-cloak
+                                    x-show="shouldRenderTypedMessage({{ (int) $message->id }})"
+                                    x-text="typingState.visibleText"
+                                    class="wrap-break-word whitespace-pre-wrap text-base text-black dark:text-black"
+                                ></flux:text>
                             @endif
 
-                            @if (! $hideScheduleProposalCards && is_array($proposals) && count($proposals) > 0)
-                                @php
-                                    $pendingSchedulableCount = 0;
-                                    foreach ($proposals as $p) {
-                                        if (! is_array($p)) {
-                                            continue;
+                            <div
+                                x-cloak
+                                x-show="!shouldHideSourceMessage({{ (int) $message->id }})"
+                                x-transition:enter="transition ease-out duration-220"
+                                x-transition:enter-start="opacity-0 translate-y-1"
+                                x-transition:enter-end="opacity-100 translate-y-0"
+                            >
+                                @if (! $hideScheduleProposalCards && is_array($proposals) && count($proposals) > 0)
+                                    @php
+                                        $pendingSchedulableCount = 0;
+                                        foreach ($proposals as $p) {
+                                            if (! is_array($p)) {
+                                                continue;
+                                            }
+                                            if (\App\Support\LLM\SchedulableProposalPolicy::isPendingSchedulable($p)) {
+                                                $pendingSchedulableCount++;
+                                            }
                                         }
-                                        if (\App\Support\LLM\SchedulableProposalPolicy::isPendingSchedulable($p)) {
-                                            $pendingSchedulableCount++;
-                                        }
-                                    }
-                                    $showAcceptAll = $isLatestAssistant
-                                        && ! $isStopped
-                                        && $pendingSchedulableCount > 1;
-                                @endphp
-                                <div class="mt-3 flex flex-col gap-2">
-                                    @foreach ($proposals as $proposal)
-                                        @if (is_array($proposal))
-                                            @php
-                                                $proposalId = (string) ($proposal['proposal_uuid'] ?? $proposal['proposal_id'] ?? '');
-                                                $status = (string) ($proposal['status'] ?? 'pending');
-                                                $isPendingProposal = $status === 'pending';
-                                                $isPendingSchedulableProposal = \App\Support\LLM\SchedulableProposalPolicy::isPendingSchedulable($proposal);
-                                                $canShowPerItemActions = $isLatestAssistant
-                                                    && ! $isStopped
-                                                    && $proposalId !== ''
-                                                    && $isPendingProposal
-                                                    && $isPendingSchedulableProposal;
-                                                $startAt = (string) ($proposal['start_datetime'] ?? '');
-                                                $endAt = (string) ($proposal['end_datetime'] ?? '');
-                                                $title = (string) ($proposal['title'] ?? 'Scheduled item');
-                                                $statusLabel = \Illuminate\Support\Str::headline($status);
-                                                $statusClass = match ($status) {
-                                                    'accepted' => 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
-                                                    'failed' => 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
-                                                    'declined' => 'bg-zinc-200 text-zinc-700 dark:bg-zinc-700/60 dark:text-zinc-300',
-                                                    default => 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
-                                                };
+                                        $showAcceptAll = $isLatestAssistant
+                                            && ! $isStopped
+                                            && $pendingSchedulableCount > 1;
+                                    @endphp
+                                    <div class="mt-3 flex flex-col gap-2">
+                                        @foreach ($proposals as $proposal)
+                                            @if (is_array($proposal))
+                                                @php
+                                                    $proposalId = (string) ($proposal['proposal_uuid'] ?? $proposal['proposal_id'] ?? '');
+                                                    $status = (string) ($proposal['status'] ?? 'pending');
+                                                    $isPendingProposal = $status === 'pending';
+                                                    $isPendingSchedulableProposal = \App\Support\LLM\SchedulableProposalPolicy::isPendingSchedulable($proposal);
+                                                    $canShowPerItemActions = $isLatestAssistant
+                                                        && ! $isStopped
+                                                        && $proposalId !== ''
+                                                        && $isPendingProposal
+                                                        && $isPendingSchedulableProposal;
+                                                    $startAt = (string) ($proposal['start_datetime'] ?? '');
+                                                    $endAt = (string) ($proposal['end_datetime'] ?? '');
+                                                    $title = (string) ($proposal['title'] ?? 'Scheduled item');
+                                                    $statusLabel = \Illuminate\Support\Str::headline($status);
+                                                    $statusClass = match ($status) {
+                                                        'accepted' => 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
+                                                        'failed' => 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
+                                                        'declined' => 'bg-zinc-200 text-zinc-700 dark:bg-zinc-700/60 dark:text-zinc-300',
+                                                        default => 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
+                                                    };
 
                                                 $start = null;
                                                 $end = null;
@@ -592,8 +849,8 @@
                                                 } else {
                                                     $timeLabel = $startAt;
                                                 }
-                                            @endphp
-                                            <div class="rounded-lg border border-border/65 bg-white/90 px-2.5 py-2.5 shadow-sm ring-1 ring-black/5 dark:border-zinc-700/70 dark:bg-zinc-900/55 dark:ring-white/5">
+                                                @endphp
+                                                <div class="rounded-lg border border-border/65 bg-white/90 px-2.5 py-2.5 shadow-sm ring-1 ring-black/5 dark:border-zinc-700/70 dark:bg-zinc-900/55 dark:ring-white/5">
                                                 <flux:text class="block w-full min-w-0 text-sm font-semibold leading-tight text-zinc-900 dark:text-zinc-100">
                                                     {{ $title }}
                                                 </flux:text>
@@ -650,44 +907,45 @@
                                                         {{ $statusLabel }}
                                                     </span>
                                                 </div>
-                                            </div>
-                                        @endif
-                                    @endforeach
-                                </div>
-                                @if ($showAcceptAll)
-                                    <div class="mt-3 flex justify-end">
-                                        <button
-                                            type="button"
-                                            wire:click="acceptAllScheduleProposals({{ $message->id }})"
-                                            wire:loading.attr="disabled"
-                                            class="inline-flex items-center gap-2 rounded-xl bg-brand-blue px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-blue/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/50 disabled:pointer-events-none disabled:opacity-70"
-                                        >
-                                            <flux:icon name="check" class="size-4" />
-                                            {{ __('Accept all') }}
-                                        </button>
+                                                </div>
+                                            @endif
+                                        @endforeach
+                                    </div>
+                                    @if ($showAcceptAll)
+                                        <div class="mt-3 flex justify-end">
+                                            <button
+                                                type="button"
+                                                wire:click="acceptAllScheduleProposals({{ $message->id }})"
+                                                wire:loading.attr="disabled"
+                                                class="inline-flex items-center gap-2 rounded-xl bg-brand-blue px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-blue/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/50 disabled:pointer-events-none disabled:opacity-70"
+                                            >
+                                                <flux:icon name="check" class="size-4" />
+                                                {{ __('Accept all') }}
+                                            </button>
+                                        </div>
+                                    @endif
+                                @endif
+
+                                @if (! $isStopped && $isLatestAssistant && ! $chipsDismissed && count($nextOptionChips) > 0)
+                                    <div class="mt-3 flex flex-wrap gap-2">
+                                        @foreach ($nextOptionChips as $chipIndex => $chipText)
+                                            <flux:button
+                                                size="sm"
+                                                variant="ghost"
+                                                class="rounded-full border border-brand-blue/18 bg-white/90 px-3.5 py-1.5 text-base font-medium text-black shadow-sm transition-colors hover:border-brand-blue/30 hover:bg-brand-light-blue/70 hover:text-black focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/40 focus-visible:ring-offset-1 dark:border-brand-blue/30 dark:bg-zinc-900/30 dark:text-black dark:hover:bg-zinc-800/50 dark:hover:text-black dark:focus-visible:ring-offset-zinc-900 disabled:pointer-events-none disabled:opacity-60"
+                                                wire:click="submitNextOptionChip({{ $message->id }}, {{ $chipIndex }})"
+                                                wire:loading.attr="disabled"
+                                                wire:target="submitNextOptionChip,submitMessage"
+                                            >
+                                                <span class="inline-flex items-center gap-1.5 text-left leading-normal">
+                                                    <flux:icon name="chevron-right" class="size-3.5 shrink-0 self-center opacity-70" />
+                                                    <span>{{ $chipText }}</span>
+                                                </span>
+                                            </flux:button>
+                                        @endforeach
                                     </div>
                                 @endif
-                            @endif
-
-                            @if (! $isStopped && $isLatestAssistant && ! $chipsDismissed && count($nextOptionChips) > 0)
-                                <div class="mt-3 flex flex-wrap gap-2">
-                                    @foreach ($nextOptionChips as $chipIndex => $chipText)
-                                        <flux:button
-                                            size="sm"
-                                            variant="ghost"
-                                            class="rounded-full border border-brand-blue/18 bg-white/90 px-3.5 py-1.5 text-base font-medium text-black shadow-sm transition-colors hover:border-brand-blue/30 hover:bg-brand-light-blue/70 hover:text-black focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/40 focus-visible:ring-offset-1 dark:border-brand-blue/30 dark:bg-zinc-900/30 dark:text-black dark:hover:bg-zinc-800/50 dark:hover:text-black dark:focus-visible:ring-offset-zinc-900 disabled:pointer-events-none disabled:opacity-60"
-                                            wire:click="submitNextOptionChip({{ $message->id }}, {{ $chipIndex }})"
-                                            wire:loading.attr="disabled"
-                                            wire:target="submitNextOptionChip,submitMessage"
-                                        >
-                                            <span class="inline-flex items-center gap-1.5 text-left leading-normal">
-                                                <flux:icon name="chevron-right" class="size-3.5 shrink-0 self-center opacity-70" />
-                                                <span>{{ $chipText }}</span>
-                                            </span>
-                                        </flux:button>
-                                    @endforeach
-                                </div>
-                            @endif
+                            </div>
                             </div>
                         </div>
                     </div>
@@ -771,6 +1029,9 @@
                 if (value.length === 0) {
                     return;
                 }
+
+                this.$dispatch('assistant-chat-scroll-bottom-requested');
+                setTimeout(() => this.$dispatch('assistant-chat-scroll-bottom-requested'), 80);
 
                 // Ensure Livewire receives the latest value even if wire:model.defer is used.
                 $wire.set('newMessage', value);

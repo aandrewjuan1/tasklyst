@@ -360,7 +360,7 @@ final class DeterministicScheduleExplanationService
             'REQUESTED_WINDOW_HONORED' => "I kept this in {$requestedWindowLabel} as requested.",
             'EMPTY_CANDIDATE_LIST' => 'I could not find schedulable items in this scope yet.',
             default => $chosenDaypart !== ''
-                ? 'I proposed '.$this->indefiniteArticleForDaypart($chosenDaypart)." {$chosenDaypart} start because it fit your requested timing cleanly."
+                ? 'I proposed '.$this->indefiniteArticleForDaypart($chosenDaypart)." {$chosenDaypart} start because it is the earliest clean opening in your schedule."
                 : $this->scheduleTemplateService->buildFraming('DEFAULT_FEASIBLE_PLACEMENT', $seedContext),
         };
     }

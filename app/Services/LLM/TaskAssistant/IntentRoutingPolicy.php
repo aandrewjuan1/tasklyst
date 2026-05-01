@@ -246,6 +246,41 @@ final class IntentRoutingPolicy
             );
         }
 
+        if ($this->isLikelyExplicitSingleTaskSchedulePrompt($normalized)) {
+            $constraints = $this->extractConstraintsForFlow($thread, $normalized, 'schedule');
+            $constraints = $this->applyFreshTopNConstraintOverride($normalized, 'schedule', $constraints);
+            if ((int) ($constraints['count_limit'] ?? 0) <= 0 || ! is_array($constraints['target_entities'] ?? null) || count($constraints['target_entities']) <= 1) {
+                $constraints['count_limit'] = 1;
+                $constraints['count_limit_explicitly_requested'] = true;
+            }
+            [$clarificationNeeded, $clarificationQuestion] = $this->resolveClarificationFromConstraints($constraints);
+
+            Log::info('task-assistant.intent.policy', [
+                'layer' => 'intent_policy',
+                'run_id' => app()->bound('task_assistant.run_id') ? app('task_assistant.run_id') : null,
+                'thread_id' => $thread->id,
+                'assistant_message_id' => app()->bound('task_assistant.message_id') ? app('task_assistant.message_id') : null,
+                'outcome' => 'targeted_single_task_schedule_shortcircuit',
+                'flow' => 'schedule',
+                'constraints' => [
+                    'count_limit' => $constraints['count_limit'] ?? 1,
+                    'time_window_hint' => $constraints['time_window_hint'] ?? null,
+                    'target_entities_count' => is_array($constraints['target_entities'] ?? null)
+                        ? count($constraints['target_entities'])
+                        : 0,
+                ],
+            ]);
+
+            return new IntentRoutingDecision(
+                flow: 'schedule',
+                confidence: 1.0,
+                reasonCodes: ['targeted_single_task_schedule_shortcircuit'],
+                constraints: $constraints,
+                clarificationNeeded: $clarificationNeeded,
+                clarificationQuestion: $clarificationQuestion,
+            );
+        }
+
         if ($this->isLikelyDirectPrioritizeFirstPrompt($normalized)) {
             $constraints = $this->extractConstraintsForFlow($thread, $normalized, 'prioritize');
 
@@ -825,6 +860,35 @@ final class IntentRoutingPolicy
                 ($hasPluralScope && ($hasBatchCue || $hasTimeWindowCue))
                 || ($hasSingularOwnedTaskScope && $hasRankedSingleCue && $hasTimeWindowCue)
             );
+    }
+
+    private function isLikelyExplicitSingleTaskSchedulePrompt(string $normalized): bool
+    {
+        if ($normalized === '') {
+            return false;
+        }
+
+        $hasScheduleStart = preg_match('/^(?:please\s+)?(?:can you\s+)?(?:help me\s+)?(?:re)?schedule\b/u', $normalized) === 1;
+        if (! $hasScheduleStart) {
+            return false;
+        }
+
+        if (preg_match('/\btasks\b/u', $normalized) === 1) {
+            return false;
+        }
+
+        $hasSingularTaskCue = preg_match('/\b(?:my|the)\s+task\b/u', $normalized) === 1
+            || preg_match('/\btask\s+(?:called|named)\b/u', $normalized) === 1;
+        if (! $hasSingularTaskCue) {
+            return false;
+        }
+
+        $hasRankedSingleCue = preg_match(
+            '/(?:\btop\b|\bfirst\b|\bmost important\b|\bhighest priority\b|\bnumber\s*1\b|\bno\.?\s*1\b|#\s*1\b|\bpriority\s*1\b)/u',
+            $normalized
+        ) === 1;
+
+        return ! $hasRankedSingleCue;
     }
 
     /**

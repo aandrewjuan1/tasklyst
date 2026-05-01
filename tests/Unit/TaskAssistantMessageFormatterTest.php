@@ -1310,7 +1310,7 @@ class TaskAssistantMessageFormatterTest extends TestCase
     public function test_daily_schedule_start_daypart_claim_aligns_to_first_slot_instead_of_dominant_distribution(): void
     {
         $out = $this->formatter->format('daily_schedule', [
-            'framing' => 'I proposed a morning start because it fit your requested timing cleanly.',
+            'framing' => 'I proposed a morning start because it is the earliest clean opening in your schedule.',
             'reasoning' => 'I proposed this at 10:20 AM because it is the closest open slot that fits your requested scope.',
             'confirmation' => 'Do these times feel workable, or should I move them earlier/later before you confirm?',
             'blocks' => [

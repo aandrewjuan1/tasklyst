@@ -191,7 +191,7 @@
 
             const prompt = 'Schedule my task ' + taskTitle;
             this.dispatchWindowEvent('assistant-chat-open-requested', {});
-            this.dispatchWindowEvent('quick-prompt-append', { value: prompt });
+            this.dispatchWindowEvent('quick-prompt', { value: prompt });
             if (typeof $flux !== 'undefined' && typeof $flux.modal === 'function') {
                 $flux.modal('task-assistant-chat').show();
             }
