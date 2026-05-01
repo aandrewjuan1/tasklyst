@@ -8,6 +8,7 @@ use App\Models\Task;
 use App\Services\SchoolClassService;
 use App\Support\WorkspaceAgendaFocusUrl;
 use Carbon\CarbonInterface;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Computed;
 
@@ -458,6 +459,268 @@ trait HandlesWorkspaceCalendar
     }
 
     /**
+     * Build selected-day agenda from the same item collections that power the visible workspace list/kanban.
+     * This keeps calendar counters and empty-state behavior aligned with what the user currently sees.
+     *
+     * @return array{
+     *   date:string,
+     *   summary:array{tasks:int,events:int,overdue:int,classes:int},
+     *   overdueTasks:array<int, array{id:int,title:string,time:string,time_label:string,focus_kind:'task',focus_id:int,workspace_url:string}>,
+     *   dueDayTasks:array<int, array{id:int,title:string,time:string,time_label:string,focus_kind:'task',focus_id:int,workspace_url:string}>,
+     *   scheduledStarts:array<int, array{title:string,time:string,time_label:string,focus_kind:'task'|'event',focus_id:int,workspace_url:string}>,
+     *   timedEvents:array<int, array{id:int,title:string,time:string,time_label:string,focus_kind:'event',focus_id:int,workspace_url:string}>,
+     *   allDayEvents:array<int, array{id:int,title:string,time_label:string,time:?string,focus_kind:'event',focus_id:int,workspace_url:string}>,
+     *   schoolClasses:array<int, array{id:int,title:string,time:string,time_label:string,focus_kind:'schoolClass',focus_id:int,workspace_url:string}>
+     * }
+     */
+    private function selectedDayAgendaFromWorkspaceVisibleCollections(CarbonInterface $selectedDate): array
+    {
+        $selectedDay = $selectedDate->copy()->startOfDay();
+
+        $viewMode = property_exists($this, 'viewMode') ? (string) ($this->viewMode ?? 'list') : 'list';
+        $isKanban = $viewMode === 'kanban';
+
+        $taskItems = collect();
+        $eventItems = collect();
+        $schoolClassItems = collect();
+
+        if ($isKanban) {
+            /** @var Collection<int, Task> $tasksFromKanban */
+            $tasksFromKanban = collect($this->tasks ?? []);
+            /** @var Collection<int, array{kind:string,item:mixed}> $overdueRows */
+            $overdueRows = collect($this->overdue ?? []);
+            $overdueKanbanTasks = $overdueRows
+                ->filter(static fn (array $row): bool => ($row['kind'] ?? null) === 'task' && isset($row['item']) && $row['item'] instanceof Task)
+                ->map(static fn (array $row): Task => $row['item']);
+
+            $taskItems = $tasksFromKanban
+                ->merge($overdueKanbanTasks)
+                ->unique(static fn (Task $task): int => (int) $task->id)
+                ->values();
+        } else {
+            /** @var Collection<int, array{kind:string,item:mixed,isOverdue:bool}> $allEntries */
+            $allEntries = method_exists($this, 'getAllListEntries')
+                ? $this->getAllListEntries()
+                : collect();
+            $itemsPerPage = (int) (property_exists($this, 'itemsPerPage') ? $this->itemsPerPage : 10);
+            $itemsPage = (int) (property_exists($this, 'itemsPage') ? $this->itemsPage : 1);
+            $maxVisibleItems = max(1, $itemsPerPage) * max(1, $itemsPage);
+            $visibleEntries = $allEntries->take($maxVisibleItems)->values();
+
+            $taskItems = $visibleEntries
+                ->filter(static fn (array $entry): bool => ($entry['kind'] ?? null) === 'task' && isset($entry['item']) && $entry['item'] instanceof Task)
+                ->map(static fn (array $entry): Task => $entry['item'])
+                ->unique(static fn (Task $task): int => (int) $task->id)
+                ->values();
+
+            $eventItems = $visibleEntries
+                ->filter(static fn (array $entry): bool => ($entry['kind'] ?? null) === 'event' && isset($entry['item']) && $entry['item'] instanceof Event)
+                ->map(static fn (array $entry): Event => $entry['item'])
+                ->unique(static fn (Event $event): int => (int) $event->id)
+                ->values();
+
+            $schoolClassItems = $visibleEntries
+                ->filter(static fn (array $entry): bool => ($entry['kind'] ?? null) === 'schoolClass' && isset($entry['item']) && $entry['item'] instanceof SchoolClass)
+                ->map(static fn (array $entry): SchoolClass => $entry['item'])
+                ->unique(static fn (SchoolClass $class): int => (int) $class->id)
+                ->values();
+        }
+
+        $taskRows = $taskItems
+            ->map(function (Task $task) use ($selectedDay): array {
+                $link = $this->agendaWorkspaceDeepLink($selectedDay, 'task', $task->id);
+                $isOverdue = $task->end_datetime !== null && $task->end_datetime->lt(now());
+                $isDueOnSelectedDay = $task->end_datetime !== null && $task->end_datetime->isSameDay($selectedDay);
+                $startsOnSelectedDay = $task->start_datetime !== null && $task->start_datetime->isSameDay($selectedDay);
+
+                return [
+                    'task' => $task,
+                    'is_overdue' => $isOverdue,
+                    'is_due_day' => ! $isOverdue && $isDueOnSelectedDay,
+                    'starts_on_selected_day' => $startsOnSelectedDay,
+                    'focus_kind' => $link['focus_kind'],
+                    'focus_id' => $link['focus_id'],
+                    'workspace_url' => $link['workspace_url'],
+                ];
+            })
+            ->values();
+
+        $overdueTasks = $taskRows
+            ->filter(static fn (array $row): bool => $row['is_overdue'] === true)
+            ->map(function (array $row) use ($selectedDay): array {
+                /** @var Task $task */
+                $task = $row['task'];
+
+                return [
+                    'id' => $task->id,
+                    'title' => (string) $task->title,
+                    'time_label' => __('Due'),
+                    'time' => $task->end_datetime !== null
+                        ? $this->formatCalendarAgendaOverdueEnd($task->end_datetime, $selectedDay)
+                        : __('No time'),
+                    'focus_kind' => $row['focus_kind'],
+                    'focus_id' => $row['focus_id'],
+                    'workspace_url' => $row['workspace_url'],
+                ];
+            })
+            ->values()
+            ->all();
+
+        $dueDayTasks = $taskRows
+            ->filter(static fn (array $row): bool => $row['is_due_day'] === true)
+            ->map(function (array $row): array {
+                /** @var Task $task */
+                $task = $row['task'];
+
+                return [
+                    'id' => $task->id,
+                    'title' => (string) $task->title,
+                    'time_label' => __('Due'),
+                    'time' => $task->end_datetime !== null
+                        ? $this->formatCalendarAgendaClock($task->end_datetime)
+                        : __('No time'),
+                    'focus_kind' => $row['focus_kind'],
+                    'focus_id' => $row['focus_id'],
+                    'workspace_url' => $row['workspace_url'],
+                ];
+            })
+            ->values()
+            ->all();
+
+        $scheduledStartsRows = $taskRows
+            ->filter(static fn (array $row): bool => $row['starts_on_selected_day'] === true)
+            ->map(function (array $row): array {
+                /** @var Task $task */
+                $task = $row['task'];
+
+                return [
+                    'sort' => $task->start_datetime?->getTimestamp() ?? PHP_INT_MAX,
+                    'title' => (string) $task->title,
+                    'time_label' => __('Starts'),
+                    'time' => $task->start_datetime !== null
+                        ? $this->formatCalendarAgendaClock($task->start_datetime)
+                        : __('No time'),
+                    'focus_kind' => $row['focus_kind'],
+                    'focus_id' => $row['focus_id'],
+                    'workspace_url' => $row['workspace_url'],
+                ];
+            })
+            ->values()
+            ->all();
+
+        $startsSameDay = fn (Event $event): bool => $event->start_datetime !== null
+            && $event->start_datetime->isSameDay($selectedDay);
+
+        foreach ($eventItems as $event) {
+            if (! $event instanceof Event) {
+                continue;
+            }
+
+            $time = $event->all_day
+                ? __('All day')
+                : ($event->start_datetime !== null
+                    ? $this->formatCalendarAgendaTimeRange($event->start_datetime, $event->end_datetime)
+                    : __('No time'));
+
+            $link = $this->agendaWorkspaceDeepLink($selectedDay, 'event', $event->id);
+
+            if ($startsSameDay($event)) {
+                $scheduledStartsRows[] = [
+                    'sort' => $event->start_datetime?->getTimestamp() ?? PHP_INT_MAX,
+                    'title' => (string) $event->title,
+                    'time_label' => __('Event'),
+                    'time' => $time,
+                    'focus_kind' => $link['focus_kind'],
+                    'focus_id' => $link['focus_id'],
+                    'workspace_url' => $link['workspace_url'],
+                ];
+            }
+        }
+
+        usort($scheduledStartsRows, static fn (array $left, array $right): int => $left['sort'] <=> $right['sort']);
+
+        $scheduledStarts = array_values(array_map(static fn (array $row): array => [
+            'title' => $row['title'],
+            'time_label' => $row['time_label'],
+            'time' => $row['time'],
+            'focus_kind' => $row['focus_kind'],
+            'focus_id' => $row['focus_id'],
+            'workspace_url' => $row['workspace_url'],
+        ], $scheduledStartsRows));
+
+        $timedEvents = $eventItems
+            ->filter(fn (Event $event): bool => ! $event->all_day && ! $startsSameDay($event))
+            ->map(function (Event $event) use ($selectedDay): array {
+                $link = $this->agendaWorkspaceDeepLink($selectedDay, 'event', $event->id);
+
+                return [
+                    'id' => $event->id,
+                    'title' => (string) $event->title,
+                    'time_label' => __('Ongoing'),
+                    'time' => $event->start_datetime !== null
+                        ? $this->formatCalendarAgendaTimeRange($event->start_datetime, $event->end_datetime)
+                        : __('No time'),
+                    'focus_kind' => $link['focus_kind'],
+                    'focus_id' => $link['focus_id'],
+                    'workspace_url' => $link['workspace_url'],
+                ];
+            })
+            ->values()
+            ->all();
+
+        $allDayEvents = $eventItems
+            ->filter(fn (Event $event): bool => $event->all_day && ! $startsSameDay($event))
+            ->map(function (Event $event) use ($selectedDay): array {
+                $link = $this->agendaWorkspaceDeepLink($selectedDay, 'event', $event->id);
+
+                return [
+                    'id' => $event->id,
+                    'title' => (string) $event->title,
+                    'time_label' => __('All day'),
+                    'time' => null,
+                    'focus_kind' => $link['focus_kind'],
+                    'focus_id' => $link['focus_id'],
+                    'workspace_url' => $link['workspace_url'],
+                ];
+            })
+            ->values()
+            ->all();
+
+        $schoolClassesAgenda = $schoolClassItems
+            ->map(function (SchoolClass $class) use ($selectedDay): array {
+                $link = $this->agendaWorkspaceDeepLink($selectedDay, 'schoolClass', $class->id);
+
+                return [
+                    'id' => $class->id,
+                    'title' => (string) $class->subject_name,
+                    'time_label' => __('Class'),
+                    'time' => $this->formatCalendarAgendaSchoolClassTimeRange($class, $selectedDay),
+                    'focus_kind' => $link['focus_kind'],
+                    'focus_id' => $link['focus_id'],
+                    'workspace_url' => $link['workspace_url'],
+                ];
+            })
+            ->values()
+            ->all();
+
+        return [
+            'date' => $selectedDay->toDateString(),
+            'summary' => [
+                'tasks' => $taskItems->count(),
+                'events' => $isKanban ? 0 : $eventItems->count(),
+                'overdue' => count($overdueTasks),
+                'classes' => $isKanban ? 0 : count($schoolClassesAgenda),
+            ],
+            'overdueTasks' => $overdueTasks,
+            'dueDayTasks' => $dueDayTasks,
+            'scheduledStarts' => $scheduledStarts,
+            'timedEvents' => $isKanban ? [] : $timedEvents,
+            'allDayEvents' => $isKanban ? [] : $allDayEvents,
+            'schoolClasses' => $isKanban ? [] : $schoolClassesAgenda,
+        ];
+    }
+
+    /**
      * @return array{
      *   date:string,
      *   summary:array{tasks:int,events:int,overdue:int,classes:int},
@@ -488,6 +751,14 @@ trait HandlesWorkspaceCalendar
                 'allDayEvents' => [],
                 'schoolClasses' => [],
             ];
+        }
+
+        $isWorkspaceViewSyncedAgenda = property_exists($this, 'viewMode')
+            && in_array((string) ($this->viewMode ?? ''), ['list', 'kanban'], true)
+            && method_exists($this, 'getAllListEntries');
+
+        if ($isWorkspaceViewSyncedAgenda) {
+            return $this->selectedDayAgendaFromWorkspaceVisibleCollections($selectedDate);
         }
 
         $tasks = Task::query()

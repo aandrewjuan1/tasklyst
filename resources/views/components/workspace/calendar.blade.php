@@ -600,12 +600,9 @@
                 @endif
 
                 @if (
-                    empty($selectedDayAgenda['overdueTasks'] ?? [])
-                    && empty($selectedDayAgenda['dueDayTasks'] ?? [])
-                    && empty($selectedDayAgenda['scheduledStarts'] ?? [])
-                    && empty($selectedDayAgenda['schoolClasses'] ?? [])
-                    && empty($selectedDayAgenda['timedEvents'] ?? [])
-                    && empty($selectedDayAgenda['allDayEvents'] ?? [])
+                    (int) ($selectedDayAgenda['summary']['tasks'] ?? 0) < 1
+                    && (int) ($selectedDayAgenda['summary']['events'] ?? 0) < 1
+                    && (int) ($selectedDayAgenda['summary']['classes'] ?? 0) < 1
                 )
                     <div class="space-y-1.5 text-xs text-muted-foreground">
                         <p>{{ __('No tasks, events, or classes on this day.') }}</p>
