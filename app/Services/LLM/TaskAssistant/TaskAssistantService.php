@@ -4038,6 +4038,13 @@ final class TaskAssistantService
         }
 
         $constraints = $this->routingPolicy->extractConstraintsForFlow($thread, $content, $flow);
+        $clientActionTargets = $this->extractClientActionTargetEntities($userMessage);
+        if ($clientActionTargets !== []) {
+            $constraints['target_entities'] = $clientActionTargets;
+            $constraints['count_limit'] = count($clientActionTargets);
+            $constraints['count_limit_explicitly_requested'] = true;
+            $constraints['is_strict_set_contract'] = true;
+        }
         if (in_array($actionId, ['chip_schedule_ranked_set', 'chip_schedule_ranked_top_one'], true)) {
             $rankedTargets = $this->resolveRankedTargetsForScheduleChip(
                 thread: $thread,
@@ -4247,6 +4254,38 @@ final class TaskAssistantService
         $actionId = trim((string) data_get($metadata, 'client_action.id', ''));
 
         return $actionId !== '' ? $actionId : null;
+    }
+
+    /**
+     * @return list<array{entity_type: string, entity_id: int, title: string}>
+     */
+    private function extractClientActionTargetEntities(TaskAssistantMessage $userMessage): array
+    {
+        $metadata = is_array($userMessage->metadata ?? null) ? $userMessage->metadata : [];
+        $targetEntities = data_get($metadata, 'client_action.target_entities', []);
+        if (! is_array($targetEntities)) {
+            return [];
+        }
+
+        $normalized = [];
+        foreach ($targetEntities as $targetEntity) {
+            if (! is_array($targetEntity)) {
+                continue;
+            }
+            $entityType = trim((string) ($targetEntity['entity_type'] ?? ''));
+            $entityId = (int) ($targetEntity['entity_id'] ?? 0);
+            $title = trim((string) ($targetEntity['title'] ?? ''));
+            if ($entityType === '' || $entityId <= 0 || $title === '') {
+                continue;
+            }
+            $normalized[] = [
+                'entity_type' => $entityType,
+                'entity_id' => $entityId,
+                'title' => $title,
+            ];
+        }
+
+        return array_values($normalized);
     }
 
     /**

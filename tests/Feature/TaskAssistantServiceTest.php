@@ -3817,3 +3817,44 @@ test('processQueuedMessage routes ranked-top-one schedule chip actions determini
     expect($assistantMessage->metadata['routing_trace']['initial_reason_codes'] ?? [])
         ->toContain('client_action_chip_schedule_ranked_top_one');
 });
+
+test('processQueuedMessage honors client action target entities for chip schedule', function (): void {
+    config(['task-assistant.intent.use_llm' => true]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+    $task = Task::factory()->for($user)->create([
+        'title' => 'Targeted cloud-safe schedule task',
+        'status' => TaskStatus::ToDo,
+    ]);
+
+    $userMessage = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'Schedule my task Targeted cloud-safe schedule task',
+        'metadata' => [
+            'client_action' => [
+                'id' => 'chip_schedule',
+                'source' => 'workspace_task_ai_schedule',
+                'target_entities' => [[
+                    'entity_type' => 'task',
+                    'entity_id' => $task->id,
+                    'title' => $task->title,
+                ]],
+            ],
+        ],
+    ]);
+    $assistantMessage = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
+    $assistantMessage->refresh();
+
+    expect($assistantMessage->metadata['routing_trace']['initial_flow'] ?? null)->toBe('schedule');
+    expect($assistantMessage->metadata['routing_trace']['final_flow'] ?? null)->toBe('schedule');
+    expect($assistantMessage->metadata['routing_trace']['initial_reason_codes'] ?? [])
+        ->toContain('client_action_chip_schedule');
+    expect($assistantMessage->metadata['routing_trace']['final_reason_codes'] ?? [])
+        ->not->toContain('schedule_rerouted_no_listing_context');
+});

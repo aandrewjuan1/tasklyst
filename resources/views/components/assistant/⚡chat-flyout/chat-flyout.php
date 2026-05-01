@@ -64,6 +64,9 @@ new class extends Component
 
     public ?string $pendingClientActionPrompt = null;
 
+    /** @var list<array{entity_type: string, entity_id: int, title: string}> */
+    public array $pendingClientActionTargetEntities = [];
+
     public ?string $streamingCorrelationId = null;
 
     public ?string $streamingTimedOutAt = null;
@@ -119,6 +122,7 @@ new class extends Component
         $this->pendingClientActionId = null;
         $this->pendingClientActionSource = null;
         $this->pendingClientActionPrompt = null;
+        $this->pendingClientActionTargetEntities = [];
         $this->refreshEmptyStateQuickChips();
     }
 
@@ -143,6 +147,45 @@ new class extends Component
         $this->pendingClientActionPrompt = $this->pendingClientActionId !== null
             ? $value
             : null;
+        $this->pendingClientActionTargetEntities = [];
+    }
+
+    /**
+     * @param  array{
+     *   value?: mixed,
+     *   actionId?: mixed,
+     *   actionSource?: mixed,
+     *   targetEntities?: mixed
+     * }  $payload
+     */
+    public function applyQuickPromptAction(array $payload): void
+    {
+        if ($this->isStreaming) {
+            return;
+        }
+
+        $value = trim((string) ($payload['value'] ?? ''));
+        if ($value === '') {
+            return;
+        }
+
+        $this->newMessage = $value;
+
+        $actionIdRaw = trim((string) ($payload['actionId'] ?? ''));
+        $derivedActionId = $this->deriveDeterministicChipActionId($value);
+        $this->pendingClientActionId = $actionIdRaw !== '' ? $actionIdRaw : $derivedActionId;
+
+        $actionSourceRaw = trim((string) ($payload['actionSource'] ?? ''));
+        $this->pendingClientActionSource = $this->pendingClientActionId !== null
+            ? ($actionSourceRaw !== '' ? $actionSourceRaw : 'next_option_chip')
+            : null;
+
+        $this->pendingClientActionPrompt = $this->pendingClientActionId !== null
+            ? $value
+            : null;
+        $this->pendingClientActionTargetEntities = $this->normalizeClientActionTargetEntities(
+            $payload['targetEntities'] ?? []
+        );
     }
 
     public function updatedNewMessage(string $value): void
@@ -160,6 +203,7 @@ new class extends Component
         $this->pendingClientActionId = null;
         $this->pendingClientActionSource = null;
         $this->pendingClientActionPrompt = null;
+        $this->pendingClientActionTargetEntities = [];
     }
 
     /**
@@ -335,10 +379,12 @@ new class extends Component
             if ($actionSource === '') {
                 $actionSource = 'next_option_chip';
             }
+            $targetEntities = $this->pendingClientActionTargetEntities;
             $userMessageMetadata = [
                 'client_action' => [
                     'id' => $pendingActionId,
                     'source' => $actionSource,
+                    'target_entities' => $targetEntities === [] ? null : $targetEntities,
                 ],
             ];
         }
@@ -350,6 +396,7 @@ new class extends Component
         $this->pendingClientActionId = null;
         $this->pendingClientActionSource = null;
         $this->pendingClientActionPrompt = null;
+        $this->pendingClientActionTargetEntities = [];
         $assistantMessage = $this->thread->messages()->create([
             'role' => MessageRole::Assistant,
             'content' => '',
@@ -418,6 +465,7 @@ new class extends Component
                 ? 'fallback_option_chip'
                 : null;
             $this->pendingClientActionPrompt = null;
+            $this->pendingClientActionTargetEntities = [];
         } else {
             $content = trim((string) $nextOptionChips[$chipIndex]);
             $this->pendingClientActionId = $this->deriveDeterministicChipActionId($content);
@@ -427,6 +475,7 @@ new class extends Component
             $this->pendingClientActionPrompt = $this->pendingClientActionId !== null
                 ? $content
                 : null;
+            $this->pendingClientActionTargetEntities = [];
         }
 
         $content = trim((string) $nextOptionChips[$chipIndex]);
@@ -542,6 +591,37 @@ new class extends Component
             str_contains($normalized, 'plan tomorrow for me') => 'chip_prioritize_schedule',
             default => null,
         };
+    }
+
+    /**
+     * @param  mixed  $targetEntities
+     * @return list<array{entity_type: string, entity_id: int, title: string}>
+     */
+    private function normalizeClientActionTargetEntities(mixed $targetEntities): array
+    {
+        if (! is_array($targetEntities)) {
+            return [];
+        }
+
+        $normalized = [];
+        foreach ($targetEntities as $targetEntity) {
+            if (! is_array($targetEntity)) {
+                continue;
+            }
+            $entityType = trim((string) ($targetEntity['entity_type'] ?? ''));
+            $entityId = (int) ($targetEntity['entity_id'] ?? 0);
+            $title = trim((string) ($targetEntity['title'] ?? ''));
+            if ($entityType === '' || $entityId <= 0 || $title === '') {
+                continue;
+            }
+            $normalized[] = [
+                'entity_type' => $entityType,
+                'entity_id' => $entityId,
+                'title' => $title,
+            ];
+        }
+
+        return array_values($normalized);
     }
 
     /**

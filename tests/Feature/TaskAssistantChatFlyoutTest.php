@@ -163,6 +163,43 @@ test('chat flyout quick prompt chip replaces existing input', function (): void 
         ->assertSet('pendingClientActionSource', 'next_option_chip');
 });
 
+test('chat flyout quick prompt action stores deterministic schedule target metadata', function (): void {
+    Bus::fake();
+    $user = User::factory()->create();
+    assert($user instanceof User);
+    $this->actingAs($user);
+
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+    session(['task_assistant.current_thread_id' => $thread->id]);
+
+    Livewire::test('assistant.chat-flyout')
+        ->call('applyQuickPromptAction', [
+            'value' => 'Schedule my task Chemistry worksheet',
+            'actionId' => 'chip_schedule',
+            'actionSource' => 'workspace_task_ai_schedule',
+            'targetEntities' => [[
+                'entity_type' => 'task',
+                'entity_id' => 77,
+                'title' => 'Chemistry worksheet',
+            ]],
+        ])
+        ->assertSet('pendingClientActionId', 'chip_schedule')
+        ->assertSet('pendingClientActionSource', 'workspace_task_ai_schedule')
+        ->call('submitMessage')
+        ->assertSet('isStreaming', true);
+
+    $latestUserMessage = $thread->messages()
+        ->where('role', \App\Enums\MessageRole::User)
+        ->latest('id')
+        ->first();
+    expect($latestUserMessage)->not->toBeNull();
+    expect(data_get($latestUserMessage?->metadata, 'client_action.id'))->toBe('chip_schedule');
+    expect(data_get($latestUserMessage?->metadata, 'client_action.source'))->toBe('workspace_task_ai_schedule');
+    expect(data_get($latestUserMessage?->metadata, 'client_action.target_entities.0.entity_type'))->toBe('task');
+    expect(data_get($latestUserMessage?->metadata, 'client_action.target_entities.0.entity_id'))->toBe(77);
+    expect(data_get($latestUserMessage?->metadata, 'client_action.target_entities.0.title'))->toBe('Chemistry worksheet');
+});
+
 test('chat flyout clears pending chip action when draft is edited', function (): void {
     $user = User::factory()->create();
     assert($user instanceof User);

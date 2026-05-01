@@ -191,7 +191,16 @@
 
             const prompt = 'Schedule my task ' + taskTitle;
             this.dispatchWindowEvent('assistant-chat-open-requested', {});
-            this.dispatchWindowEvent('quick-prompt', { value: prompt });
+            this.dispatchWindowEvent('quick-prompt-action', {
+                value: prompt,
+                actionId: 'chip_schedule',
+                actionSource: 'workspace_task_ai_schedule',
+                targetEntities: [{
+                    entity_type: 'task',
+                    entity_id: Number(this.itemId),
+                    title: taskTitle,
+                }],
+            });
             if (typeof $flux !== 'undefined' && typeof $flux.modal === 'function') {
                 $flux.modal('task-assistant-chat').show();
             }
