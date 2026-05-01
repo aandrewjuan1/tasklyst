@@ -1258,8 +1258,27 @@ final class TaskAssistantResponseProcessor
                 $selectionOrderingRows = is_array($prioritizeSelection['ordering_rationale'] ?? null)
                     ? $prioritizeSelection['ordering_rationale']
                     : [];
-                if ($selectionOrderingRows !== [] && count($selectionOrderingRows) !== count($items)) {
-                    $validator->errors()->add('prioritize_selection_explanation.ordering_rationale', 'prioritize_selection_explanation.ordering_rationale must have one explanation line per scheduled row when enabled.');
+                if ($selectionOrderingRows !== []) {
+                    $validator->errors()->add('prioritize_selection_explanation.ordering_rationale', 'prioritize_selection_explanation.ordering_rationale must be empty for paragraph-only prioritize_schedule explanations.');
+                }
+
+                $selectionSummary = trim((string) ($prioritizeSelection['summary'] ?? ''));
+                $selectionBasis = trim((string) ($prioritizeSelection['selection_basis'] ?? ''));
+                if ($selectionSummary === '' || $selectionBasis === '') {
+                    $validator->errors()->add('prioritize_selection_explanation.summary', 'prioritize_selection_explanation.summary and selection_basis are required when enabled.');
+                }
+
+                $combinedSelectionNarrative = trim($selectionSummary.' '.$selectionBasis);
+                if ($combinedSelectionNarrative !== '' && $this->countSentences($combinedSelectionNarrative) !== 3) {
+                    $validator->errors()->add('prioritize_selection_explanation', 'prioritize_selection_explanation must contain exactly 3 sentences.');
+                }
+
+                $selectedCount = max(1, (int) ($prioritizeSelection['selected_count'] ?? count($items)));
+                if ($selectedCount <= 1 && preg_match('/\b(these tasks|them)\b/iu', $combinedSelectionNarrative) === 1) {
+                    $validator->errors()->add('prioritize_selection_explanation', 'single-task prioritize_selection_explanation must use singular wording.');
+                }
+                if ($selectedCount > 1 && preg_match('/\bthis task\b/iu', $combinedSelectionNarrative) === 1) {
+                    $validator->errors()->add('prioritize_selection_explanation', 'multi-task prioritize_selection_explanation must use plural wording.');
                 }
             }
             $blockingReasons = is_array($data['blocking_reasons'] ?? null) ? $data['blocking_reasons'] : [];

@@ -210,34 +210,64 @@ final class TaskAssistantScheduleTemplateService
     {
         if ($selectedCount <= 1) {
             return $this->selectTemplate('selection.summary.single', $seedContext, $this->forFlowMany([
-                'I picked this task first because it stood out most clearly in your current priorities before I placed it into a time block.',
-                'I selected this task first because it was the clearest priority before scheduling it into a block.',
-                'I put this task first because it surfaced as your strongest current priority before time-block placement.',
-                'I chose this task first because it stood out in your priorities before I mapped it into a block.',
-                'I prioritized this task first because it was the clearest fit from your current priorities before scheduling.',
+                'I selected this task first because it stood out as the clearest next step before scheduling.',
+                'I prioritized this task first because it surfaced as the strongest next move before time blocking.',
+                'I chose this task first because it looked most actionable before placing it on your schedule.',
+                'I put this task first because it was the clearest fit to tackle next before scheduling.',
+                'I started with this task because it rose to the top of your priorities before planning time blocks.',
+                'I placed this task first because it showed the strongest urgency and fit before scheduling.',
+                'I ranked this task first because it was the clearest priority to act on before time placement.',
+                'I led with this task because it stood out as the most practical first move before scheduling.',
+                'I began with this task because it was the strongest immediate priority before time blocking.',
+                'I put this task at the top because it was the clearest focus to schedule first.',
             ], $seedContext));
         }
 
         return $this->selectTemplate('selection.summary.multi', $seedContext, $this->forFlowMany([
-            'I picked these tasks first because they stood out most clearly in your current priorities before I placed them into time blocks.',
-            'I selected these tasks first because they were the clearest priorities before scheduling them into time blocks.',
-            'I put these tasks first because they surfaced as your strongest priorities before time-block placement.',
-            'I chose these tasks first because they stood out in your priorities before I mapped them into time blocks.',
-            'I prioritized these tasks first because they were the clearest fit from your current priorities before scheduling.',
+            'I selected these tasks first because they stood out as the clearest priorities before scheduling.',
+            'I prioritized these tasks first because they surfaced as the strongest next steps before time blocking.',
+            'I chose these tasks first because they looked most actionable before placing them on your schedule.',
+            'I put these tasks first because they were the clearest fit to tackle next before scheduling.',
+            'I started with these tasks because they rose to the top of your priorities before planning time blocks.',
+            'I placed these tasks first because they showed the strongest urgency and fit before scheduling.',
+            'I ranked these tasks first because they were the clearest priorities to act on before time placement.',
+            'I led with these tasks because they stood out as the most practical first moves before scheduling.',
+            'I began with these tasks because they were the strongest immediate priorities before time blocking.',
+            'I put these tasks at the top because they were the clearest focus to schedule first.',
         ], $seedContext));
     }
 
     /**
      * @param  array<string, mixed>  $seedContext
      */
-    public function buildPrioritizeSelectionBasis(array $seedContext): string
+    public function buildPrioritizeSelectionBasis(int $selectedCount, array $seedContext): string
     {
-        return $this->selectTemplate('selection.basis', $seedContext, $this->forFlowMany([
-            'Urgency leads, then explicit priority and earlier deadlines. When tasks are otherwise close, shorter blocks can help break the tie.',
-            'I weigh urgency first, then explicit priority and earlier deadlines. If tasks are close, shorter blocks can break the tie.',
-            'Urgency drives the first pass, followed by explicit priority and earlier due dates. When scores are close, shorter blocks become the tiebreaker.',
-            'I sort by urgency first, then explicit priority and earlier deadlines. For near ties, shorter blocks help decide order.',
-            'Urgency comes first, then explicit priority and earlier deadlines. If tasks are nearly equal, shorter blocks help separate them.',
+        if ($selectedCount <= 1) {
+            return $this->selectTemplate('selection.basis.single', $seedContext, $this->forFlowMany([
+                'I weigh urgency first, then explicit priority and due timing. When signals are close, I favor a shorter focused block so this stays doable.',
+                'Urgency leads the ranking, followed by explicit priority and due timing. If scores are close, I use a shorter block as the tiebreak so the plan stays realistic.',
+                'I rank this by urgency first, then by explicit priority and due timing. When the score is tight, I choose a shorter block to keep momentum high.',
+                'The first pass is urgency, then explicit priority and due timing. For close ties, a shorter block wins so this is easier to execute.',
+                'I sort using urgency first, then explicit priority and due timing. If factors are nearly equal, I break ties with a shorter manageable block.',
+                'Urgency is the primary signal, followed by explicit priority and due timing. When ranking is close, I choose the shorter focused block for easier follow-through.',
+                'I start with urgency, then apply explicit priority and due timing. For close results, I use a shorter block as the practical tiebreak.',
+                'I prioritize urgency first, then explicit priority and due timing. If this is near a tie, a shorter block is favored so execution stays clean.',
+                'The ranking starts with urgency, then explicit priority and due timing. In close calls, I pick a shorter block to reduce friction.',
+                'I score urgency first, then explicit priority and due timing. When signals are close, I choose a shorter block to keep this schedule manageable.',
+            ], $seedContext));
+        }
+
+        return $this->selectTemplate('selection.basis.multi', $seedContext, $this->forFlowMany([
+            'I weigh urgency first, then explicit priority and due timing. When signals are close, I favor shorter focused blocks so this approach stays doable.',
+            'Urgency leads the ranking, followed by explicit priority and due timing. If scores are close, shorter blocks become the tiebreak so execution stays realistic.',
+            'I rank these by urgency first, then by explicit priority and due timing. When scores are tight, shorter blocks help keep momentum steady.',
+            'The first pass is urgency, then explicit priority and due timing. For close ties, shorter blocks win so this stays easier to execute.',
+            'I sort using urgency first, then explicit priority and due timing. If factors are nearly equal, I break ties with shorter manageable blocks.',
+            'Urgency is the primary signal, followed by explicit priority and due timing. When ranking is close, I choose shorter focused blocks for better follow-through.',
+            'I start with urgency, then apply explicit priority and due timing. For close results, shorter blocks act as the practical tiebreak.',
+            'I prioritize urgency first, then explicit priority and due timing. In near ties, shorter blocks are favored so execution stays clean.',
+            'The ranking starts with urgency, then explicit priority and due timing. In close calls, shorter blocks reduce friction in your schedule.',
+            'I score urgency first, then explicit priority and due timing. When signals are close, I choose shorter blocks to keep the plan manageable.',
         ], $seedContext));
     }
 
@@ -248,68 +278,68 @@ final class TaskAssistantScheduleTemplateService
     {
         $templates = match ($toneKey) {
             'morning_momentum' => $this->forFlowMany([
-                'Starting earlier gives you stronger focus and more recovery time if plans shift.',
-                'An earlier start usually gives better focus and leaves recovery room if anything moves.',
-                'Beginning earlier can protect focus and still leave buffer if the day shifts.',
-                'Starting early helps you lock focus and gives you extra room when plans change.',
-                'An early block supports stronger focus and leaves fallback space if timing shifts.',
-            ], $seedContext),
+                'An early block gives you clearer focus and leaves buffer time if the day changes.',
+                'Starting earlier usually improves focus and keeps backup room if timing shifts.',
+                'A morning start protects focus and gives you extra space if plans move.',
+                'Early timing helps you begin with momentum and still leaves room for changes.',
+                'This early slot supports stronger focus and keeps recovery space in your day.',
+            ], $seedContext, false),
             'afternoon_restart' => $this->forFlowMany([
-                'An afternoon block is a practical restart window after earlier commitments.',
-                'This afternoon slot works as a practical reset after earlier commitments.',
-                'Afternoon timing gives you a clean restart window after earlier obligations.',
-                'A focused afternoon block helps you restart smoothly after earlier commitments.',
-                'This is a practical afternoon reset point after earlier commitments.',
-            ], $seedContext),
+                'An afternoon block gives you a clean reset after earlier commitments.',
+                'This afternoon slot works as a practical restart point after earlier obligations.',
+                'Afternoon timing gives you a fresh focus window after earlier demands.',
+                'A focused afternoon block helps you re-enter work without rushing.',
+                'This afternoon placement creates a steady restart window for the rest of the day.',
+            ], $seedContext, false),
             'evening_closure' => $this->forFlowMany([
-                'A defined evening block helps you close the day with one clear win.',
-                'A clear evening block can help you end the day with one solid win.',
-                'This evening window supports a clean day close with one clear completion.',
-                'An evening focus block helps you finish the day with a concrete win.',
-                'A structured evening slot gives you a clear way to close the day strong.',
-            ], $seedContext),
+                'A defined evening block helps you close the day with one clear completion.',
+                'This evening slot gives you a focused way to finish with one concrete win.',
+                'Evening timing helps you wrap up the day with a clear end point.',
+                'A structured evening block supports a calm finish and one visible result.',
+                'This evening window makes it easier to end the day with a finished task.',
+            ], $seedContext, false),
             'post_class_or_after_commitment' => $this->forFlowMany([
-                'Scheduling right after commitments reduces idle time and keeps momentum.',
-                'Placing this right after commitments cuts idle gaps and protects momentum.',
-                'A right-after-commitments slot lowers downtime and keeps progress moving.',
-                'Scheduling this after commitments helps avoid dead time and sustain momentum.',
-                'This post-commitment timing reduces drift and keeps momentum steady.',
-            ], $seedContext),
+                'Scheduling this right after commitments reduces idle gaps and keeps momentum steady.',
+                'A post-commitment slot helps you continue progress without losing pace.',
+                'Placing this after commitments lowers downtime and keeps your flow moving.',
+                'This after-commitment timing avoids dead space and supports consistent momentum.',
+                'A right-after-commitments block helps you keep momentum without a long reset.',
+            ], $seedContext, false),
             'focus_protection' => $this->forFlowMany([
-                'Protecting one active focus block at a time improves completion rate.',
-                'Keeping one protected focus block at a time tends to raise completion.',
-                'One protected focus block at a time usually improves follow-through.',
-                'Protecting a single active focus block helps completion stay consistent.',
-                'A single protected focus block at a time improves task completion odds.',
-            ], $seedContext),
+                'Protecting one active focus block at a time improves follow-through.',
+                'Keeping one protected focus block at a time usually improves completion consistency.',
+                'A single protected focus block helps execution stay steady.',
+                'Holding one active focus block at a time keeps completion more reliable.',
+                'One protected focus block at a time is usually easier to execute well.',
+            ], $seedContext, false),
             'fallback_nearest' => $this->forFlowMany([
-                'Using the closest open slot keeps progress moving instead of postponing the task.',
-                'Choosing the nearest open slot keeps momentum moving instead of delaying the task.',
-                'Picking the closest available slot helps you move forward instead of postponing.',
-                'The nearest open slot keeps progress active rather than pushing the task out.',
-                'Using the nearest slot helps preserve momentum instead of deferring the work.',
-            ], $seedContext),
+                'Using the nearest open slot keeps progress moving instead of delaying the work.',
+                'Choosing the closest available slot helps you keep momentum now, not later.',
+                'The nearest open window gives you a practical next step without postponing.',
+                'Picking the closest slot keeps this moving while the context is still fresh.',
+                'A nearest-slot choice helps you act now rather than defer the task.',
+            ], $seedContext, false),
             'partial_fit' => $this->forFlowMany([
-                'A realistic smaller plan is easier to execute than an overloaded one.',
-                'A smaller realistic plan is usually easier to follow than an overloaded one.',
-                'A right-sized plan is often more executable than a packed schedule.',
-                'A lighter realistic plan tends to work better than an overloaded plan.',
-                'A practical smaller plan is easier to carry through than an overfull one.',
-            ], $seedContext),
+                'A right-sized plan is usually easier to execute than an overloaded schedule.',
+                'A smaller realistic plan is often more sustainable than trying to fit everything at once.',
+                'A manageable plan tends to produce better follow-through than an overpacked one.',
+                'Keeping this plan lighter makes execution steadier than forcing every item in one pass.',
+                'A realistic subset is typically easier to complete than an overloaded set.',
+            ], $seedContext, false),
             'next_step_prompt' => $this->forFlowMany([
-                'Once one item is added or unblocked, I can schedule it immediately.',
-                'As soon as one item is added or unblocked, I can place it right away.',
-                'When one item is added or unblocked, I can schedule it immediately.',
-                'The moment one item is available, I can slot it in right away.',
-                'Once an item opens up or is added, I can schedule it immediately.',
-            ], $seedContext),
+                'Once one item is added or unblocked, I can schedule it right away.',
+                'As soon as one item is available, I can place it immediately.',
+                'When one item opens up, I can schedule it in the next step.',
+                'The moment an item is ready, I can slot it without delay.',
+                'If one item becomes available, I can schedule it immediately.',
+            ], $seedContext, false),
             default => $this->forFlowMany([
-                'Using real gaps is better than overbooking and slipping tasks.',
-                'Working with real open gaps beats overbooking and later slips.',
-                'Real availability usually works better than overbooking and schedule slippage.',
-                'Using actual open gaps is more reliable than overpacking and slipping tasks.',
-                'Planning around real gaps helps avoid overbooking and delayed carryover.',
-            ], $seedContext),
+                'Using real open windows is more reliable than overbooking the day.',
+                'Working with actual availability usually leads to steadier execution than overpacking.',
+                'Plans built on real open time are easier to sustain than overloaded ones.',
+                'Scheduling around true availability reduces spillover and keeps progress realistic.',
+                'Using real gaps helps maintain momentum without creating avoidable overload.',
+            ], $seedContext, false),
         };
 
         return $this->selectTemplate('coaching.'.$toneKey, $seedContext, $templates);
@@ -363,15 +393,15 @@ final class TaskAssistantScheduleTemplateService
      * @param  array<string, mixed>  $seedContext
      * @return list<string>
      */
-    private function forFlowMany(array $templates, array $seedContext): array
+    private function forFlowMany(array $templates, array $seedContext, bool $applyTaskFirstRewrite = true): array
     {
         $flowSource = trim((string) ($seedContext['flow_source'] ?? 'schedule'));
-        if ($flowSource !== 'prioritize_schedule') {
+        if ($flowSource !== 'prioritize_schedule' || ! $applyTaskFirstRewrite) {
             return $templates;
         }
 
         return array_map(
-            static fn (string $template): string => str_replace('plan', 'task-first plan', $template),
+            static fn (string $template): string => preg_replace('/\bplan\b/u', 'task-first plan', $template) ?? $template,
             $templates
         );
     }

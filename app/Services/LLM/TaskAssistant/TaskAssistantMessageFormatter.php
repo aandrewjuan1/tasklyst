@@ -902,19 +902,65 @@ final class TaskAssistantMessageFormatter
 
         $summary = trim((string) ($explanation['summary'] ?? ''));
         $selectionBasis = trim((string) ($explanation['selection_basis'] ?? ''));
-        $orderingRationale = is_array($explanation['ordering_rationale'] ?? null)
-            ? $explanation['ordering_rationale']
-            : [];
+        $selectedCount = max(1, (int) ($explanation['selected_count'] ?? 1));
+        $paragraph = trim(implode(' ', array_values(array_filter([
+            $summary,
+            $selectionBasis,
+        ], static fn (string $value): bool => $value !== ''))));
 
-        $parts = [];
-        if ($summary !== '') {
-            $parts[] = $summary;
-        }
-        if ($selectionBasis !== '') {
-            $parts[] = $selectionBasis;
+        return $this->enforceThreeSentencePrioritizeSelectionParagraph($paragraph, $selectedCount);
+    }
+
+    private function enforceThreeSentencePrioritizeSelectionParagraph(string $paragraph, int $selectedCount): string
+    {
+        $value = trim(preg_replace('/\s+/u', ' ', $paragraph) ?? $paragraph);
+        if ($value === '') {
+            return '';
         }
 
-        return implode("\n", $parts);
+        $sentences = preg_split('/(?<=[.!?])\s+/u', $value, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        $normalized = [];
+        foreach ($sentences as $sentence) {
+            $line = trim((string) $sentence);
+            if ($line === '') {
+                continue;
+            }
+            $normalized[] = $line;
+            if (count($normalized) === 3) {
+                break;
+            }
+        }
+
+        $fallbacks = $selectedCount <= 1
+            ? [
+                'I selected this task first because it stood out as the clearest next step before scheduling.',
+                'I weigh urgency first, then explicit priority and due timing.',
+                'When signals are close, I favor a shorter focused block so this stays doable.',
+            ]
+            : [
+                'I selected these tasks first because they stood out as the clearest priorities before scheduling.',
+                'I weigh urgency first, then explicit priority and due timing.',
+                'When signals are close, I favor shorter focused blocks so the plan stays doable.',
+            ];
+
+        $index = 0;
+        while (count($normalized) < 3 && isset($fallbacks[$index])) {
+            $candidate = $fallbacks[$index];
+            $candidateNorm = mb_strtolower(trim($candidate));
+            $exists = false;
+            foreach ($normalized as $existing) {
+                if (mb_strtolower(trim($existing)) === $candidateNorm) {
+                    $exists = true;
+                    break;
+                }
+            }
+            if (! $exists) {
+                $normalized[] = $candidate;
+            }
+            $index++;
+        }
+
+        return trim(implode(' ', array_slice($normalized, 0, 3)));
     }
 
     /**
@@ -1783,6 +1829,7 @@ final class TaskAssistantMessageFormatter
         }
 
         if ($updated !== $from) {
+            $updated = $this->normalizeSentenceStartCasing($updated);
             $corrections[$field] = [
                 'from' => $from,
                 'to' => $updated,
@@ -1790,6 +1837,22 @@ final class TaskAssistantMessageFormatter
         }
 
         return $updated;
+    }
+
+    private function normalizeSentenceStartCasing(string $text): string
+    {
+        $value = trim($text);
+        if ($value === '') {
+            return '';
+        }
+
+        $value = (string) preg_replace_callback(
+            '/(^|[.!?]\s+)([a-z])/u',
+            static fn (array $matches): string => (string) ($matches[1] ?? '').mb_strtoupper((string) ($matches[2] ?? '')),
+            $value
+        );
+
+        return $value;
     }
 
     private function containsHardBlockedSchedulePhrases(string $value): bool

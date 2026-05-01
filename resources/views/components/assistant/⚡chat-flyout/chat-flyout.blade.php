@@ -763,18 +763,7 @@
                 this.$refs.input.dispatchEvent(new Event('input', { bubbles: true }));
             },
             appendQuickPrompt(value) {
-                const trimmed = (value ?? '').toString().trim();
-                if (trimmed === '') {
-                    return;
-                }
-
-                const existing = (this.$refs.input.value ?? '').toString().trim();
-                if (existing === trimmed || existing.includes(trimmed)) {
-                    return;
-                }
-                const nextValue = existing === '' ? trimmed : `${existing} ${trimmed}`;
-                this.$refs.input.value = nextValue;
-                this.$refs.input.dispatchEvent(new Event('input', { bubbles: true }));
+                this.applyQuickPrompt(value);
             },
             submit() {
                 const value = ($refs.input ? $refs.input.value : '').trim();

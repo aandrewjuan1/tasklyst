@@ -287,9 +287,8 @@ final class TaskAssistantStructuredFlowGenerator
             return null;
         }
 
-        $orderingRationale = [];
         $selectedCount = 0;
-        foreach ($targets as $index => $target) {
+        foreach ($targets as $target) {
             if (! is_array($target)) {
                 continue;
             }
@@ -301,10 +300,9 @@ final class TaskAssistantStructuredFlowGenerator
             }
 
             $selectedCount++;
-            $orderingRationale[] = '#'.($index + 1).' '.$title.': '.$this->buildPrioritizeSelectionLine($target);
         }
 
-        if ($orderingRationale === []) {
+        if ($selectedCount <= 0) {
             return null;
         }
 
@@ -329,8 +327,8 @@ final class TaskAssistantStructuredFlowGenerator
             'target_mode' => 'implicit_ranked',
             'selected_count' => $selectedCount,
             'summary' => $summary,
-            'selection_basis' => $this->scheduleTemplateService->buildPrioritizeSelectionBasis($selectionSeedContext),
-            'ordering_rationale' => array_slice($orderingRationale, 0, 5),
+            'selection_basis' => $this->scheduleTemplateService->buildPrioritizeSelectionBasis($selectedCount, $selectionSeedContext),
+            'ordering_rationale' => [],
         ];
     }
 

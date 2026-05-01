@@ -1606,9 +1606,9 @@ class TaskAssistantResponseProcessorTest extends TestCase
                 'enabled' => true,
                 'target_mode' => 'implicit_ranked',
                 'selected_count' => 1,
-                'summary' => 'I picked this task first because it had the strongest priority signals in your list before I placed it into a time block.',
-                'selection_basis' => 'Urgency comes first, then explicit priority, then earlier deadlines and shorter blocks when tasks are otherwise close.',
-                'ordering_rationale' => ['#1 Task A: due today and marked high priority.'],
+                'summary' => 'I selected this task first because it stood out as the clearest next step before scheduling.',
+                'selection_basis' => 'I weigh urgency first, then explicit priority and due timing. When signals are close, I favor a shorter focused block so this stays doable.',
+                'ordering_rationale' => [],
             ],
         ], [
             'tasks' => [['id' => 1]],

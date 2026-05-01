@@ -66,8 +66,8 @@ it('keeps selection explanation deterministic within the same turn seed', functi
 
     $summaryA = $service->buildPrioritizeSelectionSummary(3, $seed);
     $summaryB = $service->buildPrioritizeSelectionSummary(3, $seed);
-    $basisA = $service->buildPrioritizeSelectionBasis($seed);
-    $basisB = $service->buildPrioritizeSelectionBasis($seed);
+    $basisA = $service->buildPrioritizeSelectionBasis(3, $seed);
+    $basisB = $service->buildPrioritizeSelectionBasis(3, $seed);
 
     expect($summaryA)->toBe($summaryB);
     expect($basisA)->toBe($basisB);
@@ -89,7 +89,7 @@ it('rotates prioritize-selection wording across turn seeds', function (): void {
             'request_bucket' => 'prioritize_selection',
             'turn_seed' => (string) $turnSeed,
         ];
-        $variants[$service->buildPrioritizeSelectionSummary(3, $seed).'|'.$service->buildPrioritizeSelectionBasis($seed)] = true;
+        $variants[$service->buildPrioritizeSelectionSummary(3, $seed).'|'.$service->buildPrioritizeSelectionBasis(3, $seed)] = true;
     }
 
     expect(count($variants))->toBeGreaterThan(1);
