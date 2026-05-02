@@ -62,7 +62,7 @@ final class TaskAssistantScheduleDbContextBuilder
                 $currentEnergyBias = strtolower((string) ($schedulePreferences['energy_bias'] ?? 'balanced'));
                 $nextEnergyBias = strtolower($energyBias);
                 $isBalancedInference = $nextEnergyBias === 'balanced';
-                $isUserExplicitBias = in_array($currentEnergyBias, ['morning', 'evening'], true);
+                $isUserExplicitBias = in_array($currentEnergyBias, ['morning', 'afternoon', 'evening'], true);
 
                 if (! ($isBalancedInference && $isUserExplicitBias)) {
                     $schedulePreferences['energy_bias'] = $nextEnergyBias;

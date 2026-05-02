@@ -24,7 +24,7 @@ final class AssistantCandidateProvider
      *   timezone: string,
      *   schedule_preferences: array{
      *     schema_version:int,
-     *     energy_bias:string,
+     *     energy_bias:'morning'|'afternoon'|'balanced'|'evening',
      *     day_bounds:array{start:string,end:string},
      *     lunch_block:array{enabled:bool,start:string,end:string}
      *   },

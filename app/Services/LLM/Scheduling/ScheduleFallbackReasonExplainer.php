@@ -49,6 +49,24 @@ final class ScheduleFallbackReasonExplainer
             unset($reasonFamilies['duration_mismatch']);
         }
 
+        $daypartHint = is_string($timeWindowHint) ? mb_strtolower(trim($timeWindowHint)) : '';
+        $narrowDaypartRequested = in_array($daypartHint, ['morning', 'afternoon', 'evening'], true);
+        $daypartTightTriggers = $hasCalendarConflicts
+            || in_array('strict_window_no_fit', $triggers, true)
+            || in_array('requested_window_unsatisfied', $triggers, true)
+            || in_array('hinted_window_unsatisfied', $triggers, true);
+        if ($narrowDaypartRequested && $daypartTightTriggers) {
+            $line = match ($daypartHint) {
+                'morning' => 'Your morning window left limited uninterrupted time for everything in this draft.',
+                'afternoon' => 'Your afternoon window left limited uninterrupted time for everything in this draft.',
+                'evening' => 'Your evening window left limited uninterrupted time for everything in this draft.',
+                default => null,
+            };
+            if ($line !== null) {
+                $reasonFamilies['daypart_window'] = $line;
+            }
+        }
+
         if (in_array('placement_outside_horizon', $triggers, true)) {
             $reasonFamilies['horizon_mismatch'] = 'The available slots are outside the day range you asked for.';
         }
@@ -61,7 +79,15 @@ final class ScheduleFallbackReasonExplainer
             }
         }
 
+        $daypartLine = isset($reasonFamilies['daypart_window']) && is_string($reasonFamilies['daypart_window'])
+            ? trim($reasonFamilies['daypart_window'])
+            : '';
+        unset($reasonFamilies['daypart_window']);
+
         $reasons = array_values(array_filter($reasonFamilies, static fn (string $line): bool => trim($line) !== ''));
+        if ($daypartLine !== '') {
+            array_unshift($reasons, $daypartLine);
+        }
 
         return array_slice($reasons, 0, 2);
     }

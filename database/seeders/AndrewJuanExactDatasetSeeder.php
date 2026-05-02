@@ -2,7 +2,6 @@
 
 namespace Database\Seeders;
 
-use App\Models\Task;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 
@@ -198,66 +197,7 @@ class AndrewJuanExactDatasetSeeder extends Seeder
                 );
             }
 
-            $completedTaskIdsBySource = DB::table('tasks')
-                ->where('user_id', $userId)
-                ->whereIn('source_id', [
-                    'history-completed-thesis-sweep',
-                    'history-completed-sql-practice-a',
-                    'history-completed-data-viz-reviewer',
-                    'history-completed-api-refactor',
-                    'history-completed-statistics-drill',
-                    'history-completed-thesis-slides',
-                ])
-                ->pluck('id', 'source_id')
-                ->map(static fn (mixed $value): int => (int) $value)
-                ->all();
-
-            $taskMorphClass = (new Task)->getMorphClass();
-            $focusSessions = [
-                ['source_id' => 'history-completed-thesis-sweep', 'type' => 'work', 'sequence_number' => 1, 'duration_seconds' => 5400, 'completed' => true, 'started_at' => '2026-04-02 14:10:00', 'ended_at' => '2026-04-02 15:35:00', 'paused_seconds' => 300, 'focus_mode_type' => 'single'],
-                ['source_id' => 'history-completed-thesis-sweep', 'type' => 'work', 'sequence_number' => 2, 'duration_seconds' => 4800, 'completed' => true, 'started_at' => '2026-04-04 18:20:00', 'ended_at' => '2026-04-04 19:35:00', 'paused_seconds' => 300, 'focus_mode_type' => 'single'],
-                ['source_id' => 'history-completed-sql-practice-a', 'type' => 'work', 'sequence_number' => 1, 'duration_seconds' => 4500, 'completed' => true, 'started_at' => '2026-04-05 19:10:00', 'ended_at' => '2026-04-05 20:20:00', 'paused_seconds' => 300, 'focus_mode_type' => 'single'],
-                ['source_id' => 'history-completed-data-viz-reviewer', 'type' => 'work', 'sequence_number' => 1, 'duration_seconds' => 3600, 'completed' => true, 'started_at' => '2026-04-06 13:45:00', 'ended_at' => '2026-04-06 14:45:00', 'paused_seconds' => 120, 'focus_mode_type' => 'single'],
-                ['source_id' => 'history-completed-api-refactor', 'type' => 'work', 'sequence_number' => 1, 'duration_seconds' => 7200, 'completed' => true, 'started_at' => '2026-04-08 17:45:00', 'ended_at' => '2026-04-08 19:50:00', 'paused_seconds' => 300, 'focus_mode_type' => 'single'],
-                ['source_id' => 'history-completed-statistics-drill', 'type' => 'work', 'sequence_number' => 1, 'duration_seconds' => 5400, 'completed' => true, 'started_at' => '2026-04-09 09:30:00', 'ended_at' => '2026-04-09 10:50:00', 'paused_seconds' => 240, 'focus_mode_type' => 'single'],
-                ['source_id' => 'history-completed-thesis-slides', 'type' => 'work', 'sequence_number' => 1, 'duration_seconds' => 4800, 'completed' => true, 'started_at' => '2026-04-11 18:55:00', 'ended_at' => '2026-04-11 20:15:00', 'paused_seconds' => 300, 'focus_mode_type' => 'single'],
-                ['source_id' => 'history-completed-data-viz-reviewer', 'type' => 'work', 'sequence_number' => 2, 'duration_seconds' => 4200, 'completed' => true, 'started_at' => '2026-04-14 14:25:00', 'ended_at' => '2026-04-14 15:35:00', 'paused_seconds' => 180, 'focus_mode_type' => 'single'],
-                ['source_id' => 'history-completed-api-refactor', 'type' => 'work', 'sequence_number' => 2, 'duration_seconds' => 4500, 'completed' => true, 'started_at' => '2026-04-16 20:05:00', 'ended_at' => '2026-04-16 21:20:00', 'paused_seconds' => 300, 'focus_mode_type' => 'single'],
-                ['source_id' => 'history-completed-statistics-drill', 'type' => 'work', 'sequence_number' => 2, 'duration_seconds' => 3900, 'completed' => true, 'started_at' => '2026-04-20 13:55:00', 'ended_at' => '2026-04-20 15:00:00', 'paused_seconds' => 120, 'focus_mode_type' => 'single'],
-                ['source_id' => 'history-completed-thesis-sweep', 'type' => 'work', 'sequence_number' => 3, 'duration_seconds' => 4800, 'completed' => true, 'started_at' => '2026-04-21 19:15:00', 'ended_at' => '2026-04-21 20:30:00', 'paused_seconds' => 300, 'focus_mode_type' => 'single'],
-                ['source_id' => 'history-completed-sql-practice-a', 'type' => 'work', 'sequence_number' => 2, 'duration_seconds' => 3600, 'completed' => true, 'started_at' => '2026-04-23 10:20:00', 'ended_at' => '2026-04-23 11:15:00', 'paused_seconds' => 120, 'focus_mode_type' => 'single'],
-                ['source_id' => 'history-completed-thesis-sweep', 'type' => 'short_break', 'sequence_number' => 1, 'duration_seconds' => 1800, 'completed' => true, 'started_at' => '2026-04-02 12:20:00', 'ended_at' => '2026-04-02 12:45:00', 'paused_seconds' => 0, 'focus_mode_type' => null],
-                ['source_id' => 'history-completed-data-viz-reviewer', 'type' => 'short_break', 'sequence_number' => 1, 'duration_seconds' => 1500, 'completed' => true, 'started_at' => '2026-04-06 12:40:00', 'ended_at' => '2026-04-06 13:00:00', 'paused_seconds' => 0, 'focus_mode_type' => null],
-                ['source_id' => 'history-completed-api-refactor', 'type' => 'long_break', 'sequence_number' => 1, 'duration_seconds' => 2400, 'completed' => true, 'started_at' => '2026-04-08 13:10:00', 'ended_at' => '2026-04-08 13:45:00', 'paused_seconds' => 0, 'focus_mode_type' => null],
-                ['source_id' => 'history-completed-statistics-drill', 'type' => 'short_break', 'sequence_number' => 1, 'duration_seconds' => 1800, 'completed' => true, 'started_at' => '2026-04-09 12:35:00', 'ended_at' => '2026-04-09 13:00:00', 'paused_seconds' => 0, 'focus_mode_type' => null],
-                ['source_id' => 'history-completed-thesis-slides', 'type' => 'long_break', 'sequence_number' => 1, 'duration_seconds' => 2100, 'completed' => true, 'started_at' => '2026-04-11 12:50:00', 'ended_at' => '2026-04-11 13:20:00', 'paused_seconds' => 0, 'focus_mode_type' => null],
-                ['source_id' => 'history-completed-sql-practice-a', 'type' => 'short_break', 'sequence_number' => 1, 'duration_seconds' => 1800, 'completed' => true, 'started_at' => '2026-04-23 12:15:00', 'ended_at' => '2026-04-23 12:40:00', 'paused_seconds' => 0, 'focus_mode_type' => null],
-            ];
-
-            foreach ($focusSessions as $focusSession) {
-                $taskId = $completedTaskIdsBySource[$focusSession['source_id']] ?? null;
-                if (! is_int($taskId) || $taskId <= 0) {
-                    continue;
-                }
-
-                DB::table('focus_sessions')->insert([
-                    'user_id' => $userId,
-                    'focusable_type' => $taskMorphClass,
-                    'focusable_id' => $taskId,
-                    'type' => $focusSession['type'],
-                    'focus_mode_type' => $focusSession['focus_mode_type'],
-                    'sequence_number' => $focusSession['sequence_number'],
-                    'duration_seconds' => $focusSession['duration_seconds'],
-                    'completed' => $focusSession['completed'],
-                    'started_at' => $focusSession['started_at'],
-                    'ended_at' => $focusSession['ended_at'],
-                    'paused_seconds' => $focusSession['paused_seconds'],
-                    'paused_at' => null,
-                    'payload' => null,
-                    'created_at' => $focusSession['ended_at'],
-                    'updated_at' => $focusSession['ended_at'],
-                ]);
-            }
+            // Focus session history is optional: run AndrewJuanFocusHistory{Morning,Evening,Balanced}Seeder after this dataset.
         });
     }
 }

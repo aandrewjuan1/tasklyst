@@ -31,7 +31,7 @@ class extends Component {
         $dayBounds = is_array($preferences['day_bounds'] ?? null) ? $preferences['day_bounds'] : [];
 
         $this->timezone = trim((string) ($user->timezone ?? ''));
-        $this->energyBias = in_array((string) ($preferences['energy_bias'] ?? 'balanced'), ['morning', 'evening', 'balanced'], true)
+        $this->energyBias = in_array((string) ($preferences['energy_bias'] ?? 'balanced'), ['morning', 'afternoon', 'evening', 'balanced'], true)
             ? (string) ($preferences['energy_bias'] ?? 'balanced')
             : 'balanced';
         $this->lunchBlockEnabled = (bool) ($lunchBlock['enabled'] ?? true);

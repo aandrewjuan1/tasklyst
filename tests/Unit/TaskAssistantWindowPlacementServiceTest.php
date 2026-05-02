@@ -38,6 +38,42 @@ it('prefers morning slot for high complexity task when morning energy bias is se
     expect($selected[1]->format('H:i'))->toBe('09:00');
 });
 
+it('prefers afternoon slot when afternoon energy bias is set', function (): void {
+    $service = app(TaskAssistantWindowPlacementService::class);
+    $timezone = new DateTimeZone('UTC');
+
+    $windows = [
+        [
+            'start' => new DateTimeImmutable('2026-04-12 09:00:00', $timezone),
+            'end' => new DateTimeImmutable('2026-04-12 11:30:00', $timezone),
+        ],
+        [
+            'start' => new DateTimeImmutable('2026-04-12 14:00:00', $timezone),
+            'end' => new DateTimeImmutable('2026-04-12 16:30:00', $timezone),
+        ],
+    ];
+
+    $unit = [
+        'entity_type' => 'task',
+        'entity_id' => 92,
+        'complexity' => 'medium',
+    ];
+    $snapshot = [
+        'schedule_preferences' => [
+            'energy_bias' => 'afternoon',
+        ],
+        'tasks' => [
+            ['id' => 92, 'ends_at' => null],
+        ],
+        'school_class_busy_intervals' => [],
+    ];
+
+    $selected = $service->selectBestFittingWindow($windows, 60, $unit, $snapshot);
+
+    expect($selected)->not->toBeNull();
+    expect($selected[1]->format('H:i'))->toBe('14:00');
+});
+
 it('rewards near deadline placement for due-soon tasks', function (): void {
     $service = app(TaskAssistantWindowPlacementService::class);
     $timezone = new DateTimeZone('UTC');

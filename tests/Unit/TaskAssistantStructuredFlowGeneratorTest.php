@@ -446,7 +446,32 @@ it('mentions morning productivity when focus history has morning energy bias', f
     $result = $method->invoke($generator, $snapshot, [], [], ['unplaced_units' => []], []);
     $focusExplanation = (string) ($result['focus_history_window_explanation'] ?? '');
 
-    expect($focusExplanation)->toContain('trend toward morning productivity');
+    expect($focusExplanation)->toContain('trend toward productive work in morning hours');
+    expect((bool) data_get($result, 'focus_history_window_struct.applied', false))->toBeTrue();
+    expect((string) data_get($result, 'focus_history_window_struct.signals.0.signal', ''))->toBe('energy_bias');
+});
+
+it('mentions afternoon productivity when focus history has afternoon energy bias', function (): void {
+    $generator = app(TaskAssistantStructuredFlowGenerator::class);
+    $method = new ReflectionMethod(TaskAssistantStructuredFlowGenerator::class, 'buildScheduleExplainability');
+    $method->setAccessible(true);
+
+    $snapshot = [
+        'time_window' => ['start' => '08:00', 'end' => '22:00'],
+        'schedule_horizon' => ['start_date' => '2026-04-22', 'end_date' => '2026-04-24'],
+        'schedule_preferences' => [
+            'energy_bias' => 'afternoon',
+        ],
+        'focus_session_signals' => [
+            'energy_bias_confidence' => 0.9,
+            'learning_meta' => ['work_sessions_count' => 12],
+        ],
+    ];
+
+    $result = $method->invoke($generator, $snapshot, [], [], ['unplaced_units' => []], []);
+    $focusExplanation = (string) ($result['focus_history_window_explanation'] ?? '');
+
+    expect($focusExplanation)->toContain('trend toward productive work in afternoon hours');
     expect((bool) data_get($result, 'focus_history_window_struct.applied', false))->toBeTrue();
     expect((string) data_get($result, 'focus_history_window_struct.signals.0.signal', ''))->toBe('energy_bias');
 });
@@ -495,7 +520,7 @@ it('threads focus-history explanation into deterministic narrative metadata', fu
             'blocking_reasons' => [],
             'all_day_overlap_note' => '',
             'all_day_overlaps' => [],
-            'focus_history_window_explanation' => 'Based on your recent focus-session history, I leaned toward this timing because your recent focus sessions trend toward morning productivity.',
+            'focus_history_window_explanation' => 'Based on your recent focus-session history, I leaned toward this timing because your recent focus sessions trend toward productive work in morning hours.',
             'focus_history_window_struct' => [
                 'applied' => true,
                 'signals' => [['signal' => 'energy_bias', 'confidence' => 0.9]],

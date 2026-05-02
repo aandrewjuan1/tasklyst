@@ -108,6 +108,61 @@ it('builds deterministic confirmation narrative with scenario metadata', functio
     expect((string) ($out['confirmation'] ?? ''))->toContain('widen');
 });
 
+it('uses afternoon coaching tone for fallback confirmation when afternoon was requested', function (): void {
+    $service = app(DeterministicScheduleExplanationService::class);
+
+    $out = $service->composeConfirmation([
+        'reason_code' => 'schedule_confirmation_needed',
+        'requested_count' => 3,
+        'placed_count' => 1,
+        'requested_window_label' => 'this afternoon',
+        'reason_message' => 'Needs review.',
+        'prompt' => 'Continue?',
+        'reason_details' => [],
+        'preferred_energy_daypart' => 'afternoon',
+    ]);
+
+    expect(data_get($out, 'explanation_meta.coaching_tone_key'))->toBe('afternoon_restart');
+});
+
+it('selects afternoon restart coaching tone for feasible default placements in the afternoon band', function (): void {
+    $service = app(DeterministicScheduleExplanationService::class);
+
+    $out = $service->composeNormal([
+        'flow_source' => 'schedule',
+        'schedule_scope' => 'all_entities',
+        'requested_window_label' => 'today',
+        'requested_count' => 1,
+        'placed_count' => 1,
+        'unplaced_count' => 0,
+        'trigger_list' => [],
+        'strict_window_requested' => false,
+        'explicit_requested_window' => false,
+        'requested_window_honored' => false,
+        'blocking_reasons' => [],
+        'chosen_daypart' => 'afternoon',
+        'chosen_time_label' => '3:00 PM',
+    ]);
+
+    expect(data_get($out, 'explanation_meta.coaching_tone_key'))->toBe('afternoon_restart');
+});
+
+it('keeps fallback_nearest confirmation coaching when no daypart preference is passed', function (): void {
+    $service = app(DeterministicScheduleExplanationService::class);
+
+    $out = $service->composeConfirmation([
+        'reason_code' => 'schedule_confirmation_needed',
+        'requested_count' => 2,
+        'placed_count' => 1,
+        'requested_window_label' => 'your requested window',
+        'reason_message' => 'Paused for review.',
+        'prompt' => 'Continue?',
+        'reason_details' => [],
+    ]);
+
+    expect(data_get($out, 'explanation_meta.coaching_tone_key'))->toBe('fallback_nearest');
+});
+
 it('selects blocker shifted scenario and mentions up to two blocker titles with windows', function (): void {
     $service = app(DeterministicScheduleExplanationService::class);
 

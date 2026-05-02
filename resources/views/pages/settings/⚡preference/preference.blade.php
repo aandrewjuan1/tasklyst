@@ -53,6 +53,7 @@
                     >
                         <option value="balanced">{{ __('Balanced') }}</option>
                         <option value="morning">{{ __('Morning focus') }}</option>
+                        <option value="afternoon">{{ __('Afternoon focus') }}</option>
                         <option value="evening">{{ __('Evening focus') }}</option>
                     </select>
                     <svg class="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500 dark:text-zinc-400" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">

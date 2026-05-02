@@ -53,6 +53,53 @@ it('infers morning energy bias from completed work sessions', function (): void 
     expect((float) ($signals['energy_bias_confidence'] ?? 0.0))->toBeGreaterThan(0.6);
 });
 
+it('infers afternoon energy bias from completed work sessions', function (): void {
+    CarbonImmutable::setTestNow('2026-04-20T12:00:00+00:00');
+
+    $user = User::factory()->create([
+        'timezone' => 'UTC',
+    ]);
+
+    $workDurationSeconds = 1500;
+
+    for ($i = 0; $i < 10; $i++) {
+        FocusSession::factory()->completed()->create([
+            'user_id' => $user->id,
+            'type' => FocusSessionType::Work,
+            'focus_mode_type' => FocusModeType::Sprint,
+            'sequence_number' => 1,
+            'duration_seconds' => $workDurationSeconds,
+            'started_at' => CarbonImmutable::parse('2026-04-15 14:00:00+00:00')->addDays($i),
+            'ended_at' => CarbonImmutable::parse('2026-04-15 14:00:00+00:00')->addDays($i)->addSeconds($workDurationSeconds),
+            'paused_seconds' => 0,
+            'paused_at' => null,
+            'payload' => null,
+        ]);
+    }
+
+    for ($i = 0; $i < 2; $i++) {
+        FocusSession::factory()->completed()->create([
+            'user_id' => $user->id,
+            'type' => FocusSessionType::Work,
+            'focus_mode_type' => FocusModeType::Sprint,
+            'sequence_number' => 1,
+            'duration_seconds' => $workDurationSeconds,
+            'started_at' => CarbonImmutable::parse('2026-04-15 09:00:00+00:00')->addDays($i),
+            'ended_at' => CarbonImmutable::parse('2026-04-15 09:00:00+00:00')->addDays($i)->addSeconds($workDurationSeconds),
+            'paused_seconds' => 0,
+            'paused_at' => null,
+            'payload' => null,
+        ]);
+    }
+
+    $builder = app(FocusSessionSchedulingSignalsBuilder::class);
+    $signals = $builder->buildForUser($user, 'UTC', CarbonImmutable::now('UTC'));
+
+    expect($signals['schedule_preferences_override']['energy_bias'] ?? null)->toBe('afternoon');
+    expect((float) ($signals['energy_bias_confidence'] ?? 0.0))->toBeGreaterThan(0.6);
+    expect((int) ($signals['learning_meta']['afternoon_bucket_count'] ?? 0))->toBe(10);
+});
+
 it('infers day bounds and keeps a sane span', function (): void {
     CarbonImmutable::setTestNow('2026-04-20T12:00:00+00:00');
 

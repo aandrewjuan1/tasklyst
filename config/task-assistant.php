@@ -205,6 +205,24 @@ return [
             'active_session_fallback_minutes' => (int) env('TASK_ASSISTANT_SCHEDULE_ACTIVE_SESSION_FALLBACK_MINUTES', 25),
         ],
         /**
+         * Local clock-hour bands [start_hour, end_hour) for energy_bias learning and placement scoring.
+         * Hour 12 is unbucketed (neutral). See {@see ScheduleEnergyDaypart}.
+         */
+        'energy_dayparts' => [
+            'morning' => [
+                'start_hour' => (int) env('TASK_ASSISTANT_SCHEDULE_ENERGY_MORNING_START_HOUR', 8),
+                'end_hour' => (int) env('TASK_ASSISTANT_SCHEDULE_ENERGY_MORNING_END_HOUR', 12),
+            ],
+            'afternoon' => [
+                'start_hour' => (int) env('TASK_ASSISTANT_SCHEDULE_ENERGY_AFTERNOON_START_HOUR', 13),
+                'end_hour' => (int) env('TASK_ASSISTANT_SCHEDULE_ENERGY_AFTERNOON_END_HOUR', 18),
+            ],
+            'evening' => [
+                'start_hour' => (int) env('TASK_ASSISTANT_SCHEDULE_ENERGY_EVENING_START_HOUR', 18),
+                'end_hour' => (int) env('TASK_ASSISTANT_SCHEDULE_ENERGY_EVENING_END_HOUR', 22),
+            ],
+        ],
+        /**
          * Fallback duration for timed events missing an explicit end datetime.
          */
         'event_fallback_duration_minutes' => (int) env('TASK_ASSISTANT_SCHEDULE_EVENT_FALLBACK_DURATION_MINUTES', 60),

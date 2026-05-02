@@ -221,7 +221,15 @@ final class DeterministicScheduleExplanationService
             }
         }
 
-        $toneKey = 'fallback_nearest';
+        $preferenceDaypart = mb_strtolower(trim((string) ($payload['preferred_energy_daypart'] ?? '')));
+        $toneKey = in_array($preferenceDaypart, ['morning', 'afternoon', 'evening'], true)
+            ? match ($preferenceDaypart) {
+                'morning' => 'morning_momentum',
+                'afternoon' => 'afternoon_restart',
+                'evening' => 'evening_closure',
+                default => 'fallback_nearest',
+            }
+        : 'fallback_nearest';
         $coachLine = $this->scheduleTemplateService->buildCoachingLineForToneKey($toneKey, $this->buildTemplateSeedContext(
             $payload,
             'coaching_'.$toneKey,

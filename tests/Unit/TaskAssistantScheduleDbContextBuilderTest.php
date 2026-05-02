@@ -233,3 +233,125 @@ it('does not overwrite explicit energy bias with balanced inference', function (
 
     expect((string) ($schedulePreferences['energy_bias'] ?? ''))->toBe('evening');
 });
+
+it('does not overwrite explicit afternoon energy bias with balanced inference', function (): void {
+    CarbonImmutable::setTestNow('2026-04-20T12:00:00+00:00');
+
+    $user = User::factory()->create([
+        'timezone' => 'UTC',
+        'schedule_preferences' => [
+            'schema_version' => 1,
+            'energy_bias' => 'afternoon',
+            'day_bounds' => [
+                'start' => '08:00',
+                'end' => '22:00',
+            ],
+            'lunch_block' => [
+                'enabled' => true,
+                'start' => '12:00',
+                'end' => '13:00',
+            ],
+        ],
+    ]);
+
+    $workDurationSeconds = 1800;
+
+    for ($i = 0; $i < 6; $i++) {
+        $morning = CarbonImmutable::parse('2026-04-10 09:00:00+00:00')->addDays($i);
+        FocusSession::factory()->completed()->create([
+            'user_id' => $user->id,
+            'type' => FocusSessionType::Work,
+            'focus_mode_type' => FocusModeType::Pomodoro,
+            'sequence_number' => 1,
+            'duration_seconds' => $workDurationSeconds,
+            'started_at' => $morning,
+            'ended_at' => $morning->addSeconds($workDurationSeconds),
+            'paused_seconds' => 0,
+            'paused_at' => null,
+            'payload' => null,
+        ]);
+
+        $evening = CarbonImmutable::parse('2026-04-10 19:00:00+00:00')->addDays($i);
+        FocusSession::factory()->completed()->create([
+            'user_id' => $user->id,
+            'type' => FocusSessionType::Work,
+            'focus_mode_type' => FocusModeType::Pomodoro,
+            'sequence_number' => 1,
+            'duration_seconds' => $workDurationSeconds,
+            'started_at' => $evening,
+            'ended_at' => $evening->addSeconds($workDurationSeconds),
+            'paused_seconds' => 0,
+            'paused_at' => null,
+            'payload' => null,
+        ]);
+    }
+
+    $builder = app(TaskAssistantScheduleDbContextBuilder::class);
+    $result = $builder->buildForUser($user, 'schedule my tasks');
+    $snapshot = $result['snapshot'] ?? [];
+    $schedulePreferences = $snapshot['schedule_preferences'] ?? [];
+
+    expect((string) ($schedulePreferences['energy_bias'] ?? ''))->toBe('afternoon');
+});
+
+it('overrides balanced preference with confident afternoon inference', function (): void {
+    CarbonImmutable::setTestNow('2026-04-20T12:00:00+00:00');
+
+    $user = User::factory()->create([
+        'timezone' => 'UTC',
+        'schedule_preferences' => [
+            'schema_version' => 1,
+            'energy_bias' => 'balanced',
+            'day_bounds' => [
+                'start' => '08:00',
+                'end' => '22:00',
+            ],
+            'lunch_block' => [
+                'enabled' => true,
+                'start' => '12:00',
+                'end' => '13:00',
+            ],
+        ],
+    ]);
+
+    $workDurationSeconds = 1800;
+
+    for ($i = 0; $i < 10; $i++) {
+        $start = CarbonImmutable::parse('2026-04-10 15:00:00+00:00')->addDays($i);
+        FocusSession::factory()->completed()->create([
+            'user_id' => $user->id,
+            'type' => FocusSessionType::Work,
+            'focus_mode_type' => FocusModeType::Pomodoro,
+            'sequence_number' => 1,
+            'duration_seconds' => $workDurationSeconds,
+            'started_at' => $start,
+            'ended_at' => $start->addSeconds($workDurationSeconds),
+            'paused_seconds' => 0,
+            'paused_at' => null,
+            'payload' => null,
+        ]);
+    }
+
+    for ($i = 0; $i < 2; $i++) {
+        $start = CarbonImmutable::parse('2026-04-10 19:00:00+00:00')->addDays($i);
+        FocusSession::factory()->completed()->create([
+            'user_id' => $user->id,
+            'type' => FocusSessionType::Work,
+            'focus_mode_type' => FocusModeType::Pomodoro,
+            'sequence_number' => 1,
+            'duration_seconds' => $workDurationSeconds,
+            'started_at' => $start,
+            'ended_at' => $start->addSeconds($workDurationSeconds),
+            'paused_seconds' => 0,
+            'paused_at' => null,
+            'payload' => null,
+        ]);
+    }
+
+    $builder = app(TaskAssistantScheduleDbContextBuilder::class);
+    $result = $builder->buildForUser($user, 'schedule my tasks');
+    $snapshot = $result['snapshot'] ?? [];
+    $schedulePreferences = $snapshot['schedule_preferences'] ?? [];
+
+    expect((string) ($schedulePreferences['energy_bias'] ?? ''))->toBe('afternoon');
+});

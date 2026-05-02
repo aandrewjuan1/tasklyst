@@ -3203,7 +3203,9 @@ final class TaskAssistantService
             $reasonMessage = 'At least one requested item could not be placed in the available time window.';
             $prompt = $hasDraftToKeep
                 ? 'Should I continue with that plan, or pick another time this week?'
-                : 'Should I schedule for tomorrow morning instead, or pick another time this week?';
+                : ($hasNearestWindow
+                    ? "Should I try {$nearestPromptLabel} instead, or pick another time this week?"
+                    : 'Should I schedule for tomorrow morning instead, or pick another time this week?');
             $options = $defaultOptions;
             $optionActions = [
                 ['id' => $hasDraftToKeep ? 'use_current_draft' : 'try_nearest_available_window', 'label' => $hasDraftToKeep ? 'Continue with that plan' : $nearestActionLabel],
@@ -3278,6 +3280,13 @@ final class TaskAssistantService
             'reason_details' => $reasonDetails,
             'nearest_available_window' => $nearestAvailableWindow,
         ];
+        $preferenceDaypart = is_string($plan->timeWindowHint)
+            ? mb_strtolower(trim($plan->timeWindowHint))
+            : '';
+        if (! in_array($preferenceDaypart, ['morning', 'afternoon', 'evening'], true)) {
+            $preferenceDaypart = '';
+        }
+
         $narrative = $this->deterministicScheduleExplanationService->composeConfirmation([
             'reason_code' => $reasonCode,
             'requested_count' => $requestedCount,
@@ -3286,6 +3295,7 @@ final class TaskAssistantService
             'reason_message' => $reasonMessage,
             'prompt' => $prompt,
             'reason_details' => $reasonDetails,
+            'preferred_energy_daypart' => $preferenceDaypart,
         ]);
         $scheduleData['framing'] = $narrative['framing'];
         $scheduleData['reasoning'] = $narrative['reasoning'];

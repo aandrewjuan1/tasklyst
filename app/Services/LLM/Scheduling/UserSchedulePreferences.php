@@ -9,7 +9,7 @@ class UserSchedulePreferences
     /**
      * @return array{
      *   schema_version:int,
-     *   energy_bias:string,
+     *   energy_bias:'morning'|'afternoon'|'balanced'|'evening',
      *   day_bounds:array{start:string,end:string},
      *   lunch_block:array{enabled:bool,start:string,end:string}
      * }
@@ -29,7 +29,7 @@ class UserSchedulePreferences
     /**
      * @return array{
      *   schema_version:int,
-     *   energy_bias:string,
+     *   energy_bias:'morning'|'afternoon'|'balanced'|'evening',
      *   day_bounds:array{start:string,end:string},
      *   lunch_block:array{enabled:bool,start:string,end:string}
      * }
@@ -41,7 +41,7 @@ class UserSchedulePreferences
         $lunchBlock = is_array($preferences['lunch_block'] ?? null) ? $preferences['lunch_block'] : [];
         $energyBias = (string) ($preferences['energy_bias'] ?? 'balanced');
 
-        if (! in_array($energyBias, ['morning', 'balanced', 'evening'], true)) {
+        if (! in_array($energyBias, ['morning', 'afternoon', 'balanced', 'evening'], true)) {
             $energyBias = 'balanced';
         }
 

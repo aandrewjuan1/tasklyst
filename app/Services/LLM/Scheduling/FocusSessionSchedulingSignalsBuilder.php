@@ -28,6 +28,7 @@ final class FocusSessionSchedulingSignalsBuilder
         $workStartsMinutes = [];
         $workEffectiveMinutes = [];
         $energyMorningCount = 0;
+        $energyAfternoonCount = 0;
         $energyEveningCount = 0;
 
         foreach ($workSessions as $session) {
@@ -40,9 +41,12 @@ final class FocusSessionSchedulingSignalsBuilder
             $workStartsMinutes[] = $minuteOfDay;
 
             $hour = (int) $localStart->format('H');
-            if ($hour >= 8 && $hour <= 13) {
+            $bucket = ScheduleEnergyDaypart::bucketForStartHour($hour);
+            if ($bucket === 'morning') {
                 $energyMorningCount++;
-            } elseif ($hour >= 18 && $hour <= 22) {
+            } elseif ($bucket === 'afternoon') {
+                $energyAfternoonCount++;
+            } elseif ($bucket === 'evening') {
                 $energyEveningCount++;
             }
 
@@ -62,21 +66,33 @@ final class FocusSessionSchedulingSignalsBuilder
         $energyBias = 'balanced';
         $energyConfidence = 0.0;
         if ($workCount >= $energyMinWorkSessions) {
-            $morningShare = $workCount > 0 ? ($energyMorningCount / $workCount) : 0.0;
-            $eveningShare = $workCount > 0 ? ($energyEveningCount / $workCount) : 0.0;
+            $morningShare = $energyMorningCount / $workCount;
+            $afternoonShare = $energyAfternoonCount / $workCount;
+            $eveningShare = $energyEveningCount / $workCount;
 
-            $dominanceOk = $morningShare >= $eveningShare * 1.25 && $morningShare >= 0.40;
-            $eveningDominanceOk = $eveningShare >= $morningShare * 1.25 && $eveningShare >= 0.40;
+            $shares = [
+                'morning' => $morningShare,
+                'afternoon' => $afternoonShare,
+                'evening' => $eveningShare,
+            ];
+            arsort($shares);
+            $ordered = array_values($shares);
+            $firstShare = $ordered[0] ?? 0.0;
+            $secondShare = $ordered[1] ?? 0.0;
+            $winnerKey = array_key_first($shares);
 
-            if ($dominanceOk) {
-                $energyBias = 'morning';
-                $energyConfidence = min(1.0, $morningShare);
-            } elseif ($eveningDominanceOk) {
-                $energyBias = 'evening';
-                $energyConfidence = min(1.0, $eveningShare);
+            $dominanceOk = $firstShare >= 0.40
+                && (
+                    $secondShare === 0.0
+                    || ($secondShare > 0.0 && $firstShare >= $secondShare * 1.25)
+                );
+
+            if ($dominanceOk && is_string($winnerKey) && $firstShare > 0.0) {
+                $energyBias = $winnerKey;
+                $energyConfidence = min(1.0, $firstShare);
             } else {
                 $energyBias = 'balanced';
-                $energyConfidence = min(1.0, max(0.45, 1.0 - abs($morningShare - $eveningShare)));
+                $energyConfidence = min(1.0, max(0.45, 1.0 - ($firstShare - $secondShare)));
             }
         }
 
@@ -314,6 +330,7 @@ final class FocusSessionSchedulingSignalsBuilder
                 'lookback_days' => $lookbackDays,
                 'work_sessions_count' => $workCount,
                 'morning_bucket_count' => $energyMorningCount,
+                'afternoon_bucket_count' => $energyAfternoonCount,
                 'evening_bucket_count' => $energyEveningCount,
                 'work_effective_minutes_samples' => count($workEffectiveMinutes),
                 'lunch_break_sessions_count' => count($lunchStartMinutesList),

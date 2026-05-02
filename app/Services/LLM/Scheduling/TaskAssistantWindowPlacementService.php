@@ -130,17 +130,17 @@ final class TaskAssistantWindowPlacementService
     {
         $complexity = strtolower((string) ($unit['complexity'] ?? ''));
         if (in_array($complexity, ['high', 'hard', 'complex'], true)) {
-            if ($hour >= 8 && $hour < 13) {
+            if ($hour >= 8 && $hour < 12) {
                 return 25.0;
             }
 
-            if ($hour >= 18) {
+            if ($hour >= 18 && $hour < 22) {
                 return -10.0;
             }
         }
 
         if (in_array($complexity, ['low', 'easy'], true)) {
-            if ($hour >= 18) {
+            if ($hour >= 18 && $hour < 22) {
                 return 12.0;
             }
         }
@@ -196,15 +196,7 @@ final class TaskAssistantWindowPlacementService
             : [];
         $bias = strtolower((string) ($preferences['energy_bias'] ?? 'balanced'));
 
-        if ($bias === 'morning') {
-            return ($hour >= 8 && $hour < 13) ? 18.0 : 0.0;
-        }
-
-        if ($bias === 'evening') {
-            return ($hour >= 18 && $hour < 22) ? 18.0 : 0.0;
-        }
-
-        return 0.0;
+        return ScheduleEnergyDaypart::startHourFitsBias($hour, $bias) ? 18.0 : 0.0;
     }
 
     /**

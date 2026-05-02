@@ -2072,6 +2072,7 @@ final class TaskAssistantMessageFormatter
             'this week' => 'tasks due this week',
             'later afternoon' => 'tasks in the later afternoon window',
             'morning' => 'tasks in the morning window',
+            'afternoon' => 'tasks in the afternoon window',
             'evening' => 'tasks in the evening window',
             default => 'tasks matching the “'.$token.'” time filter',
         };

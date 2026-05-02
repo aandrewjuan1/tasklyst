@@ -79,6 +79,29 @@ test('scheduler preferences can be updated from preferences settings', function 
     ]);
 });
 
+test('scheduler preferences can save afternoon energy bias', function () {
+    $user = User::factory()->create([
+        'timezone' => 'Asia/Manila',
+        'schedule_preferences' => [
+            'schema_version' => 1,
+            'energy_bias' => 'balanced',
+            'day_bounds' => ['start' => '08:00', 'end' => '22:00'],
+            'lunch_block' => ['enabled' => true, 'start' => '12:00', 'end' => '13:00'],
+        ],
+    ]);
+
+    $this->actingAs($user);
+
+    Livewire::test('pages::settings.preference')
+        ->set('energyBias', 'afternoon')
+        ->call('updatePreferences')
+        ->assertHasNoErrors();
+
+    $user->refresh();
+
+    expect((string) ($user->schedule_preferences['energy_bias'] ?? ''))->toBe('afternoon');
+});
+
 test('user can delete their account', function () {
     $user = User::factory()->create();
 

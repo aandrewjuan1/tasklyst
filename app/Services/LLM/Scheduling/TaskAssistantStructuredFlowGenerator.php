@@ -4213,6 +4213,7 @@ final class TaskAssistantStructuredFlowGenerator
         $isTargetedSchedule = $flowSource === 'targeted_schedule';
         $targetedEntityTitle = trim((string) ($firstItem['title'] ?? ''));
         $timeWindowHintSource = trim((string) ($options['time_window_hint'] ?? ''));
+        $chosenDaypart = $this->resolveChosenDaypartForDeterministicNarrative($snapshot, $firstItem);
 
         $narrative = $this->deterministicExplanationService->composeNormal([
             'flow_source' => $flowSource,
@@ -4229,6 +4230,7 @@ final class TaskAssistantStructuredFlowGenerator
             'fallback_mode' => (string) ($placementDigest['fallback_mode'] ?? ''),
             'nearest_window_label' => (string) data_get($placementDigest, 'confirmation_signals.nearest_available_window.display_label', ''),
             'chosen_time_label' => $chosenTimeLabel,
+            'chosen_daypart' => $chosenDaypart,
             'is_targeted_schedule' => $isTargetedSchedule,
             'targeted_entity_title' => $targetedEntityTitle,
             'time_window_hint_source' => $timeWindowHintSource,
@@ -4249,6 +4251,43 @@ final class TaskAssistantStructuredFlowGenerator
         }
 
         return $narrative;
+    }
+
+    /**
+     * Daypart for deterministic coaching copy: energy bands first, then coarse calendar split for neutral hours.
+     *
+     * @param  array<string, mixed>  $snapshot
+     * @param  array<string, mixed>  $firstItem
+     */
+    private function resolveChosenDaypartForDeterministicNarrative(array $snapshot, array $firstItem): string
+    {
+        $startRaw = trim((string) ($firstItem['start_datetime'] ?? ''));
+        if ($startRaw === '') {
+            return '';
+        }
+
+        $timezoneName = is_string($snapshot['timezone'] ?? null) && trim((string) $snapshot['timezone']) !== ''
+            ? (string) $snapshot['timezone']
+            : (string) config('app.timezone', 'Asia/Manila');
+
+        try {
+            $tz = new \DateTimeZone($timezoneName);
+            $local = (new \DateTimeImmutable($startRaw))->setTimezone($tz);
+            $hour = (int) $local->format('G');
+        } catch (\Throwable) {
+            return '';
+        }
+
+        $bucket = ScheduleEnergyDaypart::bucketForStartHour($hour);
+        if ($bucket !== null) {
+            return $bucket;
+        }
+
+        return match (true) {
+            $hour < 12 => 'morning',
+            $hour < 18 => 'afternoon',
+            default => 'evening',
+        };
     }
 
     private function appendSentenceIfMissing(string $base, string $sentence): string
@@ -4299,8 +4338,13 @@ final class TaskAssistantStructuredFlowGenerator
         $energyBias = strtolower(trim((string) ($preferences['energy_bias'] ?? '')));
         $energyConfidence = (float) data_get($signals, 'energy_bias_confidence', 0.0);
         if (in_array($energyBias, ['morning', 'afternoon', 'evening'], true) && $energyConfidence >= $threshold) {
-            $windowLabel = $energyBias;
-            $reasonParts[] = "your recent focus sessions trend toward {$windowLabel} productivity";
+            $energyPhrase = match ($energyBias) {
+                'morning' => 'morning hours',
+                'afternoon' => 'afternoon hours',
+                'evening' => 'evening hours',
+                default => $energyBias,
+            };
+            $reasonParts[] = "your recent focus sessions trend toward productive work in {$energyPhrase}";
             $signalRows[] = [
                 'signal' => 'energy_bias',
                 'value' => $energyBias,
