@@ -481,6 +481,96 @@
             return Number(this.typingState.pendingMessageId) === normalizedMessageId
                 && !this.typingState.completedMessageIds[normalizedMessageId];
         },
+        parseDisplayBlocksFromText(text) {
+            const display = (text ?? '').toString();
+            if (display.trim().length === 0) {
+                return [];
+            }
+
+            const normalizedDisplay = display
+                .replace(/\r\n/g, '\n')
+                .replace(/\r/g, '\n')
+                .replace(/\s+•\s+/gu, '\n• ');
+            const displayLines = normalizedDisplay.split('\n').map((line) => line.trim());
+            const displayBlocks = [];
+            let textBuffer = [];
+            let listBuffer = [];
+
+            const flushTextBuffer = () => {
+                const paragraph = textBuffer.join('\n').trim();
+                if (paragraph !== '') {
+                    displayBlocks.push({
+                        type: 'text',
+                        content: paragraph,
+                    });
+                }
+                textBuffer = [];
+            };
+
+            const flushListBuffer = () => {
+                if (listBuffer.length > 0) {
+                    displayBlocks.push({
+                        type: 'list',
+                        items: listBuffer,
+                    });
+                }
+                listBuffer = [];
+            };
+
+            for (const line of displayLines) {
+                if (line === '') {
+                    flushTextBuffer();
+                    flushListBuffer();
+                    continue;
+                }
+
+                if (/^(?:[\u2022\-*]\s+|#?\d+[.)]\s+)/u.test(line)) {
+                    flushTextBuffer();
+
+                    const cleanedLine = line.replace(/^(?:[\u2022\-*]\s*)?(?:#?\d+[.)]?\s*)?/u, '').trim();
+                    if (cleanedLine === '') {
+                        continue;
+                    }
+
+                    let title = cleanedLine;
+                    let details = '';
+                    if (cleanedLine.includes(': ')) {
+                        const segments = cleanedLine.split(': ', 2);
+                        title = (segments[0] ?? cleanedLine).trim();
+                        details = (segments[1] ?? '').trim();
+                    } else if (/\s+[—-]\s+/u.test(cleanedLine)) {
+                        const segments = cleanedLine.split(/\s+[—-]\s+/u, 2);
+                        title = (segments[0] ?? cleanedLine).trim();
+                        details = (segments[1] ?? '').trim();
+                    }
+
+                    listBuffer.push({
+                        title,
+                        details,
+                    });
+
+                    continue;
+                }
+
+                flushListBuffer();
+                textBuffer.push(line);
+            }
+
+            flushTextBuffer();
+            flushListBuffer();
+
+            if (displayBlocks.length === 0) {
+                return [{
+                    type: 'text',
+                    content: display,
+                }];
+            }
+
+            return displayBlocks;
+        },
+        getTypingDisplayBlocks() {
+            return this.parseDisplayBlocksFromText(this.typingState.visibleText);
+        },
         init() {
             this.detectRealtimeBroadcastAvailability();
             this.registerVisibilityPollingListener();
@@ -747,6 +837,82 @@
                                 }
                                 $isLatestAssistant = $latestAssistantMessageId !== null && $message->id === $latestAssistantMessageId;
                                 $chipsDismissed = (bool) ($dismissedNextOptionChipsByMessage[$message->id] ?? false);
+                                $displayBlocks = [];
+                                if ($display !== '') {
+                                    $normalizedDisplay = str_replace(["\r\n", "\r"], "\n", $display);
+                                    $normalizedDisplay = preg_replace('/\s+•\s+/u', "\n• ", $normalizedDisplay) ?? $normalizedDisplay;
+                                    $displayLines = array_map(static fn (string $line): string => trim($line), explode("\n", $normalizedDisplay));
+                                    $textBuffer = [];
+                                    $listBuffer = [];
+
+                                    $flushTextBuffer = static function () use (&$textBuffer, &$displayBlocks): void {
+                                        $paragraph = trim(implode("\n", $textBuffer));
+                                        if ($paragraph !== '') {
+                                            $displayBlocks[] = [
+                                                'type' => 'text',
+                                                'content' => $paragraph,
+                                            ];
+                                        }
+                                        $textBuffer = [];
+                                    };
+                                    $flushListBuffer = static function () use (&$listBuffer, &$displayBlocks): void {
+                                        if (count($listBuffer) > 0) {
+                                            $displayBlocks[] = [
+                                                'type' => 'list',
+                                                'items' => $listBuffer,
+                                            ];
+                                        }
+                                        $listBuffer = [];
+                                    };
+
+                                    foreach ($displayLines as $line) {
+                                        if ($line === '') {
+                                            $flushTextBuffer();
+                                            $flushListBuffer();
+                                            continue;
+                                        }
+
+                                        if (preg_match('/^(?:[\x{2022}\-\*]\s+|#?\d+[.)]\s+)/u', $line) === 1) {
+                                            $flushTextBuffer();
+
+                                            $cleanLine = preg_replace('/^(?:[\x{2022}\-\*]\s*)?(?:#?\d+[.)]?\s*)?/u', '', $line) ?? $line;
+                                            $cleanLine = trim($cleanLine);
+                                            if ($cleanLine === '') {
+                                                continue;
+                                            }
+
+                                            $title = $cleanLine;
+                                            $details = '';
+                                            if (str_contains($cleanLine, ': ')) {
+                                                [$title, $details] = explode(': ', $cleanLine, 2);
+                                            } elseif (preg_match('/\s+[—-]\s+/u', $cleanLine) === 1) {
+                                                $segments = preg_split('/\s+[—-]\s+/u', $cleanLine, 2);
+                                                $title = trim((string) ($segments[0] ?? $cleanLine));
+                                                $details = trim((string) ($segments[1] ?? ''));
+                                            }
+
+                                            $listBuffer[] = [
+                                                'title' => trim($title),
+                                                'details' => trim($details),
+                                            ];
+
+                                            continue;
+                                        }
+
+                                        $flushListBuffer();
+                                        $textBuffer[] = $line;
+                                    }
+
+                                    $flushTextBuffer();
+                                    $flushListBuffer();
+
+                                    if (count($displayBlocks) === 0) {
+                                        $displayBlocks[] = [
+                                            'type' => 'text',
+                                            'content' => $display,
+                                        ];
+                                    }
+                                }
                             @endphp
                             @if ($isStopped)
                                 <div class="min-w-0">
@@ -759,18 +925,55 @@
                                 </div>
                             @endif
                             @if ($display !== '')
-                                <flux:text
+                                <span class="sr-only" data-assistant-display-source="true">{{ $display }}</span>
+                                <div
                                     x-cloak
                                     x-show="!shouldHideSourceMessage({{ (int) $message->id }})"
-                                    data-assistant-display-source="true"
-                                    class="wrap-break-word whitespace-pre-wrap text-base text-black dark:text-black"
-                                >{{ $display }}</flux:text>
-                                <flux:text
+                                    class="space-y-2"
+                                >
+                                    @foreach ($displayBlocks as $block)
+                                        @if (($block['type'] ?? '') === 'list' && isset($block['items']) && is_array($block['items']) && count($block['items']) > 0)
+                                            <ol class="list-decimal space-y-2 pl-5 text-base text-black marker:font-semibold marker:text-zinc-700 dark:text-black dark:marker:text-zinc-300">
+                                                @foreach ($block['items'] as $item)
+                                                    <li class="leading-relaxed">
+                                                        <span class="font-semibold">{{ $item['title'] ?? '' }}</span>
+                                                        @if (($item['details'] ?? '') !== '')
+                                                            <span> — {{ $item['details'] }}</span>
+                                                        @endif
+                                                    </li>
+                                                @endforeach
+                                            </ol>
+                                        @elseif (($block['type'] ?? '') === 'text' && isset($block['content']))
+                                            <flux:text class="wrap-break-word whitespace-pre-wrap text-base text-black dark:text-black">{{ $block['content'] }}</flux:text>
+                                        @endif
+                                    @endforeach
+                                </div>
+                                <div
                                     x-cloak
                                     x-show="shouldRenderTypedMessage({{ (int) $message->id }})"
-                                    x-text="typingState.visibleText"
-                                    class="wrap-break-word whitespace-pre-wrap text-base text-black dark:text-black"
-                                ></flux:text>
+                                    class="space-y-2"
+                                >
+                                    <template x-for="(block, blockIndex) in getTypingDisplayBlocks()" :key="`typing-block-${blockIndex}`">
+                                        <div>
+                                            <ol
+                                                x-show="block.type === 'list' && Array.isArray(block.items) && block.items.length > 0"
+                                                class="list-decimal space-y-2 pl-5 text-base text-black marker:font-semibold marker:text-zinc-700 dark:text-black dark:marker:text-zinc-300"
+                                            >
+                                                <template x-for="(item, itemIndex) in (block.items ?? [])" :key="`typing-list-item-${blockIndex}-${itemIndex}`">
+                                                    <li class="leading-relaxed">
+                                                        <span class="font-semibold" x-text="item?.title ?? ''"></span>
+                                                        <span x-show="(item?.details ?? '').length > 0" x-text="` — ${item?.details ?? ''}`"></span>
+                                                    </li>
+                                                </template>
+                                            </ol>
+                                            <flux:text
+                                                x-show="block.type === 'text' && (block.content ?? '').length > 0"
+                                                x-text="block.content ?? ''"
+                                                class="wrap-break-word whitespace-pre-wrap text-base text-black dark:text-black"
+                                            ></flux:text>
+                                        </div>
+                                    </template>
+                                </div>
                             @endif
 
                             <div
