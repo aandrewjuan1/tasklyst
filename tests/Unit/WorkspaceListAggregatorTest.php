@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\TaskStatus;
 use App\Models\Event;
 use App\Models\Project;
 use App\Models\SchoolClass;
@@ -13,6 +14,7 @@ test('dedupes the same task when it appears in overdue and day collections', fun
         'title' => 'DupTask',
         'start_datetime' => now()->subDays(2)->startOfDay(),
         'end_datetime' => now()->subDay(),
+        'status' => TaskStatus::ToDo,
     ]);
 
     $overdue = collect([['kind' => 'task', 'item' => $task]]);
@@ -32,11 +34,13 @@ test('orders day items by start time ascending', function (): void {
         'title' => 'Later',
         'start_datetime' => now()->startOfDay()->addHours(14),
         'end_datetime' => null,
+        'status' => TaskStatus::ToDo,
     ]);
     $earlier = Task::factory()->for($user)->create([
         'title' => 'Earlier',
         'start_datetime' => now()->startOfDay()->addHours(9),
         'end_datetime' => null,
+        'status' => TaskStatus::ToDo,
     ]);
 
     $overdue = collect();
@@ -55,11 +59,13 @@ test('places overdue strip before day items', function (): void {
         'title' => 'OverdueOne',
         'start_datetime' => now()->subDays(5),
         'end_datetime' => now()->subDays(3),
+        'status' => TaskStatus::ToDo,
     ]);
     $dayTask = Task::factory()->for($user)->create([
         'title' => 'DayOne',
         'start_datetime' => now()->startOfDay()->addHour(),
         'end_datetime' => null,
+        'status' => TaskStatus::ToDo,
     ]);
 
     $overdue = collect([['kind' => 'task', 'item' => $overdueTask]]);
@@ -111,6 +117,7 @@ test('places school classes before tasks and tail-tier projects when list anchor
         'title' => 'MorningTask',
         'start_datetime' => \Carbon\Carbon::parse('2026-06-10 09:00:00'),
         'end_datetime' => null,
+        'status' => TaskStatus::ToDo,
     ]);
     $longProject = Project::factory()->for($user)->create([
         'name' => 'SpanningProject',
@@ -143,6 +150,7 @@ test('orders anchor-day projects with tasks by anchor-relevant time', function (
         'title' => 'NoonTask',
         'start_datetime' => \Carbon\Carbon::parse('2026-06-10 12:00:00'),
         'end_datetime' => null,
+        'status' => TaskStatus::ToDo,
     ]);
     $dueProject = Project::factory()->for($user)->create([
         'name' => 'EndsAnchorDay',
@@ -164,4 +172,85 @@ test('orders anchor-day projects with tasks by anchor-relevant time', function (
         'project' => $e['item']->name,
         default => '',
     })->all())->toBe(['NoonTask', 'EndsAnchorDay']);
+});
+
+test('pins Doing tasks before other day items sorted by time', function (): void {
+    $user = User::factory()->create();
+    $todoEarly = Task::factory()->for($user)->create([
+        'title' => 'TodoEarly',
+        'start_datetime' => now()->startOfDay()->addHours(8),
+        'end_datetime' => null,
+        'status' => TaskStatus::ToDo,
+    ]);
+    $doingLate = Task::factory()->for($user)->create([
+        'title' => 'DoingLate',
+        'start_datetime' => now()->startOfDay()->addHours(14),
+        'end_datetime' => null,
+        'status' => TaskStatus::Doing,
+    ]);
+
+    $result = WorkspaceListAggregator::mergeOrderAndDedupe(
+        collect(),
+        collect(),
+        collect(),
+        collect([$todoEarly, $doingLate]),
+        collect(),
+        now()->toDateString(),
+    );
+
+    expect($result->pluck('item.title')->all())->toBe(['DoingLate', 'TodoEarly']);
+});
+
+test('pins Doing tasks above overdue non-Doing items', function (): void {
+    $user = User::factory()->create();
+    $overdueTodo = Task::factory()->for($user)->create([
+        'title' => 'OverdueTodo',
+        'start_datetime' => now()->subDays(5),
+        'end_datetime' => now()->subDays(3),
+        'status' => TaskStatus::ToDo,
+    ]);
+    $doingToday = Task::factory()->for($user)->create([
+        'title' => 'DoingToday',
+        'start_datetime' => now()->startOfDay()->addHour(),
+        'end_datetime' => null,
+        'status' => TaskStatus::Doing,
+    ]);
+
+    $result = WorkspaceListAggregator::mergeOrderAndDedupe(
+        collect([['kind' => 'task', 'item' => $overdueTodo]]),
+        collect(),
+        collect(),
+        collect([$doingToday]),
+        collect(),
+        now()->toDateString(),
+    );
+
+    expect($result->pluck('item.title')->all())->toBe(['DoingToday', 'OverdueTodo']);
+});
+
+test('sorts overdue Doing before non-overdue Doing when both are pinned first', function (): void {
+    $user = User::factory()->create();
+    $doingOverdue = Task::factory()->for($user)->create([
+        'title' => 'DoingOverdue',
+        'start_datetime' => now()->subDays(5),
+        'end_datetime' => now()->subDays(1),
+        'status' => TaskStatus::Doing,
+    ]);
+    $doingToday = Task::factory()->for($user)->create([
+        'title' => 'DoingToday',
+        'start_datetime' => now()->startOfDay()->addHour(),
+        'end_datetime' => null,
+        'status' => TaskStatus::Doing,
+    ]);
+
+    $result = WorkspaceListAggregator::mergeOrderAndDedupe(
+        collect([['kind' => 'task', 'item' => $doingOverdue]]),
+        collect(),
+        collect(),
+        collect([$doingToday]),
+        collect(),
+        now()->toDateString(),
+    );
+
+    expect($result->pluck('item.title')->all())->toBe(['DoingOverdue', 'DoingToday']);
 });

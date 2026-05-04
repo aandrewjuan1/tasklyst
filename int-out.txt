@@ -1,0 +1,11 @@
+
+   FAIL  Tests\Feature\WorkspaceListIntegrationTest
+  Γ£ô recurring task with past parent end_datetime still appears on today workspace list                           3.24s  
+  Γ£ô workspace list dedupes overdue task that also matches selected date                                          2.85s  
+  Γ£ô workspace list view shows empty hint on item creation when there are no items for the selected day           1.84s  
+  Γ£ô workspace list aggregates all day tasks without planner section metadata                                     8.45s  
+  Γ£ô workspace list orders overdue tasks by urgency first                                                         2.81s  
+  Γ£ô workspace hides completed tasks by default and shows them when toggle is enabled                             3.39s  
+  Γ¿» workspace list shows scheduled focus panel when assistant accepted plan items exist                          1.43s  
+  ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ  
+   FAILED  Tests\Feature\WorkspaceListIntegrationTest > workspace list shows scheduled focus panel when assistant acΓÇª   

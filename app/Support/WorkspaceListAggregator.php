@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Enums\TaskStatus;
 use App\Models\Event;
 use App\Models\Project;
 use App\Models\SchoolClass;
@@ -11,7 +12,8 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 
 /**
- * Builds the unified workspace list: overdue strip first, then day items, deduped and ordered by calendar time.
+ * Builds the unified workspace list: tasks in Doing status first, then overdue strip, then remaining day items,
+ * deduped and ordered by calendar time within each segment.
  *
  * Day strip ordering: school classes first; tasks/events and projects that start or end on the list anchor day
  * follow by time; other projects (long-running / undated for that anchor) sort last.
@@ -89,7 +91,61 @@ final class WorkspaceListAggregator
             return self::compareDayEntries($a, $b, $listAnchorDate);
         });
 
-        return collect([...$overdueStrip, ...$dayStrip])->values();
+        $combined = [...$overdueStrip, ...$dayStrip];
+
+        $doingPinned = [];
+        $rest = [];
+        foreach ($combined as $entry) {
+            if (self::entryIsDoingTask($entry)) {
+                $doingPinned[] = $entry;
+            } else {
+                $rest[] = $entry;
+            }
+        }
+
+        usort($doingPinned, static function (array $a, array $b) use ($listAnchorDate): int {
+            return self::compareDoingPinnedEntries($a, $b, $listAnchorDate);
+        });
+
+        return collect([...$doingPinned, ...$rest])->values();
+    }
+
+    /**
+     * @param  array{kind: string, item: Model, isOverdue: bool}  $entry
+     */
+    private static function entryIsDoingTask(array $entry): bool
+    {
+        if (($entry['kind'] ?? '') !== 'task') {
+            return false;
+        }
+
+        $item = $entry['item'];
+        if (! $item instanceof Task) {
+            return false;
+        }
+
+        return $item->status === TaskStatus::Doing;
+    }
+
+    /**
+     * Relative order for Doing tasks when pinned to the top of the unified list (overdue Doing before non-overdue Doing).
+     *
+     * @param  array{kind: string, item: Model, isOverdue: bool}  $a
+     * @param  array{kind: string, item: Model, isOverdue: bool}  $b
+     */
+    private static function compareDoingPinnedEntries(array $a, array $b, ?string $listAnchorDate): int
+    {
+        $ra = $a['isOverdue'] ? 0 : 1;
+        $rb = $b['isOverdue'] ? 0 : 1;
+        if ($ra !== $rb) {
+            return $ra <=> $rb;
+        }
+
+        if ($a['isOverdue']) {
+            return self::compareOverdueEntries($a, $b);
+        }
+
+        return self::compareDayEntries($a, $b, $listAnchorDate);
     }
 
     private static function modelEndIsPast(Project|Event|Task|SchoolClass $model): bool

@@ -1,0 +1,15 @@
+
+   PASS  Tests\Unit\WorkspaceListAggregatorTest
+  Γ£ô dedupes the same task when it appears in overdue and day collections                                         1.96s  
+  Γ£ô orders day items by start time ascending                                                                     0.08s  
+  Γ£ô places overdue strip before day items                                                                        0.08s  
+  Γ£ô sorts projects and events in day strip by start or end datetime                                              0.11s  
+  Γ£ô places school classes before tasks and tail-tier projects when list anchor is set                            0.09s  
+  Γ£ô orders anchor-day projects with tasks by anchor-relevant time                                                0.07s  
+  Γ£ô pins Doing tasks before other day items sorted by time                                                       0.08s  
+  Γ£ô pins Doing tasks above overdue non-Doing items                                                               0.09s  
+  Γ£ô sorts overdue Doing before non-overdue Doing when both are pinned first                                      0.08s  
+
+  Tests:    9 passed (10 assertions)
+  Duration: 3.28s
+

@@ -698,7 +698,7 @@ class extends Component
     }
 
     /**
-     * Build the unified workspace list (overdue strip, then day items): deduped, calendar-ordered.
+     * Build the unified workspace list (Doing tasks first, then overdue strip, then day items): deduped, calendar-ordered.
      *
      * @return Collection<int, array{kind: string, item: mixed, isOverdue: bool}>
      */
