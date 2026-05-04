@@ -195,5 +195,5 @@ test('prioritize flow overwrites hybrid narrative garbage with deterministic tem
     $reasoningLower = mb_strtolower((string) ($prioritize['reasoning'] ?? ''));
     expect($reasoningLower)->toMatch('/task a|task b/');
     expect(mb_strtolower((string) ($prioritize['next_options'] ?? '')))->toContain('later today');
-    expect((string) ($prioritize['ranking_method_summary'] ?? ''))->toContain('due');
+    expect(mb_strtolower((string) ($prioritize['ranking_method_summary'] ?? '')))->toContain('deadlines');
 });

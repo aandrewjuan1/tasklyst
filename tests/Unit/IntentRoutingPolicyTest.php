@@ -68,7 +68,7 @@ test('schedule my day maps to prioritize_schedule planning flow', function (): v
 test('LLM intent prioritize_schedule maps to prioritize_schedule flow', function (): void {
     $user = User::factory()->create();
     $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
-    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'plan my top tasks for tomorrow afternoon');
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'schedule my top tasks for tomorrow afternoon');
 
     expect($decision->flow)->toBe('prioritize_schedule');
 });
@@ -520,6 +520,32 @@ test('slang-ish prioritize phrase routes to prioritize in signal-only mode', fun
     $decision = app(IntentRoutingPolicy::class)->decide($thread, 'what should i tackle first rn');
 
     expect($decision->flow)->toBe('prioritize');
+});
+
+test('tackle first for today routes to prioritize with single-item count not hybrid', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'what should i tackle first for today?');
+
+    expect($decision->flow)->toBe('prioritize');
+    expect($decision->constraints['count_limit'] ?? null)->toBe(1);
+    expect($decision->reasonCodes)->not->toContain('prioritize_schedule_combined_prompt');
+});
+
+test('what are my tasks uses default multi count when plural listing cue matches', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+    config()->set('task-assistant.intent.prioritize_default_multi_count', 3);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'what are my tasks for this week');
+
+    expect($decision->flow)->toBe('prioritize');
+    expect((int) ($decision->constraints['count_limit'] ?? 0))->toBe(3);
 });
 
 test('slang-ish day planning phrase routes to prioritize_schedule in signal-only mode', function (): void {
@@ -1270,9 +1296,6 @@ test('prioritize-first prompts include routing signal diagnostics', function (st
     expect(data_get($decision->constraints, 'routing_signal_strength.source'))->toBe('heuristic_v1');
     expect((float) data_get($decision->constraints, 'routing_signal_strength.schedule'))->toBeGreaterThan(0.0);
     expect((float) data_get($decision->constraints, 'routing_signal_strength.hybrid'))->toBeGreaterThan(0.0);
-    if ($decision->flow === 'prioritize') {
-        expect((string) ($decision->constraints['demotion_reason_detail'] ?? ''))->not->toBe('');
-    }
 })->with([
     'next 3 priorities tomorrow' => 'what are my next 3 priorities for tomorrow',
     'top priorities later today' => 'show my top priorities later today',

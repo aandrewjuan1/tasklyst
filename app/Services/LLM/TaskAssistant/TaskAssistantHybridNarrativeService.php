@@ -2038,7 +2038,18 @@ TXT;
 
         if (! is_string($framing) || trim($framing) === '') {
             if ($prioritizeNarrativeConnectionFailed && $cleanItems !== []) {
-                $framing = PrioritizeNarrativeConnectionFallback::framing($cleanItems, $userMessage);
+                $prioritizeTemplates = app(TaskAssistantPrioritizeTemplateService::class);
+                $templateSeed = [
+                    'thread_id' => $threadId,
+                    'source' => 'prioritize_narrative_connection_fallback',
+                ];
+                $framingLead = PrioritizeNarrativeConnectionFallback::framingLeadFromUserMessage($userMessage);
+                $framing = $framingLead ?? $prioritizeTemplates->buildFraming(
+                    $cleanItems,
+                    $doingCoachRequired,
+                    $ambiguous,
+                    $templateSeed
+                );
             } elseif (trim($deterministicSummary) !== '') {
                 $framing = trim($deterministicSummary);
             } else {
@@ -2047,20 +2058,55 @@ TXT;
         }
         $framing = $this->sanitizeFraming((string) $framing, $listedTaskCount, $userMessage.'|'.$threadId);
 
+        $prioritizeTemplatesForNext = $prioritizeNarrativeConnectionFailed
+            ? app(TaskAssistantPrioritizeTemplateService::class)
+            : null;
+
         if ($nextOptions === null || trim($nextOptions) === '') {
-            $nextOptions = __('If you want, I can schedule these steps for later.');
+            if ($prioritizeTemplatesForNext instanceof TaskAssistantPrioritizeTemplateService) {
+                $builtNext = $prioritizeTemplatesForNext->buildNextOptions(
+                    is_array($cleanItems) ? count($cleanItems) : 0,
+                    false,
+                    [
+                        'thread_id' => $threadId,
+                        'source' => 'prioritize_narrative_connection_fallback',
+                    ]
+                );
+                $nextOptions = $builtNext['next_options'];
+                $nextOptionsChipTexts = $builtNext['next_options_chip_texts'];
+            } else {
+                $nextOptions = __('If you want, I can schedule these steps for later.');
+            }
         }
 
         if (mb_strlen((string) $nextOptions) < 5) {
-            $nextOptions = __('If you want, I can schedule these steps for later.');
+            $nextOptions = $prioritizeTemplatesForNext instanceof TaskAssistantPrioritizeTemplateService
+                ? $prioritizeTemplatesForNext->buildNextOptions(
+                    is_array($cleanItems) ? count($cleanItems) : 0,
+                    false,
+                    ['thread_id' => $threadId, 'source' => 'prioritize_narrative_connection_fallback_short']
+                )['next_options']
+                : __('If you want, I can schedule these steps for later.');
         }
         $nextOptions = $this->sanitizeNextOptions((string) $nextOptions, is_array($cleanItems) ? count($cleanItems) : 0, $emptyRankedSlice);
 
         if ($nextOptionsChipTexts === []) {
-            $nextOptionsChipTexts = [
-                'Schedule these for later',
-                'Schedule these tasks for a specific time',
-            ];
+            if ($prioritizeTemplatesForNext instanceof TaskAssistantPrioritizeTemplateService) {
+                $chips = $prioritizeTemplatesForNext->buildNextOptions(
+                    is_array($cleanItems) ? count($cleanItems) : 0,
+                    false,
+                    ['thread_id' => $threadId, 'source' => 'prioritize_narrative_connection_fallback_chips']
+                )['next_options_chip_texts'];
+                $nextOptionsChipTexts = $chips !== [] ? $chips : [
+                    'Schedule these for later',
+                    'Schedule these tasks for a specific time',
+                ];
+            } else {
+                $nextOptionsChipTexts = [
+                    'Schedule these for later',
+                    'Schedule these tasks for a specific time',
+                ];
+            }
         }
 
         // Post-process enforcement: optional UX narrative fields should only be present
@@ -2141,7 +2187,11 @@ TXT;
         // Also enforce the due-time safety on reasoning so we don't end up with generic "due later" copy
         // after the model sees a concrete due date in items[].due_phrase/due_on.
         if ($reasoning !== null && trim((string) $reasoning) !== '' && $this->hasConflictingDueTiming((string) $reasoning, $allowedDuePhrases)) {
-            $reasoning = PrioritizeNarrativeConnectionFallback::reasoning($cleanItems);
+            $reasoning = app(TaskAssistantPrioritizeTemplateService::class)->buildReasoning(
+                $cleanItems,
+                $doingCoachRequired,
+                ['thread_id' => $threadId, 'source' => 'prioritize_narrative_due_time_safety'],
+            );
         }
         $framing = $this->rewriteFramingWhenDueSoonConflictsWithOverdue((string) $framing, $cleanItems);
         $framingConflict = $this->hasConflictingDueTiming((string) $framing, $allowedDuePhrases);
@@ -2211,7 +2261,11 @@ TXT;
         // Enforce required reasoning field (schema expects non-null).
         if ($reasoning === null || trim($reasoning) === '') {
             if ($prioritizeNarrativeConnectionFailed && $cleanItems !== []) {
-                $reasoning = PrioritizeNarrativeConnectionFallback::reasoning($cleanItems);
+                $reasoning = app(TaskAssistantPrioritizeTemplateService::class)->buildReasoning(
+                    $cleanItems,
+                    $doingCoachRequired,
+                    ['thread_id' => $threadId, 'source' => 'prioritize_narrative_connection_fallback'],
+                );
             } elseif ($cleanItems === [] && $hasDoingContext) {
                 $reasoning = TaskAssistantPrioritizeOutputDefaults::clampPrioritizeReasoning(
                     (string) __('When you wrap up what you\'ve started, the next priorities will show up more clearly here.')

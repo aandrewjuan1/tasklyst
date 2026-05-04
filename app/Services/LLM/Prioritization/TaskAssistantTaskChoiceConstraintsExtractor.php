@@ -74,6 +74,8 @@ final class TaskAssistantTaskChoiceConstraintsExtractor
 
         $entityTypePreference = $this->inferEntityTypePreference($userMessageContent);
 
+        $taskKeywords = $this->filterMetaImportanceTokens($taskKeywords, $content);
+
         return [
             'priority_filters' => $priorityFilters,
             'task_keywords' => $taskKeywords,
@@ -140,11 +142,52 @@ final class TaskAssistantTaskChoiceConstraintsExtractor
                 continue;
             }
             if (preg_match('/\b'.preg_quote($needle, '/').'\s+(tasks?|subjects?|items?|priorities)\b/u', $normalized) === 1) {
+                if ($needle === 'important' && $this->isGlobalImportanceTaskQuestion($normalized)) {
+                    continue;
+                }
+
                 return true;
             }
         }
 
         return false;
+    }
+
+    /**
+     * "What is the most important task …" is a global prioritization ask, not "filter to tasks
+     * whose title contains the word important".
+     */
+    private function isGlobalImportanceTaskQuestion(string $normalized): bool
+    {
+        return preg_match(
+            '/\b(what|which)\s+.{0,48}\b(most\s+)?important\s+(task|thing)\b/u',
+            $normalized
+        ) === 1;
+    }
+
+    /**
+     * @param  list<string>  $keywords
+     * @return list<string>
+     */
+    private function filterMetaImportanceTokens(array $keywords, string $originalMessage): array
+    {
+        $meta = ['most', 'important', 'importance'];
+        $normalized = mb_strtolower($originalMessage);
+        $isGlobalImportance = $this->isGlobalImportanceTaskQuestion($normalized);
+
+        $out = [];
+        foreach ($keywords as $keyword) {
+            $k = mb_strtolower(trim((string) $keyword));
+            if ($k === '') {
+                continue;
+            }
+            if ($isGlobalImportance && in_array($k, $meta, true)) {
+                continue;
+            }
+            $out[] = $keyword;
+        }
+
+        return array_values(array_unique($out));
     }
 
     /**
@@ -164,10 +207,12 @@ final class TaskAssistantTaskChoiceConstraintsExtractor
             'related', 'only', 'top', 'what', 'are', 'is', 'with', 'school', 'said', 'about',
             'subject', 'subjects',
             'should', 'first', 'do', 'need', 'help', 'please', 'could', 'would', 'can',
+            'have', 'has', 'had',
             'prioritize', 'schedule', 'later', 'today', 'tomorrow', 'week',
             'urgent', 'high', 'medium', 'low',
             'this', 'that', 'those', 'these', 'them', 'show', 'due', 'next', 'then', 'than',
             'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday',
+            'most', 'important', 'importance', 'thing', 'things', 'tackle',
         ];
 
         $filtered = [];

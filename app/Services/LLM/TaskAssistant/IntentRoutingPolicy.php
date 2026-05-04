@@ -607,11 +607,20 @@ final class IntentRoutingPolicy
         $scheduleScore = 0.0;
         $prioritizeScore = 0.0;
 
-        if (preg_match('/\b(schedule|time[\s-]?block|calendar|slot|reschedule|plan)\b/u', $normalized) === 1) {
+        if (preg_match('/\b(schedule|scheduling|time[\s-]?block|calendar|slot|reschedule)\b/u', $normalized) === 1) {
             $scheduleScore += 0.45;
         }
-        if (preg_match('/\b(today|tomorrow|this week|next week|later|morning|afternoon|evening|tonight)\b/u', $normalized) === 1) {
+        if (preg_match('/\b(plan|organize|line\s+up|map\s+out)\b.{0,28}\b(my|the)\s+(whole\s+)?(day|week)\b/u', $normalized) === 1) {
+            $scheduleScore += 0.30;
+        }
+        if (preg_match('/\b(block\s+out|block\s+time|time[\s-]?slot)\b/u', $normalized) === 1) {
             $scheduleScore += 0.25;
+        }
+        if (preg_match('/\b(when\s+(should|can|could|do)\s+i|what\s+time|where\s+(can|should)\s+i\s+(fit|put|squeeze))\b/u', $normalized) === 1) {
+            $scheduleScore += 0.22;
+        }
+        if (preg_match('/\b(fit|squeeze)\s+.{0,40}\bin\b/u', $normalized) === 1) {
+            $scheduleScore += 0.18;
         }
         if (preg_match('/\b(at\s+\d{1,2}(:\d{2})?\s*(am|pm)|\d{1,2}(:\d{2})?\s*(am|pm))\b/u', $normalized) === 1) {
             $scheduleScore += 0.20;
@@ -649,9 +658,8 @@ final class IntentRoutingPolicy
     private function hasHybridLikeIntentCue(string $normalized): bool
     {
         $hasPrioritizeCue = preg_match('/\b(top|first|next|priorit(?:y|ize)|important|urgent)\b/u', $normalized) === 1;
-        $hasSchedulingCue = preg_match('/\b(schedule|calendar|later|today|tomorrow|this week|time[\s-]?block)\b/u', $normalized) === 1;
 
-        return $hasPrioritizeCue && $hasSchedulingCue;
+        return $hasPrioritizeCue && TaskAssistantIntentHybridCue::hasExplicitSchedulingLanguage($normalized);
     }
 
     private function scheduleAwareLastListing(TaskAssistantThread $thread, string $normalizedContent = ''): ?array
@@ -1166,7 +1174,7 @@ final class IntentRoutingPolicy
     private function isLikelyScheduleRefinementEditPrompt(string $normalized): bool
     {
         $looksLikeFreshPrioritize = preg_match(
-            '/\b(top|priorit(?:y|ize)|what should i do|what are my top|rank|list)\b/u',
+            '/\b(top|priorit(?:y|ize)|what should i do|what should i tackle|what should i work on|what do i do first|where should i start|tackle\s+first|what are my top|rank|list)\b/u',
             $normalized
         ) === 1;
         if ($looksLikeFreshPrioritize) {
@@ -1184,10 +1192,15 @@ final class IntentRoutingPolicy
             $normalized
         ) === 1;
 
+        // Require a bridge other than bare "for" (avoids "tackle first for today" prioritization asks).
         $implicitEditPhrase = preg_match(
-            '/\b(first|second|third|last|\d+(?:st|nd|rd|th)|#\d+|item\s*#?\d+|task\s*#?\d+)\b.{0,40}\b(instead|please|at|for|to|on)\b.{0,60}\b(morning|afternoon|evening|night|today|tomorrow|tmrw|\d{1,2}(:\d{2})?\s*(am|pm)?)\b/u',
+            '/\b(first|second|third|last|\d+(?:st|nd|rd|th)|#\d+|item\s*#?\d+|task\s*#?\d+)\b.{0,40}\b(instead|please|at|to|on)\b.{0,60}\b(morning|afternoon|evening|night|today|tomorrow|tmrw|\d{1,2}(:\d{2})?\s*(am|pm)?)\b/u',
             $normalized
-        ) === 1;
+        ) === 1
+            || preg_match(
+                '/\b(first|second|third|last|\d+(?:st|nd|rd|th)|#\d+|item\s*#?\d+|task\s*#?\d+)\b.{0,40}\bfor\b.{0,60}\b(morning|afternoon|evening|night|tomorrow|tmrw|\d{1,2}(:\d{2})?\s*(am|pm)?)\b/u',
+                $normalized
+            ) === 1;
 
         $hasDoIndexedSchedulingPhrase = preg_match(
             '/\bdo\b.{0,16}\b(the\s+)?(first|second|third|last|\d+(?:st|nd|rd|th)|one)\b.{0,36}\b(later|today|tomorrow|morning|afternoon|evening|night|tonight)\b/u',

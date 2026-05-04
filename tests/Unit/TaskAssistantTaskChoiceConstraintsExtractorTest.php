@@ -2,6 +2,25 @@
 
 use App\Services\LLM\Prioritization\TaskAssistantTaskChoiceConstraintsExtractor;
 
+it('does not treat global most important task question as strict meta keyword filter', function (): void {
+    $extractor = app(TaskAssistantTaskChoiceConstraintsExtractor::class);
+
+    $context = $extractor->extract('what is the most important task that i should do first');
+
+    expect($context['strict_filtering'])->toBeFalse();
+    expect($context['task_keywords'])->not->toContain('important');
+    expect($context['task_keywords'])->not->toContain('most');
+});
+
+it('does not treat conversational have in tasks that i have as a title keyword', function (): void {
+    $extractor = app(TaskAssistantTaskChoiceConstraintsExtractor::class);
+
+    $context = $extractor->extract('what are the most urgent tasks that i have?');
+
+    expect($context['task_keywords'])->not->toContain('have');
+    expect($context['strict_filtering'])->toBeFalse();
+});
+
 it('extracts urgent + today + math keywords', function (): void {
     $extractor = app(TaskAssistantTaskChoiceConstraintsExtractor::class);
 

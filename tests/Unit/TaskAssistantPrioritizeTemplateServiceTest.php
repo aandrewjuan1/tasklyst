@@ -31,17 +31,8 @@ it('keeps template selection deterministic within the same day bucket', function
     expect($first)->toBe($second);
 });
 
-it('rotates template variants when day bucket changes', function (): void {
+it('uses a stable canonical ranking method summary across day buckets', function (): void {
     $service = app(TaskAssistantPrioritizeTemplateService::class);
-
-    $items = [[
-        'entity_type' => 'task',
-        'entity_id' => 11,
-        'title' => 'Time series dashboard',
-        'priority' => 'medium',
-        'due_phrase' => 'due tomorrow',
-        'complexity_label' => 'Moderate',
-    ]];
 
     $seedDayOne = [
         'thread_id' => 99,
@@ -65,8 +56,8 @@ it('rotates template variants when day bucket changes', function (): void {
     $dayOne = $service->buildRankingMethodSummary($seedDayOne);
     $dayTwo = $service->buildRankingMethodSummary($seedDayTwo);
 
-    expect($dayOne)->not->toBe('');
-    expect($dayTwo)->not->toBe('');
+    expect($dayOne)->toBe($dayTwo);
+    expect(mb_strtolower($dayOne))->toContain('deadlines');
 });
 
 it('builds single and multi next options with scheduling intent preserved', function (): void {
@@ -149,7 +140,7 @@ it('builds ranking method summary from prioritize payload seed', function (): vo
     ], 77);
 
     expect($summary)->not->toBe('');
-    expect(mb_strtolower($summary))->toContain('due');
+    expect(mb_strtolower($summary))->toContain('deadlines');
 });
 
 it('builds processor-style reasoning dedupe copy with title placeholder', function (): void {

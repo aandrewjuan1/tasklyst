@@ -1479,7 +1479,7 @@ final class TaskAssistantService
 
         // Preserve explicit fresh-prioritize asks even when a draft schedule exists.
         $looksLikeFreshPrioritize = preg_match(
-            '/\b(top|priorit(?:y|ize)|what should i do|what are my top|what is my (?:number\s*1|no\.?\s*1|#\s*1|top|first) task|what is my task.{0,40}need to do|rank|list|order|sort)\b/u',
+            '/\b(top|priorit(?:y|ize)|what should i do|what should i tackle|what should i work on|what do i do first|where should i start|tackle\s+first|what are my top|what is my (?:number\s*1|no\.?\s*1|#\s*1|top|first) task|what is my task.{0,40}need to do|rank|list|order|sort)\b/u',
             $normalized
         ) === 1;
         if ($looksLikeFreshPrioritize) {
@@ -1498,9 +1498,13 @@ final class TaskAssistantService
         ) === 1;
 
         $implicitEditPhrase = preg_match(
-            '/\b(first|second|third|last|\d+(?:st|nd|rd|th)|#\d+|item\s*#?\d+|task\s*#?\d+)\b.{0,40}\b(instead|please|at|for|to|on)\b.{0,60}\b(morning|afternoon|evening|night|today|tomorrow|tmrw|\d{1,2}(:\d{2})?\s*(am|pm)?)\b/u',
+            '/\b(first|second|third|last|\d+(?:st|nd|rd|th)|#\d+|item\s*#?\d+|task\s*#?\d+)\b.{0,40}\b(instead|please|at|to|on)\b.{0,60}\b(morning|afternoon|evening|night|today|tomorrow|tmrw|\d{1,2}(:\d{2})?\s*(am|pm)?)\b/u',
             $normalized
-        ) === 1;
+        ) === 1
+            || preg_match(
+                '/\b(first|second|third|last|\d+(?:st|nd|rd|th)|#\d+|item\s*#?\d+|task\s*#?\d+)\b.{0,40}\bfor\b.{0,60}\b(morning|afternoon|evening|night|tomorrow|tmrw|\d{1,2}(:\d{2})?\s*(am|pm)?)\b/u',
+                $normalized
+            ) === 1;
 
         $hasDoIndexedSchedulingPhrase = preg_match(
             '/\bdo\b.{0,16}\b(the\s+)?(first|second|third|last|\d+(?:st|nd|rd|th)|one)\b.{0,36}\b(later|today|tomorrow|morning|afternoon|evening|night|tonight)\b/u',
@@ -2808,7 +2812,7 @@ final class TaskAssistantService
             $exampleList[] = $defaultExamples[1];
         }
         $clarification = trim($clarification);
-        if ($singleCandidate) {
+        if ($singleCandidate && ! str_starts_with($clarification, 'No problem.')) {
             $resolvedTitle = $singleTitle !== '' ? $singleTitle : 'this item';
             $clarification = "I am editing {$resolvedTitle}. Confirm if you want to keep this slot, or tell me the new time/day.";
         }

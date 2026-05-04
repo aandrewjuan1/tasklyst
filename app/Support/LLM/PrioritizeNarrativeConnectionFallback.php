@@ -58,14 +58,14 @@ final class PrioritizeNarrativeConnectionFallback
         return trim($firstParagraph.$tail);
     }
 
-    private static function framingLeadFromUserMessage(string $userMessage): ?string
+    public static function framingLeadFromUserMessage(string $userMessage): ?string
     {
         $m = mb_strtolower(trim($userMessage));
         if ($m === '') {
             return null;
         }
 
-        if (preg_match('/\b(what should i do first|what to do first|where (do i|should i) start|what do i start (with)?)\b/u', $m) === 1) {
+        if (preg_match('/\b(what should i do first|what should i tackle first|what to do first|where (do i|should i) start|what do i start (with)?|tackle\s+first)\b/u', $m) === 1) {
             return (string) __('For what to do first, I’d start with the item below—it reflects what’s most time-sensitive in your tasks right now.');
         }
 

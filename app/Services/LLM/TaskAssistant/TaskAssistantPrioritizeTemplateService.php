@@ -146,14 +146,9 @@ final class TaskAssistantPrioritizeTemplateService
      */
     public function buildRankingMethodSummary(array $seedContext = []): string
     {
-        return $this->selectTemplate('ranking_method_summary', $seedContext, [
-            'I set this order using due timing first, then priority and effort, so the next move stays realistic.',
-            'I rank by due pressure first, then priority and effort, so the next step is high-impact but still doable.',
-            'I sort by urgency and deadlines, then use priority and effort as tie-breakers.',
-            'Deadlines lead the sort, then priority and effort keep the sequence honest and doable.',
-            'Due timing drives the top of the list, with priority and effort shaping the finer ordering.',
-            'I weight urgency and due dates first, then fold in priority and effort so the order feels fair.',
-        ]);
+        return TaskAssistantPrioritizeOutputDefaults::clampFraming(
+            (string) __('Deadlines come first in the ranking, then priority and effort keep the sequence honest and doable.')
+        );
     }
 
     /**
@@ -283,14 +278,7 @@ final class TaskAssistantPrioritizeTemplateService
                 'Start with one practical burst so the next step feels easier to carry.',
             ]);
 
-        $template = $this->selectTemplate('reasoning.primary', $seedContext, [
-            'I would start with "{title}" because it has {facts}. {coach_tail}',
-            'Start with "{title}" since it is {facts}. {coach_tail}',
-            'I put "{title}" first because it is {facts}. {coach_tail}',
-            'Lead with "{title}" because it lines up as {facts}. {coach_tail}',
-            'Anchor on "{title}" first since it reads as {facts}. {coach_tail}',
-            'Open with "{title}" because it is {facts}. {coach_tail}',
-        ]);
+        $template = 'Start with "{title}" since it is {facts}. {coach_tail}';
 
         return TaskAssistantPrioritizeOutputDefaults::clampPrioritizeReasoning(strtr($template, [
             '{title}' => $title,
@@ -389,14 +377,7 @@ final class TaskAssistantPrioritizeTemplateService
         }
 
         if ($itemsCount <= 1) {
-            $line = $this->selectTemplate('next.single', $seedContext, [
-                'If you want, I can schedule this top task for later today, tomorrow, or later this week.',
-                'If you want, I can place this top task later today, tomorrow, or later this week.',
-                'If you want, I can schedule this top task and slot it into later today, tomorrow, or later this week.',
-                'If it helps, I can block this top task for later today, tomorrow, or later this week.',
-                'Say the word and I can map this top task to later today, tomorrow, or later this week.',
-                'If you want, I can help you place this top task later today, tomorrow, or later this week.',
-            ]);
+            $line = (string) __('If you want, I can schedule this top task for later today, tomorrow, or later this week.');
 
             return [
                 'next_options' => TaskAssistantPrioritizeOutputDefaults::clampNextField($line),
@@ -407,23 +388,7 @@ final class TaskAssistantPrioritizeTemplateService
             ];
         }
 
-        $line = $hasMoreUnseen
-            ? $this->selectTemplate('next.multi.more', $seedContext, [
-                'If you want, I can schedule these ranked tasks for later today, tomorrow, or later this week.',
-                'If you want, I can place these ranked tasks later today, tomorrow, or later this week.',
-                'If you want, I can schedule these ranked tasks and slot them into later today, tomorrow, or later this week.',
-                'If it helps, I can map these ranked tasks to later today, tomorrow, or later this week.',
-                'Say the word and I can block these ranked tasks for later today, tomorrow, or later this week.',
-                'If you want, I can help you place these ranked tasks later today, tomorrow, or later this week.',
-            ])
-            : $this->selectTemplate('next.multi.complete', $seedContext, [
-                'This covers the key items for your request. If you want, I can schedule them for later today, tomorrow, or later this week.',
-                'This captures the key items for your request. If you want, I can schedule them for later today, tomorrow, or later this week.',
-                'This includes the key items for your request. If you want, I can schedule them for later today, tomorrow, or later this week.',
-                'That is the core set for your ask. If you want, I can place them later today, tomorrow, or later this week.',
-                'Those are the main items for this request. If you want, I can map them to later today, tomorrow, or later this week.',
-                'This rounds out the key slice. If you want, I can schedule them for later today, tomorrow, or later this week.',
-            ]);
+        $line = (string) __('If you want, I can schedule these ranked tasks for later today, tomorrow, or later this week.');
 
         return [
             'next_options' => TaskAssistantPrioritizeOutputDefaults::clampNextField($line),

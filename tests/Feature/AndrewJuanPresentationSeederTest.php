@@ -53,7 +53,7 @@ it('seeds deterministic presentation data for andrew and is idempotent', functio
     expect($demoProjects)->toHaveCount(5)
         ->and($demoEvents)->toHaveCount(10)
         ->and($demoClasses)->toHaveCount(5)
-        ->and($demoTasks)->toHaveCount(32);
+        ->and($demoTasks)->toHaveCount(31);
 
     expect(
         RecurringSchoolClass::query()
@@ -108,7 +108,14 @@ it('seeds deterministic presentation data for andrew and is idempotent', functio
 
     $recurringBacked = $demoTasks->filter(fn (Task $task): bool => $task->recurringTask !== null);
 
-    expect($recurringBacked->count())->toBeGreaterThanOrEqual(3);
+    expect($recurringBacked->count())->toBeGreaterThanOrEqual(2);
+
+    $dueOnPresentationAnchorDay = $demoTasks->filter(function (Task $task): bool {
+        return $task->end_datetime !== null
+            && $task->end_datetime->isSameDay(Carbon::parse('2026-05-05', 'Asia/Manila'));
+    });
+
+    expect($dueOnPresentationAnchorDay)->toHaveCount(2);
 
     expect(Tag::query()->where('user_id', $andrew->id)->count())->toBeGreaterThanOrEqual(5);
 

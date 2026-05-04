@@ -53,6 +53,27 @@ final class TaskAssistantIntentHybridCue
     }
 
     /**
+     * Calendar / time-blocking language strong enough to pair with prioritization for hybrid routing.
+     * Excludes bare temporal words (e.g. "today") or standalone "plan" without "my day" / "the week".
+     */
+    public static function hasExplicitSchedulingLanguage(string $normalized): bool
+    {
+        if ($normalized === '') {
+            return false;
+        }
+
+        return preg_match('/\b(schedule|scheduling|calendar|reschedule)\b/u', $normalized) === 1
+            || preg_match('/\b(time[\s-]?slot|block\s+out|block\s+time|slot\s+in)\b/u', $normalized) === 1
+            || preg_match('/\b(when\s+(should|can|could|do)\s+i|what\s+time|where\s+(can|should)\s+i\s+(fit|put|squeeze))\b/u', $normalized) === 1
+            || preg_match('/\b(fit|squeeze)\s+.{0,40}\bin\b/u', $normalized) === 1
+            || preg_match('/\b(put|place|set)\s+.{0,24}\bon\s+(my|the)\s+calendar\b/u', $normalized) === 1
+            || preg_match('/\bperfect\s+time\b/u', $normalized) === 1
+            || preg_match('/\b(at\s+\d{1,2})(?::\d{2})?\s*(am|pm)\b/iu', $normalized) === 1
+            || preg_match('/\b\d{1,2}(?::\d{2})?\s*(am|pm)\b/iu', $normalized) === 1
+            || preg_match('/\b(plan|organize|line\s+up|map\s+out)\b.{0,28}\b(my|the)\s+(whole\s+)?(day|week)\b/u', $normalized) === 1;
+    }
+
+    /**
      * True when the message looks like "prioritize/rank top items" plus a scheduling/time cue.
      * Does not check refinement-draft context; callers must exclude refinement edits separately.
      */
@@ -82,19 +103,7 @@ final class TaskAssistantIntentHybridCue
             return false;
         }
 
-        $hasSchedulingCue =
-            preg_match('/\b(schedule|scheduling|calendar)\b/u', $normalized) === 1
-            || preg_match('/\bplan\b/u', $normalized) === 1
-            || preg_match('/\b(tomorrow|today|tonight|later|onward(s)?|morning|afternoon|evening|night)\b/u', $normalized) === 1
-            || preg_match('/\b(when\s+(should|can|could|do)\s+i|what\s+time|where\s+(can|should)\s+i\s+(fit|put|squeeze))\b/u', $normalized) === 1
-            || preg_match('/\b(time\s+slot|block\s+out|block\s+time)\b/u', $normalized) === 1
-            || preg_match('/\b(fit|squeeze)\s+.{0,40}\bin\b/u', $normalized) === 1
-            || preg_match('/\bperfect\s+time\b/u', $normalized) === 1
-            || preg_match('/\b(at\s+\d{1,2})(?::\d{2})?\s*(am|pm)\b/iu', $normalized) === 1
-            || preg_match('/\b(plan|organize|line up)\b.{0,24}\b(my|the)\s+day\b/u', $normalized) === 1
-            || preg_match('/\b(later\s+today|this\s+evening|tomorrow\s+morning)\b/u', $normalized) === 1;
-
-        return $hasSchedulingCue;
+        return self::hasExplicitSchedulingLanguage($normalized);
     }
 
     /**
