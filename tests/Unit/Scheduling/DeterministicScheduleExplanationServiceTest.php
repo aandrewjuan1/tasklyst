@@ -357,3 +357,48 @@ it('can rotate coaching phrasing across turn seeds for same prioritize_schedule 
     expect($reasoningA)->not->toBe('');
     expect($reasoningB)->not->toBe('');
 });
+
+it('renders requested window label in strict prioritize_schedule framing', function (): void {
+    $service = app(DeterministicScheduleExplanationService::class);
+
+    $out = $service->composeNormal([
+        'flow_source' => 'prioritize_schedule',
+        'schedule_scope' => 'tasks_only',
+        'requested_window_label' => 'tomorrow morning',
+        'requested_count' => 1,
+        'placed_count' => 1,
+        'unplaced_count' => 0,
+        'trigger_list' => ['strict_window_no_fit'],
+        'strict_window_requested' => true,
+        'explicit_requested_window' => true,
+        'requested_window_honored' => false,
+        'blocking_reasons' => [],
+        'chosen_time_label' => '8:00 AM',
+    ]);
+
+    expect(data_get($out, 'explanation_meta.scenario_key'))->toBe('STRICT_WINDOW_NO_FIT');
+    expect((string) ($out['framing'] ?? ''))->toContain('tomorrow morning');
+    expect((string) ($out['framing'] ?? ''))->not->toContain('{requested_window_label}');
+});
+
+it('does not force strict-window narrative for only prompts without explicit window', function (): void {
+    $service = app(DeterministicScheduleExplanationService::class);
+
+    $out = $service->composeNormal([
+        'flow_source' => 'prioritize_schedule',
+        'schedule_scope' => 'tasks_only',
+        'requested_window_label' => "this week's window",
+        'requested_count' => 1,
+        'placed_count' => 1,
+        'unplaced_count' => 0,
+        'trigger_list' => [],
+        'strict_window_requested' => true,
+        'explicit_requested_window' => false,
+        'requested_window_honored' => false,
+        'blocking_reasons' => [],
+        'chosen_time_label' => '8:00 AM',
+    ]);
+
+    expect(data_get($out, 'explanation_meta.scenario_key'))->toBe('FLOW_PRIORITIZE_SCHEDULE_TASKS_ONLY');
+    expect((string) ($out['framing'] ?? ''))->not->toContain('strict window could not fully fit');
+});

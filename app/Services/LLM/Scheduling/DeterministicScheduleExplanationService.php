@@ -291,7 +291,7 @@ final class DeterministicScheduleExplanationService
         string $scheduleScope,
         bool $hasBlockerTitles,
     ): string {
-        if (in_array('strict_window_no_fit', $triggerList, true) || $strictWindowRequested) {
+        if (in_array('strict_window_no_fit', $triggerList, true) || ($strictWindowRequested && $explicitRequestedWindow)) {
             return 'STRICT_WINDOW_NO_FIT';
         }
         if ($autoRollToTomorrow) {
@@ -342,7 +342,7 @@ final class DeterministicScheduleExplanationService
         string $targetedEntityTitle,
         array $seedContext,
     ): string {
-        if ($scenarioKey === 'FLOW_PRIORITIZE_SCHEDULE_TASKS_ONLY' || ($flowSource === 'prioritize_schedule' && $scheduleScope === 'tasks_only')) {
+        if ($scenarioKey === 'FLOW_PRIORITIZE_SCHEDULE_TASKS_ONLY') {
             return $this->scheduleTemplateService->buildFraming($scenarioKey, $seedContext);
         }
         if ($isTargetedSchedule) {
