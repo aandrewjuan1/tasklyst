@@ -165,7 +165,7 @@
                         ])
                     >
                         <img src="{{ asset('images/brightspace-icon.png') }}" alt="" class="size-3.5 shrink-0 object-contain" />
-                        {{ __('Brigthspace only') }}
+                        {{ __('Brightspace only') }}
                     </button>
                     <button
                         type="button"
