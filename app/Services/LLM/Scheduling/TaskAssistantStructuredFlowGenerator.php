@@ -1545,19 +1545,14 @@ final class TaskAssistantStructuredFlowGenerator
         if (! empty($context['task_keywords'])) {
             $filtered = collect($contextualSnapshot['tasks'] ?? [])
                 ->filter(function (array $task) use ($context): bool {
-                    $title = strtolower($task['title'] ?? '');
-                    foreach ($context['task_keywords'] as $keyword) {
-                        if ($keyword !== null && str_contains($title, strtolower((string) $keyword))) {
-                            return true;
-                        }
-                    }
-
-                    return false;
+                    return $this->taskMatchesAnyKeyword($task, $context['task_keywords']);
                 })
                 ->values()
                 ->all();
             if ($filtered !== []) {
                 $contextualSnapshot['tasks'] = $filtered;
+            } elseif (($context['strict_filtering'] ?? false) === true) {
+                $contextualSnapshot['tasks'] = [];
             }
         }
 
@@ -1615,6 +1610,50 @@ final class TaskAssistantStructuredFlowGenerator
         }
 
         return $contextualSnapshot;
+    }
+
+    /**
+     * @param  list<string>  $keywords
+     */
+    private function taskMatchesAnyKeyword(array $task, array $keywords): bool
+    {
+        $title = strtolower((string) ($task['title'] ?? ''));
+        $description = strtolower((string) ($task['description'] ?? ''));
+        $subjectName = strtolower((string) ($task['subject_name'] ?? ''));
+        $className = strtolower((string) ($task['school_class_subject_name'] ?? ''));
+        $teacherName = strtolower((string) ($task['teacher_name'] ?? ''));
+        $sourceType = strtolower((string) ($task['source_type'] ?? ''));
+        $tags = is_array($task['tags'] ?? null) ? $task['tags'] : [];
+        $tagsLower = array_map(
+            static fn (mixed $tag): string => strtolower((string) $tag),
+            $tags
+        );
+
+        foreach ($keywords as $keyword) {
+            $needle = strtolower(trim((string) $keyword));
+            if ($needle === '') {
+                continue;
+            }
+
+            if (
+                str_contains($title, $needle)
+                || str_contains($description, $needle)
+                || str_contains($subjectName, $needle)
+                || str_contains($className, $needle)
+                || str_contains($teacherName, $needle)
+                || str_contains($sourceType, $needle)
+            ) {
+                return true;
+            }
+
+            foreach ($tagsLower as $tag) {
+                if ($tag !== '' && str_contains($tag, $needle)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     /**

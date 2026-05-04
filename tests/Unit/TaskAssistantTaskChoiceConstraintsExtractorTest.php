@@ -143,3 +143,21 @@ it('does not force school domain for thesis-only filter wording', function (): v
     expect($context['domain_focus'])->toBeNull();
     expect($context['strict_filtering'])->toBeTrue();
 });
+
+it('extracts elective keyword from subjects-only phrasing', function (): void {
+    $extractor = app(TaskAssistantTaskChoiceConstraintsExtractor::class);
+
+    $context = $extractor->extract('what should i do first in my elective subjects only');
+
+    expect($context['task_keywords'])->toContain('elective');
+    expect($context['strict_filtering'])->toBeTrue();
+});
+
+it('extracts non-allowlisted filter keywords from task phrasing', function (): void {
+    $extractor = app(TaskAssistantTaskChoiceConstraintsExtractor::class);
+
+    $context = $extractor->extract('what should i do first in my quantum tasks only');
+
+    expect($context['task_keywords'])->toContain('quantum');
+    expect($context['strict_filtering'])->toBeTrue();
+});

@@ -73,6 +73,112 @@ it('applies priority filters within target_entities task slice', function (): vo
     expect($ids)->toBe([2, 3]);
 });
 
+it('applies task keyword filtering across metadata fields in scheduling snapshot context', function (): void {
+    $generator = app(TaskAssistantStructuredFlowGenerator::class);
+    $method = new ReflectionMethod(TaskAssistantStructuredFlowGenerator::class, 'applyContextToSnapshot');
+    $method->setAccessible(true);
+
+    $snapshot = [
+        'timezone' => 'UTC',
+        'today' => '2026-03-29',
+        'tasks' => [
+            [
+                'id' => 1,
+                'title' => 'Generic title',
+                'description' => 'Review elective reading pack',
+                'subject_name' => null,
+                'school_class_subject_name' => null,
+                'teacher_name' => null,
+                'source_type' => null,
+                'tags' => [],
+                'priority' => 'medium',
+            ],
+            [
+                'id' => 2,
+                'title' => 'Another item',
+                'description' => null,
+                'subject_name' => null,
+                'school_class_subject_name' => null,
+                'teacher_name' => null,
+                'source_type' => null,
+                'tags' => ['household'],
+                'priority' => 'medium',
+            ],
+        ],
+        'events' => [],
+        'projects' => [],
+    ];
+
+    $context = [
+        'intent_type' => 'general',
+        'priority_filters' => [],
+        'task_keywords' => ['elective'],
+        'strict_filtering' => false,
+        'time_constraint' => 'none',
+        'comparison_focus' => null,
+        'recurring_requested' => false,
+        'schedule_horizon' => [
+            'mode' => 'single_day',
+            'start_date' => '2026-03-29',
+            'end_date' => '2026-03-29',
+            'label' => 'default_today',
+        ],
+    ];
+
+    /** @var array<string, mixed> $out */
+    $out = $method->invoke($generator, $snapshot, $context, []);
+
+    $ids = array_map(fn (array $t): int => (int) ($t['id'] ?? 0), $out['tasks'] ?? []);
+    expect($ids)->toBe([1]);
+});
+
+it('respects strict keyword filtering in scheduling snapshot context', function (): void {
+    $generator = app(TaskAssistantStructuredFlowGenerator::class);
+    $method = new ReflectionMethod(TaskAssistantStructuredFlowGenerator::class, 'applyContextToSnapshot');
+    $method->setAccessible(true);
+
+    $snapshot = [
+        'timezone' => 'UTC',
+        'today' => '2026-03-29',
+        'tasks' => [
+            [
+                'id' => 1,
+                'title' => 'Physics notes',
+                'description' => null,
+                'subject_name' => 'Physics',
+                'school_class_subject_name' => null,
+                'teacher_name' => null,
+                'source_type' => null,
+                'tags' => [],
+                'priority' => 'medium',
+            ],
+        ],
+        'events' => [],
+        'projects' => [],
+    ];
+
+    $context = [
+        'intent_type' => 'general',
+        'priority_filters' => [],
+        'task_keywords' => ['elective'],
+        'strict_filtering' => true,
+        'time_constraint' => 'none',
+        'comparison_focus' => null,
+        'recurring_requested' => false,
+        'schedule_horizon' => [
+            'mode' => 'single_day',
+            'start_date' => '2026-03-29',
+            'end_date' => '2026-03-29',
+            'label' => 'default_today',
+        ],
+    ];
+
+    /** @var array<string, mixed> $out */
+    $out = $method->invoke($generator, $snapshot, $context, []);
+
+    expect($out['tasks'] ?? [])->toBe([]);
+});
+
 it('preserves full events list in events_for_busy when targets are task-only', function (): void {
     $generator = app(TaskAssistantStructuredFlowGenerator::class);
     $method = new ReflectionMethod(TaskAssistantStructuredFlowGenerator::class, 'applyContextToSnapshot');

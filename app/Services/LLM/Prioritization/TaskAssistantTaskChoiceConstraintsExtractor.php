@@ -53,60 +53,12 @@ final class TaskAssistantTaskChoiceConstraintsExtractor
             $domainFocus = 'school';
         }
 
-        $subjectAllowList = [
-            'coding',
-            'code',
-            'programming',
-            'math',
-            'mathematics',
-            'science',
-            'biology',
-            'chemistry',
-            'physics',
-            'study',
-            'studying',
-            'revision',
-            'revise',
-            'reading',
-            'review',
-            'writing',
-            'essay',
-            'thesis',
-            'capstone',
-            'report',
-            'slides',
-            'lab',
-            'lesson',
-            'module',
-            'syllabus',
-            'interview',
-            'homework',
-            'assignment',
-            'assignments',
-            'schoolwork',
-            'school',
-            'coursework',
-            'classwork',
-            'chores',
-            'housework',
-            'cleaning',
-            'laundry',
-            'dishes',
-            'trash',
-            'vacuum',
-        ];
-
         $taskKeywords = [];
-        foreach ($subjectAllowList as $keyword) {
+
+        foreach ($this->extractDynamicTaskKeywords($userMessageContent) as $keyword) {
             if ($keyword === 'school' && $domainFocus === 'school') {
                 continue;
             }
-            if (preg_match('/\b'.preg_quote($keyword, '/').'\b/i', $content) === 1) {
-                $taskKeywords[] = $keyword;
-            }
-        }
-
-        foreach ($this->extractDynamicTaskKeywords($userMessageContent) as $keyword) {
             if (! in_array($keyword, $taskKeywords, true)) {
                 $taskKeywords[] = $keyword;
             }
@@ -141,17 +93,29 @@ final class TaskAssistantTaskChoiceConstraintsExtractor
     {
         $keywords = [];
 
-        if (preg_match('/\brelated\s+to\s+([a-z0-9][a-z0-9\s\-_]{1,40})\b/iu', $message, $matches) === 1) {
-            $keywords = array_merge($keywords, $this->normalizeKeywordPhrase((string) ($matches[1] ?? '')));
+        $patternCaptures = [
+            '/\brelated\s+to\s+([a-z0-9][a-z0-9\s\-_]{1,60})\b/iu',
+            '/\b([a-z0-9][a-z0-9\s\-_]{1,60})\s+related\b/iu',
+            '/\b(?:about|for)\s+([a-z0-9][a-z0-9\s\-_]{1,60})\s+(?:tasks?|items?|priorities|subjects?)\b/iu',
+            '/\b(?:in\s+)?my\s+([a-z0-9][a-z0-9\s\-_]{1,60})\s+(?:tasks?|items?|priorities|subjects?)\b/iu',
+            '/\b([a-z0-9][a-z0-9\s\-_]{1,40})\s+subject\b/iu',
+            '/\b([a-z0-9][a-z0-9\s\-_]{1,30})\s+subjects\b/iu',
+            '/\b([a-z0-9][a-z0-9\s\-_]{1,40})\s+tasks?\b/iu',
+        ];
+        foreach ($patternCaptures as $pattern) {
+            if (preg_match($pattern, $message, $matches) === 1) {
+                $keywords = array_merge($keywords, $this->normalizeKeywordPhrase((string) ($matches[1] ?? '')));
+            }
         }
 
-        if (preg_match('/\b([a-z0-9][a-z0-9\s\-_]{1,40})\s+related\b/iu', $message, $matches) === 1) {
+        if (preg_match('/\bbetween\s+([a-z0-9][a-z0-9\s\-_]{1,30})\s+and\s+([a-z0-9][a-z0-9\s\-_]{1,30})\b/iu', $message, $matches) === 1) {
             $keywords = array_merge($keywords, $this->normalizeKeywordPhrase((string) ($matches[1] ?? '')));
+            $keywords = array_merge($keywords, $this->normalizeKeywordPhrase((string) ($matches[2] ?? '')));
         }
 
-        if (preg_match('/\b(?:about|for)\s+([a-z0-9][a-z0-9\s\-_]{1,40})\s+(?:tasks?|items?|priorities)\b/iu', $message, $matches) === 1) {
-            $keywords = array_merge($keywords, $this->normalizeKeywordPhrase((string) ($matches[1] ?? '')));
-        }
+        // Fallback: keep extraction dynamic for unseen subjects/filter labels
+        // while relying on stopwords to drop instruction words.
+        $keywords = array_merge($keywords, $this->normalizeKeywordPhrase($message));
 
         return array_values(array_unique($keywords));
     }
@@ -175,10 +139,7 @@ final class TaskAssistantTaskChoiceConstraintsExtractor
             if ($needle === '') {
                 continue;
             }
-            if (preg_match('/\b'.preg_quote($needle, '/').'\s+tasks?\b/u', $normalized) === 1) {
-                return true;
-            }
-            if (preg_match('/\btasks?\s+.*\b'.preg_quote($needle, '/').'\b/u', $normalized) === 1) {
+            if (preg_match('/\b'.preg_quote($needle, '/').'\s+(tasks?|subjects?|items?|priorities)\b/u', $normalized) === 1) {
                 return true;
             }
         }
@@ -201,10 +162,20 @@ final class TaskAssistantTaskChoiceConstraintsExtractor
             'my', 'me', 'the', 'a', 'an', 'and', 'or', 'to', 'for', 'on', 'in', 'of',
             'task', 'tasks', 'item', 'items', 'priority', 'priorities',
             'related', 'only', 'top', 'what', 'are', 'is', 'with', 'school', 'said', 'about',
+            'subject', 'subjects',
+            'should', 'first', 'do', 'need', 'help', 'please', 'could', 'would', 'can',
+            'prioritize', 'schedule', 'later', 'today', 'tomorrow', 'week',
+            'urgent', 'high', 'medium', 'low',
+            'this', 'that', 'those', 'these', 'them', 'show', 'due', 'next', 'then', 'than',
+            'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday',
         ];
 
         $filtered = [];
         foreach ($tokens as $token) {
+            $token = preg_replace('/^[^a-z0-9]+|[^a-z0-9]+$/u', '', $token) ?? '';
+            if ($token === '') {
+                continue;
+            }
             if (mb_strlen($token) < 3) {
                 continue;
             }
