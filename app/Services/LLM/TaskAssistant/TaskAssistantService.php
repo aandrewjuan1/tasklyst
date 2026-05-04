@@ -575,6 +575,9 @@ final class TaskAssistantService
             'tasks_count' => is_array($snapshot['tasks'] ?? null) ? count($snapshot['tasks']) : 0,
             'events_count' => is_array($snapshot['events'] ?? null) ? count($snapshot['events']) : 0,
             'projects_count' => is_array($snapshot['projects'] ?? null) ? count($snapshot['projects']) : 0,
+            'domain_focus' => $context['domain_focus'] ?? null,
+            'strict_filtering' => (bool) ($context['strict_filtering'] ?? false),
+            'task_keywords' => is_array($context['task_keywords'] ?? null) ? array_values($context['task_keywords']) : [],
             'entity_type_preference' => $context['entity_type_preference'] ?? null,
         ]);
         Log::debug('task-assistant.prioritize.ranked_top', [
@@ -1397,7 +1400,11 @@ final class TaskAssistantService
             return $plan;
         }
 
-        if ($plan->flow === 'schedule' && $plan->targetEntities !== []) {
+        if (
+            $plan->flow === 'schedule'
+            && $plan->targetEntities !== []
+            && ! in_array('schedule_refinement_context_shortcircuit', $plan->reasonCodes, true)
+        ) {
             return $plan;
         }
 
@@ -1505,6 +1512,18 @@ final class TaskAssistantService
 
     private function findLatestScheduleDraftSourceMessage(TaskAssistantThread $thread, int $excludeAssistantMessageId): ?TaskAssistantMessage
     {
+        $preferredSourceMessageId = $this->conversationState->lastScheduleSourceAssistantMessageId($thread);
+        if ($preferredSourceMessageId !== null && $preferredSourceMessageId !== $excludeAssistantMessageId) {
+            $preferredSource = TaskAssistantMessage::query()
+                ->where('thread_id', $thread->id)
+                ->where('id', $preferredSourceMessageId)
+                ->where('role', MessageRole::Assistant)
+                ->first();
+            if ($preferredSource instanceof TaskAssistantMessage && $this->assistantMessageHasAnyScheduleProposals($preferredSource)) {
+                return $preferredSource;
+            }
+        }
+
         return $thread->messages()
             ->where('role', MessageRole::Assistant)
             ->where('id', '!=', $excludeAssistantMessageId)
@@ -1531,6 +1550,20 @@ final class TaskAssistantService
 
                 return $proposals !== [];
             });
+    }
+
+    private function assistantMessageHasAnyScheduleProposals(TaskAssistantMessage $message): bool
+    {
+        $normalized = $this->scheduleDraftMetadataNormalizer->normalizeAndValidate(
+            is_array($message->metadata ?? null) ? $message->metadata : []
+        );
+        if (! ($normalized['valid'] ?? false)) {
+            return false;
+        }
+
+        $proposals = is_array($normalized['proposals'] ?? null) ? $normalized['proposals'] : [];
+
+        return $proposals !== [];
     }
 
     private function assistantMessageHasPendingSchedulableProposals(TaskAssistantMessage $message): bool
@@ -3843,10 +3876,48 @@ final class TaskAssistantService
         $replanDetected = $this->isLikelyScheduleReplanRequest($userMessageContent, $pendingState);
         $freshPrioritizeDetected = $this->isLikelyFreshPrioritizeRequest($userMessageContent);
         if ($windowChangeDetected || $replanDetected || $freshPrioritizeDetected) {
-            // Treat natural "change/adjust the window" replies as a fresh scheduling
-            // request instead of trapping the user in confirm/decline only handling.
-            // Also release when the user clearly pivots to a fresh prioritize ask.
-            // We clear pending state and let normal routing handle this message.
+            if ($freshPrioritizeDetected) {
+                $this->conversationState->clearPendingScheduleFallback($thread);
+
+                Log::info('task-assistant.schedule.pending_released_for_replan', [
+                    'layer' => 'schedule_confirmation',
+                    'run_id' => app()->bound('task_assistant.run_id') ? app('task_assistant.run_id') : null,
+                    'thread_id' => $thread->id,
+                    'assistant_message_id' => $assistantMessage->id,
+                    'message_preview' => $this->previewForLogs($userMessageContent),
+                    'pending_fallback_replan_detected' => $replanDetected,
+                    'pending_fallback_window_change_detected' => $windowChangeDetected,
+                    'pending_fallback_fresh_prioritize_detected' => true,
+                    'pending_fallback_release_reason' => 'fresh_prioritize_request',
+                ]);
+
+                return false;
+            }
+
+            $pendingContext = is_array($pendingData['confirmation_context'] ?? null) ? $pendingData['confirmation_context'] : [];
+            $requestedCount = max(
+                1,
+                (int) ($pendingContext['requested_count'] ?? data_get($pendingData, 'placement_digest.requested_count', 1))
+            );
+            $targets = $this->targetEntitiesFromScheduleProposals($pendingProposals);
+            $constraints = $this->routingPolicy->extractConstraintsForFlow($thread, $userMessageContent, TaskAssistantFlowNames::SCHEDULE);
+            $constraints['count_limit'] = $requestedCount;
+            $constraints['target_entities'] = $targets;
+            $constraints['count_limit_explicitly_requested'] = true;
+            if (! is_string($constraints['time_window_hint'] ?? null) || trim((string) $constraints['time_window_hint']) === '') {
+                $pendingHint = is_string($pendingState['time_window_hint'] ?? null)
+                    ? trim((string) $pendingState['time_window_hint'])
+                    : '';
+                if ($pendingHint !== '') {
+                    $constraints['time_window_hint'] = $pendingHint;
+                }
+            }
+            $dateOverride = $this->inferPendingFallbackDateOverride($pendingState, $userMessageContent, $thread->user->timezone);
+            if ($dateOverride !== null) {
+                $constraints['refinement_explicit_day_override'] = $dateOverride;
+                $constraints['refinement_anchor_date'] = $dateOverride;
+            }
+
             $this->conversationState->clearPendingScheduleFallback($thread);
 
             Log::info('task-assistant.schedule.pending_released_for_replan', [
@@ -3857,13 +3928,28 @@ final class TaskAssistantService
                 'message_preview' => $this->previewForLogs($userMessageContent),
                 'pending_fallback_replan_detected' => $replanDetected,
                 'pending_fallback_window_change_detected' => $windowChangeDetected,
-                'pending_fallback_fresh_prioritize_detected' => $freshPrioritizeDetected,
-                'pending_fallback_release_reason' => $freshPrioritizeDetected
-                    ? 'fresh_prioritize_request'
-                    : ($replanDetected ? 'replan_request' : 'window_change_request'),
+                'pending_fallback_fresh_prioritize_detected' => false,
+                'pending_fallback_release_reason' => $replanDetected ? 'replan_request' : 'window_change_request',
+                'pending_fallback_preserved_date_override' => $dateOverride,
             ]);
 
-            return false;
+            $plan = new ExecutionPlan(
+                flow: TaskAssistantFlowNames::SCHEDULE,
+                confidence: 1.0,
+                clarificationNeeded: false,
+                clarificationQuestion: null,
+                reasonCodes: ['pending_fallback_replan_reroute'],
+                constraints: $constraints,
+                targetEntities: $targets,
+                timeWindowHint: is_string($constraints['time_window_hint'] ?? null) ? $constraints['time_window_hint'] : null,
+                countLimit: max(1, min((int) ($constraints['count_limit'] ?? 1), 10)),
+                generationProfile: 'schedule',
+            );
+            $this->persistRoutingTrace($assistantMessage, $plan, $plan);
+            $this->logRoutingDecision($thread, $assistantMessage, $plan);
+            $this->runScheduleFlow($thread, $userMessage, $assistantMessage, $userMessageContent, $plan);
+
+            return true;
         }
 
         $this->publishScheduleClarificationResponse(
@@ -3999,6 +4085,56 @@ final class TaskAssistantService
         $this->runScheduleFlow($thread, $userMessage, $assistantMessage, $userMessageContent, $plan);
 
         return true;
+    }
+
+    /**
+     * @param  array{schedule_data?: array<string, mixed>, time_window_hint?: string|null}  $pendingState
+     */
+    private function inferPendingFallbackDateOverride(array $pendingState, string $userMessageContent, ?string $userTimezone = null): ?string
+    {
+        $tz = is_string($userTimezone) && trim($userTimezone) !== ''
+            ? (string) $userTimezone
+            : (string) config('app.timezone', 'UTC');
+        $normalized = mb_strtolower(trim(preg_replace('/\s+/u', ' ', $userMessageContent) ?? $userMessageContent));
+        if ($normalized === '') {
+            return null;
+        }
+
+        if ($this->scheduleEditTemporalParser->parseLocalDateYmd($normalized, $tz) !== null) {
+            return null;
+        }
+
+        $pendingData = is_array($pendingState['schedule_data'] ?? null) ? $pendingState['schedule_data'] : [];
+        $pendingContext = is_array($pendingData['confirmation_context'] ?? null) ? $pendingData['confirmation_context'] : [];
+        $requestedWindow = is_array($pendingContext['requested_window'] ?? null) ? $pendingContext['requested_window'] : [];
+
+        $dateCandidates = [
+            is_string($requestedWindow['date'] ?? null) ? trim((string) $requestedWindow['date']) : '',
+            is_string($requestedWindow['start_date'] ?? null) ? trim((string) $requestedWindow['start_date']) : '',
+            is_string($requestedWindow['end_date'] ?? null) ? trim((string) $requestedWindow['end_date']) : '',
+        ];
+
+        $fallbackPreview = is_array($pendingData['fallback_preview'] ?? null) ? $pendingData['fallback_preview'] : [];
+        $placementDates = is_array($fallbackPreview['placement_dates'] ?? null) ? $fallbackPreview['placement_dates'] : [];
+        if ($placementDates !== []) {
+            $firstPlacementDate = trim((string) ($placementDates[0] ?? ''));
+            if ($firstPlacementDate !== '') {
+                $dateCandidates[] = $firstPlacementDate;
+            }
+        }
+
+        foreach ($dateCandidates as $candidate) {
+            if ($candidate === '') {
+                continue;
+            }
+            try {
+                return CarbonImmutable::parse($candidate, $tz)->toDateString();
+            } catch (\Throwable) {
+                continue;
+            }
+        }
+
+        return null;
     }
 
     private function normalizeFallbackActionId(?string $actionId): ?string

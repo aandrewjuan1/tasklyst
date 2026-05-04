@@ -830,32 +830,49 @@ final class TaskPrioritizationService
         }
 
         $domainFocus = $context['domain_focus'] ?? null;
+        $domainFiltered = $filtered;
 
         if ($domainFocus === 'school') {
-            $filtered = $filtered->filter(function (array $task): bool {
+            $schoolScoped = $filtered->filter(function (array $task): bool {
                 return $this->taskMatchesSchoolAcademicContext($task);
             });
+
+            // Keep school-domain intent when it yields candidates, but avoid
+            // hard-emptying keyword-intent requests (e.g. thesis title-only tasks).
+            if (! $schoolScoped->isEmpty()) {
+                $domainFiltered = $schoolScoped;
+            }
         }
 
         if ($domainFocus === 'chores') {
-            $filtered = $filtered->filter(function (array $task): bool {
+            $choreScoped = $filtered->filter(function (array $task): bool {
                 return $this->taskMatchesChoreDomain($task);
             });
 
-            $recurringChores = $filtered->filter(function (array $task): bool {
+            if (! $choreScoped->isEmpty()) {
+                $domainFiltered = $choreScoped;
+            }
+
+            $recurringChores = $domainFiltered->filter(function (array $task): bool {
                 return ! empty($task['is_recurring']);
             });
 
             if (! $recurringChores->isEmpty()) {
-                $filtered = $recurringChores;
+                $domainFiltered = $recurringChores;
             }
         }
+
+        $filtered = $domainFiltered;
 
         // 1) Subject/type keywords: strict if possible, otherwise relax.
         if (! empty($context['task_keywords'])) {
             $keywordFiltered = $filtered->filter(function (array $task) use ($context): bool {
                 $title = strtolower((string) ($task['title'] ?? ''));
+                $description = strtolower((string) ($task['description'] ?? ''));
                 $subjectName = strtolower((string) ($task['subject_name'] ?? ''));
+                $className = strtolower((string) ($task['school_class_subject_name'] ?? ''));
+                $teacherName = strtolower((string) ($task['teacher_name'] ?? ''));
+                $sourceType = strtolower((string) ($task['source_type'] ?? ''));
                 $tags = is_array($task['tags'] ?? null) ? $task['tags'] : [];
                 $tagsLower = array_map(
                     fn (mixed $t): string => strtolower((string) $t),
@@ -872,7 +889,14 @@ final class TaskPrioritizationService
                         continue;
                     }
 
-                    if (str_contains($title, $needle) || str_contains($subjectName, $needle)) {
+                    if (
+                        str_contains($title, $needle)
+                        || str_contains($description, $needle)
+                        || str_contains($subjectName, $needle)
+                        || str_contains($className, $needle)
+                        || str_contains($teacherName, $needle)
+                        || str_contains($sourceType, $needle)
+                    ) {
                         return true;
                     }
 
@@ -889,6 +913,8 @@ final class TaskPrioritizationService
             // If the strict keyword filter excludes everything, relax it.
             if (! $keywordFiltered->isEmpty()) {
                 $filtered = $keywordFiltered;
+            } elseif (($context['strict_filtering'] ?? false) === true) {
+                return $keywordFiltered;
             }
         }
 

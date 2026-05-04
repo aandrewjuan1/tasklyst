@@ -4,6 +4,7 @@ use App\Enums\MessageRole;
 use App\Models\Task;
 use App\Models\TaskAssistantThread;
 use App\Models\User;
+use App\Services\LLM\TaskAssistant\IntentRoutingPolicy;
 use App\Services\LLM\TaskAssistant\TaskAssistantService;
 use Prism\Prism\Facades\Prism;
 use Prism\Prism\Testing\StructuredResponseFake;
@@ -113,4 +114,41 @@ test('structured intent routes to schedule when LLM selects scheduling', functio
     $assistantMessage->refresh();
 
     expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('schedule');
+});
+
+test('fresh top-n schedule prompt ignores stale schedule target entities in prioritize_schedule constraints', function (): void {
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create([
+        'user_id' => $user->id,
+        'metadata' => [
+            'conversation_state' => [
+                'last_flow' => 'schedule',
+                'last_schedule' => [
+                    'target_entities' => [[
+                        'entity_type' => 'task',
+                        'entity_id' => 777,
+                        'title' => 'Stale scheduled target',
+                    ]],
+                ],
+                'last_listing' => [
+                    'source_flow' => 'prioritize',
+                    'items' => [[
+                        'entity_type' => 'task',
+                        'entity_id' => 888,
+                        'title' => 'Previous listing top',
+                        'position' => 0,
+                    ]],
+                ],
+            ],
+        ],
+    ]);
+
+    $constraints = app(IntentRoutingPolicy::class)->extractConstraintsForFlow(
+        $thread,
+        'schedule my top 1 task for tomorrow',
+        'prioritize_schedule',
+    );
+
+    expect(is_array($constraints['target_entities'] ?? null) ? $constraints['target_entities'] : [])->toBe([]);
+    expect((int) ($constraints['count_limit'] ?? 0))->toBe(1);
 });

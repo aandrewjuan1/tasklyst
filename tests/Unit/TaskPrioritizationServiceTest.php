@@ -303,6 +303,82 @@ it('matches task keywords against tag names', function (): void {
     expect($top['id'])->toBe(1);
 });
 
+it('matches task keywords against description and class-related fields', function (): void {
+    $service = app(TaskPrioritizationService::class);
+    $timezone = 'UTC';
+    $now = CarbonImmutable::now($timezone);
+
+    $tasks = [
+        [
+            'id' => 1,
+            'title' => 'Prepare notes',
+            'description' => 'Review brightspace module updates before class.',
+            'subject_name' => null,
+            'school_class_subject_name' => 'Mathematics 101',
+            'teacher_name' => 'Prof. Santos',
+            'tags' => [],
+            'priority' => 'low',
+            'status' => 'to_do',
+            'ends_at' => $now->addHours(2)->toIso8601String(),
+            'duration_minutes' => 30,
+        ],
+        [
+            'id' => 2,
+            'title' => 'General cleanup',
+            'description' => 'Organize desk',
+            'subject_name' => null,
+            'school_class_subject_name' => null,
+            'teacher_name' => null,
+            'tags' => [],
+            'priority' => 'urgent',
+            'status' => 'to_do',
+            'ends_at' => $now->addHours(1)->toIso8601String(),
+            'duration_minutes' => 30,
+        ],
+    ];
+
+    $topFromDescription = $service->getTopTask($tasks, [
+        'task_keywords' => ['brightspace'],
+    ]);
+    expect($topFromDescription)->not->toBeNull();
+    expect($topFromDescription['id'])->toBe(1);
+
+    $topFromClass = $service->getTopTask($tasks, [
+        'task_keywords' => ['mathematics'],
+    ]);
+    expect($topFromClass)->not->toBeNull();
+    expect($topFromClass['id'])->toBe(1);
+});
+
+it('enforces strict keyword filtering when explicitly requested', function (): void {
+    $service = app(TaskPrioritizationService::class);
+    $timezone = 'UTC';
+    $now = CarbonImmutable::now($timezone);
+
+    $tasks = [
+        [
+            'id' => 1,
+            'title' => 'Physics notes',
+            'description' => null,
+            'subject_name' => 'Physics',
+            'school_class_subject_name' => null,
+            'teacher_name' => null,
+            'tags' => [],
+            'priority' => 'high',
+            'status' => 'to_do',
+            'ends_at' => $now->addHour()->toIso8601String(),
+            'duration_minutes' => 30,
+        ],
+    ];
+
+    $top = $service->getTopTask($tasks, [
+        'task_keywords' => ['brightspace'],
+        'strict_filtering' => true,
+    ]);
+
+    expect($top)->toBeNull();
+});
+
 it('keeps urgency dominant over small doing momentum boost', function (): void {
     $service = app(TaskPrioritizationService::class);
 
@@ -509,6 +585,37 @@ it('school domain keeps academic tasks and drops errands like school bag titles'
 
     expect($ranked)->toHaveCount(1);
     expect($ranked[0]['id'])->toBe(2);
+});
+
+it('does not hard-empty thesis keyword matches when school domain has no metadata hits', function (): void {
+    $service = app(TaskPrioritizationService::class);
+    $now = CarbonImmutable::now('UTC');
+
+    $tasks = [
+        [
+            'id' => 1,
+            'title' => 'THESIS',
+            'description' => null,
+            'subject_name' => null,
+            'school_class_subject_name' => null,
+            'teacher_name' => null,
+            'tags' => [],
+            'priority' => 'high',
+            'status' => 'to_do',
+            'ends_at' => $now->addHours(3)->toIso8601String(),
+            'duration_minutes' => 45,
+            'is_recurring' => false,
+        ],
+    ];
+
+    $top = $service->getTopTask($tasks, [
+        'domain_focus' => 'school',
+        'task_keywords' => ['thesis'],
+        'strict_filtering' => true,
+    ]);
+
+    expect($top)->not->toBeNull();
+    expect($top['id'])->toBe(1);
 });
 
 it('defaults to non-recurring tasks when both recurring and normal tasks exist', function (): void {

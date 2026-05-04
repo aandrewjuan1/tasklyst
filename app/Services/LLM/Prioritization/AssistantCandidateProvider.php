@@ -28,7 +28,7 @@ final class AssistantCandidateProvider
      *     day_bounds:array{start:string,end:string},
      *     lunch_block:array{enabled:bool,start:string,end:string}
      *   },
-     *   tasks: list<array{id:int,title:string,subject_name:?string,teacher_name:?string,tags:list<string>,status:?string,priority:?string,complexity:?string,ends_at:?string,project_id:?int,event_id:?int,school_class_id:?int,duration_minutes:?int,is_recurring:bool}>,
+     *   tasks: list<array{id:int,title:string,description:?string,subject_name:?string,school_class_subject_name:?string,teacher_name:?string,tags:list<string>,status:?string,priority:?string,complexity:?string,source_type:?string,ends_at:?string,project_id:?int,event_id:?int,school_class_id:?int,duration_minutes:?int,is_recurring:bool}>,
      *   events: list<array{id:int,title:string,starts_at:?string,ends_at:?string,all_day:bool,status:?string}>,
      *   projects: list<array{id:int,name:string,start_at:?string,end_at:?string}>
      * }
@@ -57,12 +57,15 @@ final class AssistantCandidateProvider
                 return [
                     'id' => $task->id,
                     'title' => Str::limit((string) $task->title, 160),
+                    'description' => Str::limit((string) ($task->description ?? ''), 400),
                     'subject_name' => $task->subject_name,
+                    'school_class_subject_name' => $task->schoolClass?->subject_name,
                     'teacher_name' => $task->resolvedTeacherName(),
                     'tags' => $task->tags->pluck('name')->values()->all(),
                     'status' => $task->status?->value,
                     'priority' => $task->priority?->value,
                     'complexity' => $task->complexity?->value,
+                    'source_type' => $task->source_type?->value,
                     'ends_at' => $task->end_datetime?->toIso8601String(),
                     'project_id' => $task->project_id,
                     'event_id' => $task->event_id,

@@ -535,6 +535,21 @@ class TaskAssistantMessageFormatterTest extends TestCase
         $this->assertStringContainsString('student-first', mb_strtolower($out));
     }
 
+    public function test_prioritize_empty_slice_hides_schedule_next_options_sentence(): void
+    {
+        $out = $this->formatter->format('prioritize', [
+            'items' => [],
+            'framing' => 'Your filters look tight right now, so no ranked rows showed up yet.',
+            'reasoning' => 'Once a matching task appears, I can explain why it rises to the top and help you schedule it.',
+            'next_options' => 'If you want, I can schedule this top task and slot it into later today, tomorrow, or later this week.',
+            'next_options_chip_texts' => [],
+        ]);
+
+        $this->assertStringContainsString('Your filters look tight right now', $out);
+        $this->assertStringContainsString('Once a matching task appears', $out);
+        $this->assertStringNotContainsString('If you want, I can schedule this top task', $out);
+    }
+
     public function test_prioritize_omits_ranking_method_summary_when_no_ranked_items_exist(): void
     {
         $rankingSummary = 'I put urgent work first, then priority and effort, so your next move is both important and realistic.';

@@ -96,6 +96,22 @@ it('builds single and multi next options with scheduling intent preserved', func
     expect($multi['next_options_chip_texts'])->toHaveCount(3);
 });
 
+it('builds empty next options without scheduling chips for empty ranked slices', function (): void {
+    $service = app(TaskAssistantPrioritizeTemplateService::class);
+
+    $empty = $service->buildNextOptions(0, false, [
+        'thread_id' => 1,
+        'top_key' => 'task:0:none',
+        'items_count' => 0,
+        'day_bucket' => '2026-04-30',
+        'prompt_key' => 'empty',
+        'request_bucket' => 'empty',
+    ]);
+
+    expect(mb_strtolower($empty['next_options']))->toContain('keyword');
+    expect($empty['next_options_chip_texts'])->toBe([]);
+});
+
 it('keeps reasoning anchored to first-row facts and title', function (): void {
     CarbonImmutable::setTestNow('2026-04-30 08:00:00');
 

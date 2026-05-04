@@ -96,3 +96,50 @@ it('detects coursework cues like syllabus and modules', function (): void {
     expect($context['task_keywords'])->toContain('syllabus');
     expect($context['task_keywords'])->toContain('module');
 });
+
+it('extracts dynamic keywords and strict mode for related only prompts', function (): void {
+    $extractor = app(TaskAssistantTaskChoiceConstraintsExtractor::class);
+
+    $context = $extractor->extract('prioritize my brightspace related tasks only');
+
+    expect($context['task_keywords'])->toContain('brightspace');
+    expect($context['strict_filtering'])->toBeTrue();
+});
+
+it('does not force school domain when prompt only mentions subjects as generic scope', function (): void {
+    $extractor = app(TaskAssistantTaskChoiceConstraintsExtractor::class);
+
+    $context = $extractor->extract('in my programming subjects only what are my top tasks');
+
+    expect($context['domain_focus'])->toBeNull();
+    expect($context['task_keywords'])->toContain('programming');
+    expect($context['strict_filtering'])->toBeTrue();
+});
+
+it('treats science task phrasing as explicit filter intent', function (): void {
+    $extractor = app(TaskAssistantTaskChoiceConstraintsExtractor::class);
+
+    $context = $extractor->extract('what are my top 1 science task');
+
+    expect($context['task_keywords'])->toContain('science');
+    expect($context['strict_filtering'])->toBeTrue();
+});
+
+it('does not leak conversational filler words into dynamic keywords', function (): void {
+    $extractor = app(TaskAssistantTaskChoiceConstraintsExtractor::class);
+
+    $context = $extractor->extract('i said top 1 science related task');
+
+    expect($context['task_keywords'])->toContain('science');
+    expect($context['task_keywords'])->not->toContain('said');
+});
+
+it('does not force school domain for thesis-only filter wording', function (): void {
+    $extractor = app(TaskAssistantTaskChoiceConstraintsExtractor::class);
+
+    $context = $extractor->extract('in my thesis related task what should i do first');
+
+    expect($context['task_keywords'])->toContain('thesis');
+    expect($context['domain_focus'])->toBeNull();
+    expect($context['strict_filtering'])->toBeTrue();
+});

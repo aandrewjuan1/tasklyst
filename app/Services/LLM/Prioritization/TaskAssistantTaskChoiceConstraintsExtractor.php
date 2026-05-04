@@ -12,6 +12,7 @@ final class TaskAssistantTaskChoiceConstraintsExtractor
      *   task_keywords: array<int, string>,
      *   time_constraint: string|null,
      *   recurring_requested: bool,
+     *   strict_filtering: bool,
      *   comparison_focus: string|null,
      *   domain_focus: 'school'|'chores'|null,
      *   entity_type_preference: 'task'|'event'|'project'|'mixed'
@@ -105,6 +106,12 @@ final class TaskAssistantTaskChoiceConstraintsExtractor
             }
         }
 
+        foreach ($this->extractDynamicTaskKeywords($userMessageContent) as $keyword) {
+            if (! in_array($keyword, $taskKeywords, true)) {
+                $taskKeywords[] = $keyword;
+            }
+        }
+
         if ($explicitChoresIntent) {
             foreach (['household', 'health'] as $mappedTagKeyword) {
                 if (! in_array($mappedTagKeyword, $taskKeywords, true)) {
@@ -120,10 +127,97 @@ final class TaskAssistantTaskChoiceConstraintsExtractor
             'task_keywords' => $taskKeywords,
             'time_constraint' => $timeConstraint,
             'recurring_requested' => $recurringRequested,
+            'strict_filtering' => $this->detectStrictFilteringIntent($userMessageContent, $taskKeywords),
             'comparison_focus' => null,
             'domain_focus' => $domainFocus,
             'entity_type_preference' => $entityTypePreference,
         ];
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function extractDynamicTaskKeywords(string $message): array
+    {
+        $keywords = [];
+
+        if (preg_match('/\brelated\s+to\s+([a-z0-9][a-z0-9\s\-_]{1,40})\b/iu', $message, $matches) === 1) {
+            $keywords = array_merge($keywords, $this->normalizeKeywordPhrase((string) ($matches[1] ?? '')));
+        }
+
+        if (preg_match('/\b([a-z0-9][a-z0-9\s\-_]{1,40})\s+related\b/iu', $message, $matches) === 1) {
+            $keywords = array_merge($keywords, $this->normalizeKeywordPhrase((string) ($matches[1] ?? '')));
+        }
+
+        if (preg_match('/\b(?:about|for)\s+([a-z0-9][a-z0-9\s\-_]{1,40})\s+(?:tasks?|items?|priorities)\b/iu', $message, $matches) === 1) {
+            $keywords = array_merge($keywords, $this->normalizeKeywordPhrase((string) ($matches[1] ?? '')));
+        }
+
+        return array_values(array_unique($keywords));
+    }
+
+    /**
+     * @param  list<string>  $taskKeywords
+     */
+    private function detectStrictFilteringIntent(string $message, array $taskKeywords = []): bool
+    {
+        if (preg_match('/\b(only|just|strictly|exclusively)\b/i', $message) === 1) {
+            return true;
+        }
+
+        if (preg_match('/\brelated\b/i', $message) === 1) {
+            return true;
+        }
+
+        $normalized = mb_strtolower($message);
+        foreach ($taskKeywords as $keyword) {
+            $needle = trim(mb_strtolower((string) $keyword));
+            if ($needle === '') {
+                continue;
+            }
+            if (preg_match('/\b'.preg_quote($needle, '/').'\s+tasks?\b/u', $normalized) === 1) {
+                return true;
+            }
+            if (preg_match('/\btasks?\s+.*\b'.preg_quote($needle, '/').'\b/u', $normalized) === 1) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function normalizeKeywordPhrase(string $phrase): array
+    {
+        $lower = mb_strtolower(trim($phrase));
+        if ($lower === '') {
+            return [];
+        }
+
+        $tokens = preg_split('/[\s\-_]+/u', $lower, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        $stopwords = [
+            'my', 'me', 'the', 'a', 'an', 'and', 'or', 'to', 'for', 'on', 'in', 'of',
+            'task', 'tasks', 'item', 'items', 'priority', 'priorities',
+            'related', 'only', 'top', 'what', 'are', 'is', 'with', 'school', 'said', 'about',
+        ];
+
+        $filtered = [];
+        foreach ($tokens as $token) {
+            if (mb_strlen($token) < 3) {
+                continue;
+            }
+            if (in_array($token, $stopwords, true)) {
+                continue;
+            }
+            if (preg_match('/^\d+$/u', $token) === 1) {
+                continue;
+            }
+            $filtered[] = $token;
+        }
+
+        return array_values(array_unique($filtered));
     }
 
     /**
@@ -172,10 +266,10 @@ final class TaskAssistantTaskChoiceConstraintsExtractor
         if (preg_match('/\b(homework|assignments?|coursework|classwork|schoolwork)\b/i', $message) === 1) {
             return true;
         }
-        if (preg_match('/\b(study|studying|revision|revise|thesis|capstone)\b/i', $message) === 1) {
+        if (preg_match('/\b(study|studying|revision|revise)\b/i', $message) === 1) {
             return true;
         }
-        if (preg_match('/\b(my\s+)?(classes|subjects|courses)\b/i', $message) === 1) {
+        if (preg_match('/\b(my\s+)?(classes|courses)\b/i', $message) === 1) {
             return true;
         }
         if (preg_match('/\b(lesson|module|syllabus)\b/i', $message) === 1) {

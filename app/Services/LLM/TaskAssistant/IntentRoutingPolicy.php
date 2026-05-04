@@ -533,6 +533,17 @@ final class IntentRoutingPolicy
             }
         }
 
+        if (
+            $resolvedFlow === 'prioritize_schedule'
+            && $targetEntities !== []
+            && $this->isLikelyFreshTopNScheduleSelectionPrompt($normalized)
+            && ! $this->isLikelyDeicticScheduleFollowup($normalized)
+        ) {
+            // Fresh "schedule my top N ..." prompts should re-rank current workspace
+            // tasks, not silently reuse stale schedule-context targets from prior turns.
+            $targetEntities = [];
+        }
+
         [$countLimit, $countLimitExplicitlyRequested] = $this->extractCountLimitWithSource($normalized);
         $hasDirectTopNRequest = preg_match(
             '/(?:top|first|next)\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|couple)/i',
@@ -841,6 +852,23 @@ final class IntentRoutingPolicy
             '/\b(it|them|those|the above|same one|this\s+one|that(?:\s+one)?|first|second|third|last|\d+(?:st|nd|rd|th)|item\s*#?\d+|task\s*#?\d+|\d+\s*(?:,|and)\s*\d+)\b/u',
             $normalized
         ) === 1;
+    }
+
+    private function isLikelyFreshTopNScheduleSelectionPrompt(string $normalized): bool
+    {
+        if ($normalized === '') {
+            return false;
+        }
+
+        $hasScheduleCue = preg_match('/\b(schedule|plan|map\s*out|line\s*up)\b/u', $normalized) === 1;
+        $hasTopNCue = preg_match(
+            '/\b(top|first|next)\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|couple)\b/u',
+            $normalized
+        ) === 1;
+        $hasTaskScope = preg_match('/\b(task|tasks|item|items|priorit(?:y|ies))\b/u', $normalized) === 1;
+        $hasExplicitNameTarget = preg_match('/\b(task\s+(called|named)|\")/u', $normalized) === 1;
+
+        return $hasScheduleCue && $hasTopNCue && $hasTaskScope && ! $hasExplicitNameTarget;
     }
 
     private function isLikelyFreshBatchScheduleRequest(string $normalized): bool

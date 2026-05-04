@@ -336,7 +336,9 @@ final class TaskAssistantMessageFormatter
             $nextOptions = TaskAssistantPrioritizeOutputDefaults::coerceSingularPrioritizeNarrative($nextOptions, $singularCoerceCount, $items);
         }
 
-        $paragraphs[] = $nextOptions;
+        if ($items !== []) {
+            $paragraphs[] = $nextOptions;
+        }
 
         return trim(implode("\n\n", $this->dedupeParagraphs(
             array_values(array_filter($paragraphs, static fn (string $p): bool => $p !== ''))

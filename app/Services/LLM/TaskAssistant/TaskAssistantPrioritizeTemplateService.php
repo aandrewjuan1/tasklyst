@@ -375,6 +375,19 @@ final class TaskAssistantPrioritizeTemplateService
         bool $hasMoreUnseen,
         array $seedContext = [],
     ): array {
+        if ($itemsCount <= 0) {
+            return [
+                'next_options' => TaskAssistantPrioritizeOutputDefaults::clampNextField(
+                    $this->selectTemplate('next.empty', $seedContext, [
+                        'Try widening the filter terms and I can re-rank a matching slice.',
+                        'Try a broader keyword and I can return a ranked list.',
+                        'If you adjust the filter phrase, I can try another ranked pass.',
+                    ])
+                ),
+                'next_options_chip_texts' => [],
+            ];
+        }
+
         if ($itemsCount <= 1) {
             $line = $this->selectTemplate('next.single', $seedContext, [
                 'If you want, I can schedule this top task for later today, tomorrow, or later this week.',
