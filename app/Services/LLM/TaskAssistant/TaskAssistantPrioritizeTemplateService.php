@@ -38,7 +38,7 @@ final class TaskAssistantPrioritizeTemplateService
                     'Because you have active work underway, I narrowed this to the most realistic next ranked step.',
                     'With tasks already in progress, this keeps your next ranked step focused instead of overloaded.',
                     'Since you have momentum on in-progress work, I kept the ranked slice lean and practical.',
-                    'With Doing tasks on your plate, I aimed this ranked slice at what fits next without overload.',
+                    'You already have tasks in your Doing column, so I shaped this ranked slice around what fits next without overload.',
                     'You are already moving on something, so I kept the ranked next step tight and doable.',
                 ])
             );
@@ -74,7 +74,7 @@ final class TaskAssistantPrioritizeTemplateService
                     'I would start with this step now, using urgency and deadline pressure as the guide.',
                     'If you want one clear move, this is the best first step from urgency and due dates.',
                     'This is the highest-leverage first step right now when you weigh deadlines and priority.',
-                    'I would anchor on this step first while urgency and due timing are calling the shots.',
+                    'I would anchor on this step first while urgency and due dates steer what matters most.',
                 ])
                 : $this->selectTemplate('framing.multi', $seedContext, [
                     'Here are the steps I would line up first right now, ordered by urgency and deadlines.',
@@ -82,7 +82,7 @@ final class TaskAssistantPrioritizeTemplateService
                     'I would work through these next steps in order right now, guided by urgency and deadline pressure.',
                     'If you want a clean sequence, these are the best first moves ordered by urgency and due dates.',
                     'These are the highest-leverage steps to line up first when deadlines and priority matter most.',
-                    'I would move through these in order while urgency and due timing steer what comes first.',
+                    'I would move through these in order while urgency and due dates steer what comes first.',
                 ])
         );
     }
@@ -204,9 +204,9 @@ final class TaskAssistantPrioritizeTemplateService
             'This stays high because it is one of your clearest next moves right now.',
             'I kept this near the top since it is one of the most actionable items in this slice.',
             'This ranks strongly here because it is a practical next move in this set.',
-            'This line stays prominent because it is a solid next step within this focus.',
-            'This holds a top slot because it is one of the most concrete moves you can make next.',
-            'This stays up here because it is a high-signal next action in this slice.',
+            'It stays prominent because it is a solid next step within this focus.',
+            'It holds a top slot because it is one of the most concrete moves you can make next.',
+            'It stays up here because it is one of the strongest next actions in this slice.',
         ]);
     }
 
@@ -219,7 +219,7 @@ final class TaskAssistantPrioritizeTemplateService
         if ($items === []) {
             return TaskAssistantPrioritizeOutputDefaults::clampPrioritizeReasoning(
                 $this->selectTemplate('reasoning.empty', $seedContext, [
-                    'Once a matching task appears, I can explain why it rises to the top and help you schedule it.',
+                    'Once a matching task appears, I can explain why it ranks at the top and help you schedule it.',
                     'When a matching task shows up, I can justify the top pick and help place it on your calendar.',
                     'As soon as something matches, I can explain the top rank clearly and help you plan it.',
                     'When a task lands in this slice, I can spell out why it ranks first and help you slot it.',
@@ -252,33 +252,33 @@ final class TaskAssistantPrioritizeTemplateService
         }
         $factPhrase = $facts === []
             ? $this->selectTemplate('reasoning.facts.empty', $seedContext, [
-                'its overall urgency and effort balance',
-                'its deadline pressure and practical effort fit',
-                'its urgency and realistic effort mix',
-                'its urgency profile and manageable effort shape',
-                'its timing pressure and effort tradeoff',
-                'its time pressure and workable effort level',
+                'solid overall urgency balanced against realistic effort',
+                'clear deadline pressure with a practical effort fit',
+                'real urgency paired with effort you can actually sustain',
+                'timing pressure that still matches how heavy the work feels',
+                'enough urgency to matter without an unrealistic effort ask',
+                'time pressure that lines up with the workload on this task',
             ])
-            : implode(', ', $facts);
+            : $this->joinReasoningFactPhrases($facts);
         $coachTail = $hasDoingContext
             ? $this->selectTemplate('reasoning.coach_tail.doing', $seedContext, [
                 'Finish a focused chunk first, then reassess what to pick up next.',
                 'Close one clear block first, then decide the next pickup with a fresh read.',
                 'Wrap a tight chunk first, then check what deserves your next block.',
-                'Land one focused pass first, then choose the next step with less noise.',
+                'Land one focused pass first, then choose the next step with a clearer head.',
                 'Complete a short solid block first, then re-rank what should come next.',
                 'Clear one practical chunk first, then reevaluate your next move.',
             ])
             : $this->selectTemplate('reasoning.coach_tail.default', $seedContext, [
                 'Start with a focused chunk so progress feels lighter and easier to sustain.',
                 'Begin with one tight block so momentum builds without draining your energy.',
-                'Kick off with a short focused pass so the first win comes quickly.',
+                'Kick off with a short, focused pass so the first win comes quickly.',
                 'Take one clear chunk first so progress stays steady instead of overwhelming.',
                 'Open with a manageable block so your momentum grows with less friction.',
                 'Start with one practical burst so the next step feels easier to carry.',
             ]);
 
-        $template = 'Start with "{title}" since it is {facts}. {coach_tail}';
+        $template = 'Start with "{title}" given {facts}. {coach_tail}';
 
         return TaskAssistantPrioritizeOutputDefaults::clampPrioritizeReasoning(strtr($template, [
             '{title}' => $title,
@@ -320,7 +320,7 @@ final class TaskAssistantPrioritizeTemplateService
             return TaskAssistantPrioritizeOutputDefaults::clampFraming(
                 $this->selectTemplate('framing.invalid.doing', $seedContext, [
                     'You have momentum on in-progress work, so I kept this message tight while the ranked list carries the detail.',
-                    'With Doing tasks in play, I kept the intro short so the ranked slice can speak for itself.',
+                    'With tasks already in Doing, I kept the intro short so the ranked slice can speak for itself.',
                     'Since you already started something, I kept this framing light and let the ordered list lead.',
                     'You are already moving on a task, so I kept the opening brief and focused on the ranked next steps.',
                     'With work already underway, I kept the intro minimal so the ranked list stays the star.',
@@ -408,12 +408,12 @@ final class TaskAssistantPrioritizeTemplateService
     {
         if ($itemsCount <= 1) {
             $line = $this->selectTemplate('next.invalid.single', $seedContext, [
-                'If you want, I can help schedule this next step for later today, tomorrow, or later this week.',
-                'If it helps, I can help you place this next step later today, tomorrow, or later this week.',
-                'Say the word and I can help map this next step to later today, tomorrow, or later this week.',
-                'If you want, I can help you block this next step later today, tomorrow, or later this week.',
-                'If it helps, I can help schedule this next move for later today, tomorrow, or later this week.',
-                'If you want, I can help slot this next step into later today, tomorrow, or later this week.',
+                'If you want, I can schedule this next step for later today, tomorrow, or later this week.',
+                'If it helps, I can place this next step later today, tomorrow, or later this week.',
+                'Say the word and I can map this next step to later today, tomorrow, or later this week.',
+                'If you want, I can block this next step later today, tomorrow, or later this week.',
+                'If it helps, I can schedule this next move for later today, tomorrow, or later this week.',
+                'If you want, I can slot this next step into later today, tomorrow, or later this week.',
             ]);
 
             return [
@@ -426,12 +426,12 @@ final class TaskAssistantPrioritizeTemplateService
         }
 
         $line = $this->selectTemplate('next.invalid.multi', $seedContext, [
-            'If you want, I can help schedule these next steps for later today, tomorrow, or later this week.',
-            'If it helps, I can help you place these next steps later today, tomorrow, or later this week.',
-            'Say the word and I can help map these next steps to later today, tomorrow, or later this week.',
-            'If you want, I can help you block these next steps later today, tomorrow, or later this week.',
-            'If it helps, I can help schedule these next moves for later today, tomorrow, or later this week.',
-            'If you want, I can help slot these next steps into later today, tomorrow, or later this week.',
+            'If you want, I can schedule these next steps for later today, tomorrow, or later this week.',
+            'If it helps, I can place these next steps later today, tomorrow, or later this week.',
+            'Say the word and I can map these next steps to later today, tomorrow, or later this week.',
+            'If you want, I can block these next steps later today, tomorrow, or later this week.',
+            'If it helps, I can schedule these next moves for later today, tomorrow, or later this week.',
+            'If you want, I can slot these next steps into later today, tomorrow, or later this week.',
         ]);
 
         return [
@@ -456,7 +456,7 @@ final class TaskAssistantPrioritizeTemplateService
 
         $template = $this->selectTemplate('reasoning.processor_dedupe', $merged, [
             'Start with "{title}" first, then check your momentum before moving to the next item. Keep this step short so progress feels steady.',
-            'Open with "{title}" first, then take a breath before stacking another task. Short passes keep momentum kind.',
+            'Open with "{title}" first, then take a breath before stacking another task. Short bursts keep momentum steady.',
             'Lead with "{title}" first, then reassess what fits next after a focused burst. Small wins keep the day lighter.',
             'Anchor on "{title}" first, then decide what deserves the next pocket of energy. Keep the first slice tight.',
             'Tackle "{title}" first, then let the next choice be lighter after a clear win. Steady beats heroic.',
@@ -479,13 +479,35 @@ final class TaskAssistantPrioritizeTemplateService
         $template = $this->selectTemplate('reasoning.processor_title_enforce', $merged, [
             'Start with "{title}" first, then take a focused pass before moving to the next item. Keeping this step short helps you build momentum.',
             'Open with "{title}" first, then move in a tight block before picking up anything else. Short focus keeps pressure down.',
-            'Lead with "{title}" first, then let the next task wait until this chunk lands. Momentum likes a clean first win.',
+            'Lead with "{title}" first, then let the next task wait until this chunk lands. A clean first win builds momentum.',
             'Anchor on "{title}" first, then reassess after a deliberate burst. A crisp first step makes the rest feel lighter.',
             'Tackle "{title}" first, then choose the next move once this slice feels settled. Small wins stack fast.',
             'Begin with "{title}" first, then carry that clarity into whatever comes next. One clear step beats a vague pile.',
         ]);
 
         return TaskAssistantPrioritizeOutputDefaults::clampPrioritizeReasoning(strtr($template, ['{title}' => $title]));
+    }
+
+    /**
+     * @param  list<string>  $phrases
+     */
+    private function joinReasoningFactPhrases(array $phrases): string
+    {
+        $phrases = array_values(array_filter($phrases, static function (string $p): bool {
+            return trim($p) !== '';
+        }));
+        if ($phrases === []) {
+            return '';
+        }
+        if (count($phrases) === 1) {
+            return $phrases[0];
+        }
+        if (count($phrases) === 2) {
+            return $phrases[0].' and '.$phrases[1];
+        }
+        $last = array_pop($phrases);
+
+        return implode(', ', $phrases).', and '.$last;
     }
 
     /**
@@ -503,12 +525,12 @@ final class TaskAssistantPrioritizeTemplateService
         $effortText = $this->resolveEffortPhraseForOrdering($complexity, $seedContext);
 
         $template = $this->selectTemplate('ordering_rationale_line', $seedContext, [
-            'This rises because it is {priority}, {due}, and {effort}.',
+            'This ranks high because it is {priority}, {due}, and {effort}.',
             'I kept this high since it is {due}, with {priority}, and {effort}.',
             'This stays near the top because {due}, {priority}, and {effort}.',
-            'I ranked this here due to {due}, plus {priority}, and {effort}.',
-            'This sits up here because it is {priority}, {due}, and {effort}.',
-            'This line stays strong since {due}, {priority}, and {effort} line up together.',
+            'It landed here because {due}, {priority}, and {effort} fit well together.',
+            'It sits high on the list because it is {priority}, {due}, and {effort}.',
+            'This stays strong because {due}, {priority}, and {effort} all align.',
         ]);
 
         return strtr($template, [
@@ -549,12 +571,12 @@ final class TaskAssistantPrioritizeTemplateService
                 'a deeper effort ask',
             ]),
             default => $this->selectTemplate('ordering_effort.default', $seedContext, [
-                'current effort level',
-                'expected workload',
-                'overall lift',
-                'the effort level you set',
+                'the effort level on this task',
                 'the workload you signaled',
-                'the effort picture on this item',
+                'what this task asks effort-wise',
+                'the effort level you set',
+                'how heavy this task feels',
+                'the overall lift this task needs',
             ]),
         };
     }

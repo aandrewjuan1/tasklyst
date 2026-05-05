@@ -65,6 +65,30 @@ test('schedule my day maps to prioritize_schedule planning flow', function (): v
     expect($decision->reasonCodes)->toContain('fresh_day_planning_prioritize_schedule');
 });
 
+test('create a plan for tomorrow maps to prioritize_schedule (day planning, not general guidance)', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'create a plan for tomorrow');
+
+    expect($decision->flow)->toBe('prioritize_schedule');
+    expect($decision->reasonCodes)->toContain('fresh_day_planning_prioritize_schedule');
+});
+
+test('plan for today maps to prioritize_schedule without requiring “my day”', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'plan for today');
+
+    expect($decision->flow)->toBe('prioritize_schedule');
+    expect($decision->reasonCodes)->toContain('fresh_day_planning_prioritize_schedule');
+});
+
 test('LLM intent prioritize_schedule maps to prioritize_schedule flow', function (): void {
     $user = User::factory()->create();
     $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);

@@ -29,6 +29,7 @@ use RuntimeException;
  * Most tasks omit start_datetime (due dates kept); the in-progress capstone task and recurring anchors keep starts.
  *
  * Run manually: php artisan db:seed --class=AndrewJuanPresentationSeeder
+ * Production / Laravel Cloud: php artisan db:seed --class=AndrewJuanPresentationSeeder --force
  *
  * Target user: resolved from config('tasklyst.presentation_seeder_target_email'),
  * with a case-insensitive fallback on `users.email` (PostgreSQL is case-sensitive
@@ -57,12 +58,10 @@ class AndrewJuanPresentationSeeder extends Seeder
      * @var list<string>
      */
     public const SEEDED_EVENT_TITLES = [
-        'Quiet reading block (library)',
         'Org fair volunteer sync',
         'Peer tutoring (DSA walkthrough)',
         'Campus fair booth shift',
         'Capstone team stand-up',
-        'Org committee debrief',
         'Evening midterm review session',
         'Faculty consultation (Web Systems)',
         'All-day study blackout (no meetings)',
@@ -176,7 +175,9 @@ class AndrewJuanPresentationSeeder extends Seeder
         }
 
         $normalized = Str::lower($candidate);
-        $user = User::query()->whereRaw('LOWER(email) = ?', [$normalized])->first();
+        $user = User::query()
+            ->where(DB::raw('LOWER(email)'), '=', $normalized)
+            ->first();
         if ($user instanceof User) {
             return $user;
         }
@@ -348,13 +349,6 @@ class AndrewJuanPresentationSeeder extends Seeder
     private function seedEvents(User $user, callable $may): array
     {
         $defs = [
-            'morning_block' => [
-                'title' => 'Quiet reading block (library)',
-                'description' => 'Phone on focus mode. Skim assigned chapters and jot questions before afternoon labs.',
-                'start' => $may(5, 6, 45),
-                'end' => $may(5, 7, 45),
-                'all_day' => false,
-            ],
             'org_sync' => [
                 'title' => 'Org fair volunteer sync',
                 'description' => 'Quick Zoom to confirm booth setup time, transport of materials, and who covers the first shift.',
@@ -381,13 +375,6 @@ class AndrewJuanPresentationSeeder extends Seeder
                 'description' => '15-minute unblocker on integration bugs and demo script timing.',
                 'start' => $may(6, 12, 0),
                 'end' => $may(6, 12, 45),
-                'all_day' => false,
-            ],
-            'committee' => [
-                'title' => 'Org committee debrief',
-                'description' => 'Post-shift notes, expense tally, and follow-up tasks for next meeting.',
-                'start' => $may(6, 13, 0),
-                'end' => $may(6, 13, 45),
                 'all_day' => false,
             ],
             'midterm_review' => [
@@ -462,7 +449,7 @@ class AndrewJuanPresentationSeeder extends Seeder
                 'source_type' => TaskSourceType::Manual,
                 'title' => 'Wire capstone modules into end-to-end demo flow',
                 'description' => 'Connect auth, core CRUD, and reporting screens; fix the worst console errors so the adviser walkthrough feels intentional.',
-                'status' => TaskStatus::Doing,
+                'status' => TaskStatus::ToDo,
                 'priority' => TaskPriority::High,
                 'complexity' => TaskComplexity::Complex,
                 'duration' => 180,
@@ -549,7 +536,7 @@ class AndrewJuanPresentationSeeder extends Seeder
                 'start_datetime' => null,
                 'end_datetime' => $may(10, 18, 0),
                 'project_id' => $p('org'),
-                'event_id' => $e('committee'),
+                'event_id' => null,
                 'school_class_id' => null,
                 'tags' => ['school'],
             ],
@@ -743,7 +730,7 @@ class AndrewJuanPresentationSeeder extends Seeder
                 'start_datetime' => null,
                 'end_datetime' => $may(5, 11, 30),
                 'project_id' => null,
-                'event_id' => $e('morning_block'),
+                'event_id' => $e('peer_tutoring'),
                 'school_class_id' => $c('dsa'),
                 'teacher_name' => null,
                 'subject_name' => null,

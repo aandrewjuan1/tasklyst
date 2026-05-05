@@ -12,7 +12,7 @@ final class DeterministicScheduleExplanationService
     ) {}
 
     /**
-     * @param  array<string, mixed>  $payload
+     * @param  array<string, mixed>  $payload  May include user_message_content, requested_horizon_label, schedule_horizon_mode for explicit-day plan framing.
      * @return array{
      *   framing:string,
      *   reasoning:string,
@@ -82,7 +82,11 @@ final class DeterministicScheduleExplanationService
         );
         $seedContext = $this->buildTemplateSeedContext($payload, $scenarioKey, $flowSource, $requestedWindowLabel, $placedCount);
 
+        $useExplicitDayPlanFraming = $this->shouldApplyExplicitDayPlanningFraming($payload, $scenarioKey);
+
         $framing = $this->buildFraming(
+            narrativePayload: $payload,
+            useExplicitDayPlanFraming: $useExplicitDayPlanFraming,
             scenarioKey: $scenarioKey,
             flowSource: $flowSource,
             scheduleScope: $scheduleScope,
@@ -160,6 +164,8 @@ final class DeterministicScheduleExplanationService
                 'time_window_hint_source' => $timeWindowHintSource,
                 'all_day_overlap_note' => $allDayOverlapNote,
                 'narrative_mode' => $narrativeMode,
+                'explicit_day_plan_framing' => $useExplicitDayPlanFraming,
+                'explicit_day_plan_scenario' => $useExplicitDayPlanFraming ? $scenarioKey : null,
             ],
         ];
     }
@@ -332,6 +338,8 @@ final class DeterministicScheduleExplanationService
     }
 
     private function buildFraming(
+        array $narrativePayload,
+        bool $useExplicitDayPlanFraming,
         string $scenarioKey,
         string $flowSource,
         string $scheduleScope,
@@ -342,9 +350,6 @@ final class DeterministicScheduleExplanationService
         string $targetedEntityTitle,
         array $seedContext,
     ): string {
-        if ($scenarioKey === 'FLOW_PRIORITIZE_SCHEDULE_TASKS_ONLY') {
-            return $this->scheduleTemplateService->buildFraming($scenarioKey, $seedContext);
-        }
         if ($isTargetedSchedule) {
             return $this->buildTargetedFraming(
                 scenarioKey: $scenarioKey,
@@ -353,6 +358,16 @@ final class DeterministicScheduleExplanationService
                 chosenTimeLabel: $chosenTimeLabel,
                 targetedEntityTitle: $targetedEntityTitle,
             );
+        }
+
+        if ($useExplicitDayPlanFraming) {
+            return $this->scheduleTemplateService->buildFraming('EXPLICIT_DAY_PLAN_OPENING', $seedContext, [
+                'horizon_label' => $this->formatHorizonLabelForFraming($narrativePayload),
+            ]);
+        }
+
+        if ($scenarioKey === 'FLOW_PRIORITIZE_SCHEDULE_TASKS_ONLY') {
+            return $this->scheduleTemplateService->buildFraming($scenarioKey, $seedContext);
         }
 
         return match ($scenarioKey) {
@@ -918,6 +933,84 @@ final class DeterministicScheduleExplanationService
         $normalized = mb_strtolower(trim($daypart));
 
         return in_array($normalized, ['afternoon', 'evening'], true) ? 'an' : 'a';
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function shouldApplyExplicitDayPlanningFraming(array $payload, string $scenarioKey): bool
+    {
+        $excludedScenarios = [
+            'STRICT_WINDOW_NO_FIT',
+            'TOP_N_SHORTFALL',
+            'EMPTY_CANDIDATE_LIST',
+            'UNPLACED_TARGETS_EXIST',
+            'PLACEMENT_OUTSIDE_HORIZON',
+            'AUTO_ROLL_LATER_TO_TOMORROW',
+            'ADAPTIVE_FALLBACK_RELAXED',
+        ];
+        if (in_array($scenarioKey, $excludedScenarios, true)) {
+            return false;
+        }
+
+        if (trim((string) ($payload['flow_source'] ?? '')) !== 'prioritize_schedule') {
+            return false;
+        }
+
+        if ((bool) ($payload['is_targeted_schedule'] ?? false)) {
+            return false;
+        }
+
+        if (trim((string) ($payload['schedule_horizon_mode'] ?? '')) !== 'single_day') {
+            return false;
+        }
+
+        $horizon = mb_strtolower(trim((string) ($payload['requested_horizon_label'] ?? '')));
+        $allowedHorizons = ['today', 'tomorrow', 'tonight', 'tmrw', 'tmw'];
+        if (! in_array($horizon, $allowedHorizons, true)) {
+            return false;
+        }
+
+        $message = mb_strtolower(trim((string) ($payload['user_message_content'] ?? '')));
+        if ($message === '') {
+            return false;
+        }
+
+        return $this->messageIndicatesDayPlanningIntent($message);
+    }
+
+    private function messageIndicatesDayPlanningIntent(string $normalizedMessage): bool
+    {
+        if (preg_match('/\b(plan|planning|roadmap|outline)\b/u', $normalizedMessage) === 1) {
+            return true;
+        }
+
+        if (preg_match('/\bmap\s+out\b/u', $normalizedMessage) === 1) {
+            return true;
+        }
+
+        if (preg_match('/\blay\s+out\b/u', $normalizedMessage) === 1) {
+            return true;
+        }
+
+        if (preg_match('/\borganize\s+my\s+day\b/u', $normalizedMessage) === 1) {
+            return true;
+        }
+
+        return preg_match('/\bplan\s+my\s+day\b/u', $normalizedMessage) === 1;
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function formatHorizonLabelForFraming(array $payload): string
+    {
+        $raw = mb_strtolower(trim((string) ($payload['requested_horizon_label'] ?? '')));
+
+        return match ($raw) {
+            'tmrw', 'tmw' => 'tomorrow',
+            default => $raw,
+        };
     }
 
     private function guardrail(string $text, int $maxChars): string

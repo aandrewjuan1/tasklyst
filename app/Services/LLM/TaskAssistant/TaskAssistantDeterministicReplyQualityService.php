@@ -30,7 +30,7 @@ final class TaskAssistantDeterministicReplyQualityService
         if ($ordering !== []) {
             $rewritten = [];
             $stems = [
-                'This rises because',
+                'This ranks high because',
                 'This stays high because',
                 'This belongs near the top because',
                 'This is worth doing soon because',

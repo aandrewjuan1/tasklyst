@@ -613,6 +613,18 @@ final class IntentRoutingPolicy
         if (preg_match('/\b(plan|organize|line\s+up|map\s+out)\b.{0,28}\b(my|the)\s+(whole\s+)?(day|week)\b/u', $normalized) === 1) {
             $scheduleScore += 0.30;
         }
+        if (preg_match(
+            '/\b(create|make|build|draft|come up with|give me|i need|i want|help me)\b.{0,55}\b(a\s+)?plan\b.{0,35}\bfor\b.{0,40}\b(today|tomorrow|tonight|this week|next week|the weekend|weekend)\b/u',
+            $normalized
+        ) === 1) {
+            $scheduleScore += 0.28;
+        }
+        if (preg_match(
+            '/^(?:please\s+)?\b(?:plan|outline|structure|map\s+out|line\s+up|organi[sz]e)\b.{0,30}\bfor\b.{0,40}\b(today|tomorrow|tonight|this week|next week)\b/u',
+            $normalized
+        ) === 1) {
+            $scheduleScore += 0.26;
+        }
         if (preg_match('/\b(block\s+out|block\s+time|time[\s-]?slot)\b/u', $normalized) === 1) {
             $scheduleScore += 0.25;
         }
@@ -1149,12 +1161,32 @@ final class IntentRoutingPolicy
             return false;
         }
 
+        $schedulePlanVerb = '(plan|schedule|organi[sz]e|organize|map\s+out|line\s+up|outline|structure)';
+        $temporalPlanAnchor = '(today|tomorrow|tonight|tmrw|tmw|this week|next week|the weekend|weekend|monday|tuesday|wednesday|thursday|friday|saturday|sunday|next monday)';
+        $lineStartPlanForTemporal = '(plan|outline|structure|map\s+out|line\s+up|organi[sz]e)';
+
         return preg_match(
             '/\b(plan|schedule|organi[sz]e|organize|map\s+out|line\s+up)\b.{0,45}\b(my|the)\s+(whole\s+)?day\b/u',
             $normalized
         ) === 1
             || preg_match('/\b(plan|schedule)\b.{0,45}\b(all|everything)\b.{0,30}\b(tasks?|important|priority)\b/u', $normalized) === 1
-            || preg_match('/\b(plan|schedule)\b.{0,45}\b(important|priority|urgent)\b.{0,30}\b(tasks?)\b/u', $normalized) === 1;
+            || preg_match('/\b(plan|schedule)\b.{0,45}\b(important|priority|urgent)\b.{0,30}\b(tasks?)\b/u', $normalized) === 1
+            || preg_match(
+                '/\b(create|make|build|draft|come up with|give me|i need|i want|help me)\b.{0,55}\b(a\s+)?plan\b.{0,35}\bfor\b.{0,40}\b'.$temporalPlanAnchor.'\b/u',
+                $normalized
+            ) === 1
+            || preg_match(
+                '/^(?:please\s+)?\b'.$lineStartPlanForTemporal.'\b.{0,30}\bfor\b.{0,40}\b'.$temporalPlanAnchor.'\b/u',
+                $normalized
+            ) === 1
+            || preg_match(
+                '/\b(figure out|lay out|sketch|structure|outline)\b.{0,40}\b(my|the)\s+(whole\s+)?(day|schedule)\b/u',
+                $normalized
+            ) === 1
+            || preg_match(
+                '/\b'.$schedulePlanVerb.'\b.{0,40}\b(my|the)\s+(morning|afternoon|evening)\b.{0,35}\b'.$temporalPlanAnchor.'\b/u',
+                $normalized
+            ) === 1;
     }
 
     private function isLikelyDirectPrioritizeFirstPrompt(string $normalized): bool

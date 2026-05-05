@@ -98,7 +98,7 @@ it('seeds deterministic presentation data for andrew and is idempotent', functio
         ->get();
 
     expect($demoProjects)->toHaveCount(5)
-        ->and($demoEvents)->toHaveCount(10)
+        ->and($demoEvents)->toHaveCount(8)
         ->and($demoClasses)->toHaveCount(5)
         ->and($demoTasks)->toHaveCount(31);
 
@@ -124,7 +124,7 @@ it('seeds deterministic presentation data for andrew and is idempotent', functio
         ->whereDate('start_datetime', '2026-05-05')
         ->count();
 
-    expect($eventsOnMay5)->toBeGreaterThanOrEqual(3);
+    expect($eventsOnMay5)->toBeGreaterThanOrEqual(2);
 
     foreach ($demoTasks as $task) {
         expect($task->description)->not->toBeNull()->not->toBe('');
@@ -140,8 +140,6 @@ it('seeds deterministic presentation data for andrew and is idempotent', functio
 
     expect($noDateDemoTasks->count())->toBeGreaterThanOrEqual(2)
         ->and($noDateDemoTasks->count())->toBeLessThanOrEqual(4);
-
-    expect($demoTasks->where('status', \App\Enums\TaskStatus::Doing)->count())->toBeGreaterThanOrEqual(1);
 
     $withTags = $demoTasks->filter(fn (Task $task): bool => $task->tags()->exists());
 

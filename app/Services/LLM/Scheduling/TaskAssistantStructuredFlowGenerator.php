@@ -68,6 +68,7 @@ final class TaskAssistantStructuredFlowGenerator
         array $options = []
     ): array {
         $user = $thread->user;
+        $options['user_message_content'] = $userMessageContent;
 
         $runId = app()->bound('task_assistant.run_id') ? app('task_assistant.run_id') : null;
 
@@ -4254,10 +4255,15 @@ final class TaskAssistantStructuredFlowGenerator
         $timeWindowHintSource = trim((string) ($options['time_window_hint'] ?? ''));
         $chosenDaypart = $this->resolveChosenDaypartForDeterministicNarrative($snapshot, $firstItem);
 
+        $scheduleHorizon = is_array($snapshot['schedule_horizon'] ?? null) ? $snapshot['schedule_horizon'] : [];
+
         $narrative = $this->deterministicExplanationService->composeNormal([
             'flow_source' => $flowSource,
             'schedule_scope' => $flowSource === 'prioritize_schedule' ? 'tasks_only' : 'all_entities',
             'requested_window_label' => $requestedWindowLabel,
+            'requested_horizon_label' => trim((string) ($scheduleExplainability['requested_horizon_label'] ?? '')),
+            'schedule_horizon_mode' => trim((string) ($scheduleHorizon['mode'] ?? '')),
+            'user_message_content' => trim((string) ($options['user_message_content'] ?? '')),
             'requested_count' => $requestedCount,
             'placed_count' => $placedCount,
             'unplaced_count' => $unplacedCount,

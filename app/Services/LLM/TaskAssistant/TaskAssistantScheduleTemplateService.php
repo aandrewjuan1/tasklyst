@@ -12,6 +12,16 @@ final class TaskAssistantScheduleTemplateService
     public function buildFraming(string $scenarioKey, array $seedContext, array $replacements = []): string
     {
         $templates = match ($scenarioKey) {
+            'EXPLICIT_DAY_PLAN_OPENING' => $this->forFlowMany([
+                'Here is a {horizon_label} draft that fits around what is already fixed on your calendar.',
+                'I lined this up for {horizon_label} using the next windows that stay clear of your existing commitments.',
+                'For {horizon_label}, here is a workable plan placed around fixed events so the day stays realistic.',
+                'This {horizon_label} plan uses open windows first, then fills what still fits without crowding the rest of your day.',
+                'I built a {horizon_label} draft that respects what is already on the calendar and keeps your focus blocks clean.',
+            ],
+                $seedContext,
+                false
+            ),
             'FLOW_PRIORITIZE_SCHEDULE_TASKS_ONLY' => $this->forFlowMany([
                 'I proposed focused blocks for your top-ranked tasks so they fit realistic open windows and stay doable.',
                 'I mapped your top-ranked tasks into open windows so this stays practical and easier to execute.',

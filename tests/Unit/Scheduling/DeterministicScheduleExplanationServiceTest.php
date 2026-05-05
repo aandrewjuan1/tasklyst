@@ -402,3 +402,83 @@ it('does not force strict-window narrative for only prompts without explicit win
     expect(data_get($out, 'explanation_meta.scenario_key'))->toBe('FLOW_PRIORITIZE_SCHEDULE_TASKS_ONLY');
     expect((string) ($out['framing'] ?? ''))->not->toContain('strict window could not fully fit');
 });
+
+it('uses explicit day-plan framing for prioritize_schedule when plan intent and single-day horizon match', function (): void {
+    $service = app(DeterministicScheduleExplanationService::class);
+
+    $out = $service->composeNormal([
+        'flow_source' => 'prioritize_schedule',
+        'schedule_scope' => 'tasks_only',
+        'user_message_content' => 'create a plan for tomorrow',
+        'requested_horizon_label' => 'tomorrow',
+        'schedule_horizon_mode' => 'single_day',
+        'requested_window_label' => 'tomorrow',
+        'requested_count' => 1,
+        'placed_count' => 1,
+        'unplaced_count' => 0,
+        'trigger_list' => [],
+        'strict_window_requested' => false,
+        'explicit_requested_window' => false,
+        'requested_window_honored' => false,
+        'blocking_reasons' => [
+            ['title' => 'Morning lab', 'blocked_window' => '8:00 AM-10:00 AM', 'reason' => 'overlap'],
+        ],
+        'chosen_time_label' => '10:30 AM',
+        'turn_seed' => '901',
+    ]);
+
+    expect(data_get($out, 'explanation_meta.scenario_key'))->toBe('BLOCKED_WINDOW_SHIFTED');
+    expect(data_get($out, 'explanation_meta.explicit_day_plan_framing'))->toBeTrue();
+    expect((string) ($out['framing'] ?? ''))->toContain('tomorrow');
+    expect((string) ($out['framing'] ?? ''))->not->toContain('next conflict-free slot');
+});
+
+it('does not use explicit day-plan framing when scenario is top_n_shortfall even with plan wording', function (): void {
+    $service = app(DeterministicScheduleExplanationService::class);
+
+    $out = $service->composeNormal([
+        'flow_source' => 'prioritize_schedule',
+        'schedule_scope' => 'tasks_only',
+        'user_message_content' => 'create a plan for tomorrow',
+        'requested_horizon_label' => 'tomorrow',
+        'schedule_horizon_mode' => 'single_day',
+        'requested_window_label' => 'tomorrow',
+        'requested_count' => 3,
+        'placed_count' => 2,
+        'unplaced_count' => 1,
+        'trigger_list' => ['top_n_shortfall'],
+        'strict_window_requested' => false,
+        'blocking_reasons' => [],
+        'chosen_time_label' => '2:00 PM',
+    ]);
+
+    expect(data_get($out, 'explanation_meta.scenario_key'))->toBe('TOP_N_SHORTFALL');
+    expect(data_get($out, 'explanation_meta.explicit_day_plan_framing'))->toBeFalse();
+    expect((string) ($out['framing'] ?? ''))->toContain('draft');
+});
+
+it('does not use explicit day-plan framing for generic schedule flow even with plan wording', function (): void {
+    $service = app(DeterministicScheduleExplanationService::class);
+
+    $out = $service->composeNormal([
+        'flow_source' => 'schedule',
+        'schedule_scope' => 'all_entities',
+        'user_message_content' => 'create a plan for tomorrow',
+        'requested_horizon_label' => 'tomorrow',
+        'schedule_horizon_mode' => 'single_day',
+        'requested_window_label' => 'tomorrow',
+        'requested_count' => 1,
+        'placed_count' => 1,
+        'unplaced_count' => 0,
+        'trigger_list' => [],
+        'strict_window_requested' => false,
+        'blocking_reasons' => [
+            ['title' => 'Morning lab', 'blocked_window' => '8:00 AM-10:00 AM', 'reason' => 'overlap'],
+        ],
+        'chosen_time_label' => '10:30 AM',
+    ]);
+
+    expect(data_get($out, 'explanation_meta.scenario_key'))->toBe('BLOCKED_WINDOW_SHIFTED');
+    expect(data_get($out, 'explanation_meta.explicit_day_plan_framing'))->toBeFalse();
+    expect((string) ($out['framing'] ?? ''))->toContain('next conflict-free slot');
+});
