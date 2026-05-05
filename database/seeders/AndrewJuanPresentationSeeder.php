@@ -18,6 +18,7 @@ use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use RuntimeException;
 
 /**
@@ -28,6 +29,10 @@ use RuntimeException;
  * Most tasks omit start_datetime (due dates kept); the in-progress capstone task and recurring anchors keep starts.
  *
  * Run manually: php artisan db:seed --class=AndrewJuanPresentationSeeder
+ *
+ * Target user: resolved from config('tasklyst.presentation_seeder_target_email'),
+ * with a case-insensitive fallback on `users.email` (PostgreSQL is case-sensitive
+ * for `=`; local MySQL often is not). WorkOS does not block seeding; the row must exist.
  */
 class AndrewJuanPresentationSeeder extends Seeder
 {
@@ -79,11 +84,7 @@ class AndrewJuanPresentationSeeder extends Seeder
 
     public function run(): void
     {
-        $user = User::query()->where('email', self::TARGET_EMAIL)->first();
-
-        if (! $user instanceof User) {
-            throw new RuntimeException('Cannot seed presentation data because the target user does not exist: '.self::TARGET_EMAIL);
-        }
+        $user = $this->resolveTargetUser();
 
         DB::transaction(function () use ($user): void {
             $may = fn (int $day, int $hour = 0, int $minute = 0): CarbonImmutable => CarbonImmutable::create(2026, 5, $day, $hour, $minute, 0, self::TIMEZONE);
@@ -159,6 +160,32 @@ class AndrewJuanPresentationSeeder extends Seeder
 
             unset($createdTasks);
         });
+    }
+
+    private function resolveTargetUser(): User
+    {
+        $configured = config('tasklyst.presentation_seeder_target_email');
+        $candidate = is_string($configured) ? trim($configured) : '';
+        if ($candidate === '') {
+            $candidate = self::TARGET_EMAIL;
+        }
+
+        $user = User::query()->where('email', $candidate)->first();
+        if ($user instanceof User) {
+            return $user;
+        }
+
+        $normalized = Str::lower($candidate);
+        $user = User::query()->whereRaw('LOWER(email) = ?', [$normalized])->first();
+        if ($user instanceof User) {
+            return $user;
+        }
+
+        throw new RuntimeException(
+            'Cannot seed presentation data because no user matches the target email (exact or case-insensitive): '
+            .$candidate
+            .'. Set PRESENTATION_SEEDER_TARGET_EMAIL to the value in `users.email`, or sign in once with WorkOS so the user row exists.'
+        );
     }
 
     /**
@@ -648,7 +675,7 @@ class AndrewJuanPresentationSeeder extends Seeder
                 'complexity' => TaskComplexity::Simple,
                 'duration' => 45,
                 'start_datetime' => null,
-                'end_datetime' => $may(4, 23, 30),
+                'end_datetime' => $may(6, 23, 30),
                 'project_id' => null,
                 'event_id' => null,
                 'school_class_id' => $c('dsa'),

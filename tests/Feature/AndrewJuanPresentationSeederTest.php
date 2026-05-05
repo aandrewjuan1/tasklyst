@@ -10,12 +10,59 @@ use App\Models\User;
 use Database\Seeders\AndrewJuanPresentationSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Config;
 
 uses(RefreshDatabase::class);
 
 it('fails clearly when the target user is missing', function () {
     expect(fn () => $this->seed(AndrewJuanPresentationSeeder::class))
-        ->toThrow(RuntimeException::class, 'target user does not exist');
+        ->toThrow(\RuntimeException::class, 'no user matches the target email');
+});
+
+it('resolves the target user when the database email differs only by case', function () {
+    Carbon::setTestNow(Carbon::parse('2026-05-05 10:00:00', 'Asia/Manila'));
+
+    User::factory()->create([
+        'name' => 'Andrew Juan',
+        'email' => 'Andrew.Juan.CVT@eac.edu.ph',
+    ]);
+
+    $this->seed(AndrewJuanPresentationSeeder::class);
+
+    expect(
+        Task::query()
+            ->where('source_id', 'pres-demo-capstone-integration')
+            ->whereHas('user', fn ($q) => $q->whereRaw('LOWER(email) = ?', [strtolower('andrew.juan.cvt@eac.edu.ph')]))
+            ->exists()
+    )->toBeTrue();
+
+    Carbon::setTestNow();
+});
+
+it('uses presentation_seeder_target_email when configured', function () {
+    Carbon::setTestNow(Carbon::parse('2026-05-05 10:00:00', 'Asia/Manila'));
+
+    $previousTarget = config('tasklyst.presentation_seeder_target_email');
+    Config::set('tasklyst.presentation_seeder_target_email', 'demo.presenter@example.test');
+
+    try {
+        User::factory()->create([
+            'name' => 'Demo Presenter',
+            'email' => 'demo.presenter@example.test',
+        ]);
+
+        $this->seed(AndrewJuanPresentationSeeder::class);
+
+        expect(
+            Task::query()
+                ->where('source_id', 'pres-demo-capstone-integration')
+                ->whereHas('user', fn ($q) => $q->where('email', 'demo.presenter@example.test'))
+                ->exists()
+        )->toBeTrue();
+    } finally {
+        Config::set('tasklyst.presentation_seeder_target_email', $previousTarget);
+        Carbon::setTestNow();
+    }
 });
 
 it('seeds deterministic presentation data for andrew and is idempotent', function () {
@@ -86,7 +133,7 @@ it('seeds deterministic presentation data for andrew and is idempotent', functio
     $overdueDemoTasks = $demoTasks->filter(fn (Task $task): bool => $task->end_datetime !== null
         && $task->end_datetime->lt(Carbon::now('Asia/Manila')));
 
-    expect($overdueDemoTasks->count())->toBeLessThanOrEqual(2);
+    expect($overdueDemoTasks->count())->toBe(1);
 
     $noDateDemoTasks = $demoTasks->filter(fn (Task $task): bool => $task->start_datetime === null
         && $task->end_datetime === null);

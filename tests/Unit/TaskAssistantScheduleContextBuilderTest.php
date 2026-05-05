@@ -15,7 +15,7 @@ class TaskAssistantScheduleContextBuilderTest extends TestCase
             'tasks' => [],
         ]);
 
-        $this->assertContains('urgent', $analysis['priority_filters']);
+        $this->assertNotContains('urgent', $analysis['priority_filters']);
         $this->assertContains('high', $analysis['priority_filters']);
         $this->assertSame('today', $analysis['time_constraint']);
     }

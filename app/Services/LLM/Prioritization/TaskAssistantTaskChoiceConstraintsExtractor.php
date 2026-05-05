@@ -8,7 +8,7 @@ final class TaskAssistantTaskChoiceConstraintsExtractor
      * Extract prioritization constraints deterministically from user text.
      *
      * @return array{
-     *   priority_filters: array<int, string>,
+     *   priority_filters: array<int, 'high'|'medium'|'low'>,
      *   task_keywords: array<int, string>,
      *   time_constraint: string|null,
      *   recurring_requested: bool,
@@ -23,7 +23,7 @@ final class TaskAssistantTaskChoiceConstraintsExtractor
         $content = strtolower($userMessageContent);
 
         $priorityFilters = [];
-        foreach (['urgent', 'high', 'medium', 'low'] as $priority) {
+        foreach (['high', 'medium', 'low'] as $priority) {
             if (preg_match('/\b'.preg_quote($priority, '/').'\b/i', $content) === 1) {
                 $priorityFilters[] = $priority;
             }

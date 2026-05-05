@@ -12,6 +12,16 @@ it('does not treat global most important task question as strict meta keyword fi
     expect($context['task_keywords'])->not->toContain('most');
 });
 
+it('treats urgent task asks like important asks without urgent-only priority filters', function (): void {
+    $extractor = app(TaskAssistantTaskChoiceConstraintsExtractor::class);
+
+    $urgent = $extractor->extract('what are my urgent tasks');
+    $important = $extractor->extract('what are my most important tasks');
+
+    expect($urgent['priority_filters'])->toEqual([]);
+    expect($important['priority_filters'])->toEqual([]);
+});
+
 it('does not treat conversational have in tasks that i have as a title keyword', function (): void {
     $extractor = app(TaskAssistantTaskChoiceConstraintsExtractor::class);
 
@@ -21,12 +31,12 @@ it('does not treat conversational have in tasks that i have as a title keyword',
     expect($context['strict_filtering'])->toBeFalse();
 });
 
-it('extracts urgent + today + math keywords', function (): void {
+it('does not treat conversational urgent as a strict urgent-priority filter like important phrasing', function (): void {
     $extractor = app(TaskAssistantTaskChoiceConstraintsExtractor::class);
 
     $context = $extractor->extract('I need to prioritize urgent math tasks for today.');
 
-    expect($context['priority_filters'])->toEqual(['urgent']);
+    expect($context['priority_filters'])->toEqual([]);
     expect($context['task_keywords'])->toContain('math');
     expect($context['time_constraint'])->toBe('today');
     expect($context['comparison_focus'])->toBeNull();
