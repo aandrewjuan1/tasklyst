@@ -650,7 +650,28 @@ final class TaskAssistantResponseProcessor
         $count += $hasAfternoon ? 1 : 0;
         $count += $hasEvening ? 1 : 0;
 
-        return $count >= 2;
+        if ($count < 2) {
+            return false;
+        }
+
+        return ! $this->containsCoherentCrossDaypartNarrative($value);
+    }
+
+    private function containsCoherentCrossDaypartNarrative(string $value): bool
+    {
+        if (preg_match('/\byour\s+(morning|afternoon|evening)[^.?!]*\balready has\b[^.?!]*\bso this\s+(morning|afternoon|evening)\s+slot\b/iu', $value) === 1) {
+            return true;
+        }
+
+        if (preg_match('/\byou have\b[^.?!]*\blater in the day\b[^.?!]*\bso doing this in the\s+(morning|afternoon|evening)\b/iu', $value) === 1) {
+            return true;
+        }
+
+        if (preg_match('/\bearlier (classes|commitments)\b[^.?!]*\bmake\s+(morning|afternoon|evening)\b[^.?!]*\bmost realistic\b/iu', $value) === 1) {
+            return true;
+        }
+
+        return false;
     }
 
     /**

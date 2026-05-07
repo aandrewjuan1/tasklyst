@@ -56,7 +56,7 @@ test('low composite margin routes to general_guidance instead of clarification b
     expect(data_get($assistantMessage->metadata, 'general_guidance.intent'))->toBe('task');
 });
 
-test('structured intent routes to schedule when LLM selects scheduling', function (): void {
+test('structured intent routes to prioritize_schedule when scheduling day plan is requested', function (): void {
     Prism::fake([
         StructuredResponseFake::make()
             ->withStructured([
@@ -113,7 +113,7 @@ test('structured intent routes to schedule when LLM selects scheduling', functio
 
     $assistantMessage->refresh();
 
-    expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('schedule');
+    expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('prioritize_schedule');
 });
 
 test('fresh top-n schedule prompt ignores stale schedule target entities in prioritize_schedule constraints', function (): void {
@@ -151,4 +151,41 @@ test('fresh top-n schedule prompt ignores stale schedule target entities in prio
 
     expect(is_array($constraints['target_entities'] ?? null) ? $constraints['target_entities'] : [])->toBe([]);
     expect((int) ($constraints['count_limit'] ?? 0))->toBe(1);
+});
+
+test('fresh top tasks schedule prompt ignores stale targets in prioritize_schedule constraints', function (): void {
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create([
+        'user_id' => $user->id,
+        'metadata' => [
+            'conversation_state' => [
+                'last_flow' => 'schedule',
+                'last_schedule' => [
+                    'target_entities' => [[
+                        'entity_type' => 'task',
+                        'entity_id' => 777,
+                        'title' => 'Stale scheduled target',
+                    ]],
+                ],
+                'last_listing' => [
+                    'source_flow' => 'prioritize',
+                    'items' => [[
+                        'entity_type' => 'task',
+                        'entity_id' => 888,
+                        'title' => 'Previous listing top',
+                        'position' => 0,
+                    ]],
+                ],
+            ],
+        ],
+    ]);
+
+    $constraints = app(IntentRoutingPolicy::class)->extractConstraintsForFlow(
+        $thread,
+        'schedule my top tasks for tomorrow',
+        'prioritize_schedule',
+    );
+
+    expect(is_array($constraints['target_entities'] ?? null) ? $constraints['target_entities'] : [])->toBe([]);
+    expect((int) ($constraints['count_limit'] ?? 0))->toBe(3);
 });

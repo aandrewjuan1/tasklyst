@@ -94,3 +94,97 @@ it('rotates prioritize-selection wording across turn seeds', function (): void {
 
     expect(count($variants))->toBeGreaterThan(1);
 });
+
+it('keeps targeted schedule templates deterministic for identical turn seed', function (): void {
+    $service = app(TaskAssistantScheduleTemplateService::class);
+    $seed = [
+        'thread_id' => 91,
+        'flow_source' => 'targeted_schedule',
+        'scenario_key' => 'BLOCKED_WINDOW_SHIFTED',
+        'requested_window_label' => 'today',
+        'placed_count' => 1,
+        'day_bucket' => '2026-05-07',
+        'prompt_key' => 'targeted-seed',
+        'request_bucket' => 'blocked_window_shifted',
+        'turn_seed' => '4001',
+    ];
+
+    $framingA = $service->buildTargetedFraming('BLOCKED_WINDOW_SHIFTED', $seed, [
+        'task_label' => 'Online quiz attempt',
+        'requested_window_label' => 'today',
+        'time_phrase' => ' at 1:00 PM',
+        'chosen_daypart' => 'afternoon',
+    ]);
+    $framingB = $service->buildTargetedFraming('BLOCKED_WINDOW_SHIFTED', $seed, [
+        'task_label' => 'Online quiz attempt',
+        'requested_window_label' => 'today',
+        'time_phrase' => ' at 1:00 PM',
+        'chosen_daypart' => 'afternoon',
+    ]);
+
+    $reasoningA = $service->buildTargetedReasoning('BLOCKED_WINDOW_SHIFTED', $seed, [
+        'task_label' => 'Online quiz attempt',
+        'requested_window_label' => 'today',
+        'blockers_text' => 'Campus fair booth shift (10:00 AM-11:30 AM)',
+        'time_context' => ' at 1:00 PM',
+    ]);
+    $reasoningB = $service->buildTargetedReasoning('BLOCKED_WINDOW_SHIFTED', $seed, [
+        'task_label' => 'Online quiz attempt',
+        'requested_window_label' => 'today',
+        'blockers_text' => 'Campus fair booth shift (10:00 AM-11:30 AM)',
+        'time_context' => ' at 1:00 PM',
+    ]);
+
+    $confirmationA = $service->buildTargetedConfirmation('BLOCKED_WINDOW_SHIFTED', $seed, [
+        'task_label' => 'Online quiz attempt',
+        'time_context' => ' at 1:00 PM',
+    ]);
+    $confirmationB = $service->buildTargetedConfirmation('BLOCKED_WINDOW_SHIFTED', $seed, [
+        'task_label' => 'Online quiz attempt',
+        'time_context' => ' at 1:00 PM',
+    ]);
+
+    expect($framingA)->toBe($framingB);
+    expect($reasoningA)->toBe($reasoningB);
+    expect($confirmationA)->toBe($confirmationB);
+});
+
+it('rotates targeted schedule templates across turn seeds', function (): void {
+    $service = app(TaskAssistantScheduleTemplateService::class);
+
+    $variants = [];
+    foreach (range(4100, 4120) as $turnSeed) {
+        $seed = [
+            'thread_id' => 91,
+            'flow_source' => 'targeted_schedule',
+            'scenario_key' => 'BLOCKED_WINDOW_SHIFTED',
+            'requested_window_label' => 'today',
+            'placed_count' => 1,
+            'day_bucket' => '2026-05-07',
+            'prompt_key' => 'targeted-seed',
+            'request_bucket' => 'blocked_window_shifted',
+            'turn_seed' => (string) $turnSeed,
+        ];
+
+        $framing = $service->buildTargetedFraming('BLOCKED_WINDOW_SHIFTED', $seed, [
+            'task_label' => 'Online quiz attempt',
+            'requested_window_label' => 'today',
+            'time_phrase' => ' at 1:00 PM',
+            'chosen_daypart' => 'afternoon',
+        ]);
+        $reasoning = $service->buildTargetedReasoning('BLOCKED_WINDOW_SHIFTED', $seed, [
+            'task_label' => 'Online quiz attempt',
+            'requested_window_label' => 'today',
+            'blockers_text' => 'Campus fair booth shift (10:00 AM-11:30 AM)',
+            'time_context' => ' at 1:00 PM',
+        ]);
+        $confirmation = $service->buildTargetedConfirmation('BLOCKED_WINDOW_SHIFTED', $seed, [
+            'task_label' => 'Online quiz attempt',
+            'time_context' => ' at 1:00 PM',
+        ]);
+
+        $variants[$framing.'|'.$reasoning.'|'.$confirmation] = true;
+    }
+
+    expect(count($variants))->toBeGreaterThan(1);
+});

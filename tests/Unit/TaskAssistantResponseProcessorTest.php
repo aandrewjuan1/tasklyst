@@ -1384,7 +1384,58 @@ class TaskAssistantResponseProcessorTest extends TestCase
         $this->assertStringContainsString('reasoning must not include legacy numbered list prose', implode(' ', $result['errors']));
     }
 
-    public function test_daily_schedule_quality_normalization_rewrites_mixed_daypart_claims_in_narrative(): void
+    public function test_daily_schedule_quality_normalization_preserves_coherent_cross_daypart_narrative(): void
+    {
+        $processor = app(TaskAssistantResponseProcessor::class);
+
+        $result = $processor->processResponse('daily_schedule', [
+            'proposals' => [[
+                'proposal_id' => 'p1',
+                'status' => 'pending',
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'title' => 'Task A',
+                'start_datetime' => '2026-03-29T09:00:00+00:00',
+                'end_datetime' => '2026-03-29T09:30:00+00:00',
+                'duration_minutes' => 30,
+                'apply_payload' => [
+                    'action' => 'update_task',
+                    'arguments' => ['taskId' => 1, 'updates' => []],
+                ],
+            ]],
+            'items' => [[
+                'title' => 'Task A',
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'start_datetime' => '2026-03-29T09:00:00+00:00',
+                'end_datetime' => '2026-03-29T09:30:00+00:00',
+                'duration_minutes' => 30,
+            ]],
+            'blocks' => [[
+                'start_time' => '09:00',
+                'end_time' => '09:30',
+                'label' => 'Task A',
+                'task_id' => 1,
+                'event_id' => null,
+                'note' => null,
+            ]],
+            'schedule_variant' => 'daily',
+            'framing' => 'I proposed the next conflict-free slot that still fits this plan.',
+            'reasoning' => 'I proposed this at 1:00 PM. Your morning already has Campus fair booth shift and Capstone team stand-up, so this afternoon slot gives you a cleaner focus window.',
+            'confirmation' => 'Do these times work, or should we adjust?',
+        ], [
+            'tasks' => [['id' => 1]],
+            'events' => [],
+            'projects' => [],
+        ]);
+
+        $this->assertTrue($result['valid']);
+        $reasoning = (string) data_get($result, 'structured_data.reasoning', '');
+        $this->assertStringContainsString('Your morning already has', $reasoning);
+        $this->assertStringContainsString('this afternoon slot', $reasoning);
+    }
+
+    public function test_daily_schedule_quality_normalization_still_rewrites_incoherent_mixed_daypart_claims(): void
     {
         $processor = app(TaskAssistantResponseProcessor::class);
 

@@ -885,10 +885,11 @@ final class IntentRoutingPolicy
             '/\b(top|first|next)\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|couple)\b/u',
             $normalized
         ) === 1;
+        $hasPluralTopTasksCue = preg_match('/\btop\s+tasks\b/u', $normalized) === 1;
         $hasTaskScope = preg_match('/\b(task|tasks|item|items|priorit(?:y|ies))\b/u', $normalized) === 1;
         $hasExplicitNameTarget = preg_match('/\b(task\s+(called|named)|\")/u', $normalized) === 1;
 
-        return $hasScheduleCue && $hasTopNCue && $hasTaskScope && ! $hasExplicitNameTarget;
+        return $hasScheduleCue && ($hasTopNCue || $hasPluralTopTasksCue) && $hasTaskScope && ! $hasExplicitNameTarget;
     }
 
     private function isLikelyFreshBatchScheduleRequest(string $normalized): bool

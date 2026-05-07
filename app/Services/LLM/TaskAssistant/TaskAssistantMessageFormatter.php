@@ -1876,6 +1876,10 @@ final class TaskAssistantMessageFormatter
 
     private function alignGenericDaypartClaimsToDominantDaypart(string $text, string $dominantDaypart): string
     {
+        if ($this->containsCoherentCrossDaypartNarrative($text)) {
+            return $text;
+        }
+
         $updated = $text;
 
         return match ($dominantDaypart) {
@@ -1884,6 +1888,39 @@ final class TaskAssistantMessageFormatter
             'evening' => (string) preg_replace('/\b(morning|afternoon)\b(?!\s+start\b)/iu', 'evening', $updated),
             default => $updated,
         };
+    }
+
+    private function containsCoherentCrossDaypartNarrative(string $text): bool
+    {
+        $normalized = mb_strtolower(trim($text));
+        if ($normalized === '') {
+            return false;
+        }
+
+        $hasMorning = str_contains($normalized, 'morning');
+        $hasAfternoon = str_contains($normalized, 'afternoon');
+        $hasEvening = str_contains($normalized, 'evening') || str_contains($normalized, 'night') || str_contains($normalized, 'tonight');
+        $daypartCount = 0;
+        $daypartCount += $hasMorning ? 1 : 0;
+        $daypartCount += $hasAfternoon ? 1 : 0;
+        $daypartCount += $hasEvening ? 1 : 0;
+        if ($daypartCount < 2) {
+            return false;
+        }
+
+        if (preg_match('/\byour\s+(morning|afternoon|evening)[^.?!]*\balready has\b[^.?!]*\bso this\s+(morning|afternoon|evening)\s+slot\b/iu', $normalized) === 1) {
+            return true;
+        }
+
+        if (preg_match('/\byou have\b[^.?!]*\blater in the day\b[^.?!]*\bso doing this in the\s+(morning|afternoon|evening)\b/iu', $normalized) === 1) {
+            return true;
+        }
+
+        if (preg_match('/\bearlier (classes|commitments)\b[^.?!]*\bmake\s+(morning|afternoon|evening)\b[^.?!]*\bmost realistic\b/iu', $normalized) === 1) {
+            return true;
+        }
+
+        return false;
     }
 
     /**

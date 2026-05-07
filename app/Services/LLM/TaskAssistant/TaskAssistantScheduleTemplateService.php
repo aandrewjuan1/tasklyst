@@ -150,6 +150,172 @@ final class TaskAssistantScheduleTemplateService
 
     /**
      * @param  array<string, mixed>  $seedContext
+     * @param  array<string, mixed>  $replacements
+     */
+    public function buildTargetedFraming(string $scenarioKey, array $seedContext, array $replacements = []): string
+    {
+        $templates = match ($scenarioKey) {
+            'STRICT_WINDOW_NO_FIT' => $this->forFlowMany([
+                'I could not keep {task_label} strictly inside {requested_window_label}, so I held the closest workable option{time_phrase}.',
+                'I could not fit {task_label} fully inside {requested_window_label}, so I kept the nearest workable option{time_phrase}.',
+                '{requested_window_label} was too tight for {task_label}, so I preserved the closest workable slot{time_phrase}.',
+                'Because {task_label} could not stay strictly in {requested_window_label}, I kept the nearest practical option{time_phrase}.',
+                'I could not lock {task_label} strictly into {requested_window_label}, so I held the closest feasible option{time_phrase}.',
+            ], $seedContext, false),
+            'REQUESTED_WINDOW_HONORED' => $this->forFlowMany([
+                'I scheduled {task_label}{time_phrase} and kept it inside {requested_window_label}.',
+                'I placed {task_label}{time_phrase} and kept it within {requested_window_label}.',
+                'I scheduled {task_label}{time_phrase} while keeping it in {requested_window_label}.',
+                'I lined up {task_label}{time_phrase} and kept it inside {requested_window_label} as requested.',
+                'I set {task_label}{time_phrase} and kept it within {requested_window_label} as requested.',
+            ], $seedContext, false),
+            'BLOCKED_WINDOW_SHIFTED', 'MISSING_BLOCKER_TITLES' => $this->forFlowMany([
+                'I moved {task_label}{time_phrase} to the next clean opening.',
+                'I shifted {task_label}{time_phrase} into the next clean opening.',
+                'I moved {task_label}{time_phrase} into the next conflict-free opening.',
+                'I shifted {task_label}{time_phrase} to the nearest clean opening.',
+                'I moved {task_label}{time_phrase} to the closest clean opening that fit.',
+            ], $seedContext, false),
+            default => $this->forFlowMany([
+                'I scheduled {task_label} for {requested_window_label}{time_phrase}.',
+                'I lined up {task_label} for {requested_window_label}{time_phrase}.',
+                'I placed {task_label} in {requested_window_label}{time_phrase}.',
+                'I scheduled {task_label} within {requested_window_label}{time_phrase}.',
+                'I set {task_label} for {requested_window_label}{time_phrase}.',
+            ], $seedContext, false),
+        };
+
+        return $this->render($this->selectTemplate('targeted.framing.'.$scenarioKey, $seedContext, $templates), $replacements);
+    }
+
+    /**
+     * @param  array<string, mixed>  $seedContext
+     * @param  array<string, mixed>  $replacements
+     */
+    public function buildTargetedReasoning(string $scenarioKey, array $seedContext, array $replacements = []): string
+    {
+        $templates = match ($scenarioKey) {
+            'STRICT_WINDOW_NO_FIT' => $this->forFlowMany([
+                'Your original {requested_window_label} request was blocked by {blockers_text}, so I used the nearest open slot{time_context} for {task_label}.',
+                '{requested_window_label} was blocked by {blockers_text}, so I used the nearest open slot{time_context} for {task_label}.',
+                'Because {blockers_text} blocked {requested_window_label}, I used the nearest open slot{time_context} for {task_label}.',
+                '{requested_window_label} was too constrained by {blockers_text}, so I moved {task_label} to the nearest open slot{time_context}.',
+                'With {blockers_text} blocking {requested_window_label}, I placed {task_label} in the nearest open slot{time_context}.',
+            ], $seedContext, false),
+            'BLOCKED_WINDOW_SHIFTED', 'MISSING_BLOCKER_TITLES' => $this->forFlowMany([
+                'I placed {task_label}{time_context} where it avoids conflicts with {blockers_text}.',
+                'I scheduled {task_label}{time_context} where it avoids conflicts with {blockers_text}.',
+                'I put {task_label}{time_context} in a slot that avoids conflicts with {blockers_text}.',
+                'I lined up {task_label}{time_context} in a slot that avoids conflicts with {blockers_text}.',
+                'I placed {task_label}{time_context} where it stays clear of conflicts with {blockers_text}.',
+            ], $seedContext, false),
+            'REQUESTED_WINDOW_HONORED' => $this->forFlowMany([
+                'That window stayed open, so {task_label} could stay{time_context} without adding pressure.',
+                'That window remained open, so {task_label} could stay{time_context} without extra pressure.',
+                'Because the window stayed open, {task_label} could remain{time_context} without added strain.',
+                'Since that window remained available, {task_label} could stay{time_context} without overloading your plan.',
+                'With that window still open, {task_label} could stay{time_context} without adding load.',
+            ], $seedContext, false),
+            default => $this->forFlowMany([
+                'This slot{time_context} gives {task_label} a focused block that is realistic for the rest of your day.',
+                'This slot{time_context} gives {task_label} a focused block that stays realistic for your day.',
+                'This timing{time_context} gives {task_label} a focused block that fits the rest of your day.',
+                'This slot{time_context} keeps {task_label} focused while fitting the rest of your day.',
+                'This timing{time_context} gives {task_label} a practical focused block for your day.',
+            ], $seedContext, false),
+        };
+
+        return $this->render($this->selectTemplate('targeted.reasoning.'.$scenarioKey, $seedContext, $templates), $replacements);
+    }
+
+    /**
+     * @param  array<string, mixed>  $seedContext
+     * @param  array<string, mixed>  $replacements
+     */
+    public function buildTargetedConfirmation(string $scenarioKey, array $seedContext, array $replacements = []): string
+    {
+        $templates = match ($scenarioKey) {
+            'EMPTY_CANDIDATE_LIST' => $this->forFlowMany([
+                'Do you want to prioritize first so we can schedule it right after?',
+                'Want to prioritize first, then schedule it right away?',
+                'Should we prioritize first so I can schedule it immediately after?',
+                'Do you want to rank priorities first, then schedule the next step?',
+                'Want to prioritize now so I can schedule the next step right after?',
+            ], $seedContext, false),
+            default => $this->forFlowMany([
+                'Do you want to keep {task_label}{time_context}, or shift it earlier/later?',
+                'Would you like to keep {task_label}{time_context}, or move it earlier/later?',
+                'Should we keep {task_label}{time_context}, or shift it earlier/later?',
+                'Do you want to keep {task_label}{time_context}, or move it earlier/later?',
+                'Would you like to keep {task_label}{time_context}, or shift the block earlier/later?',
+            ], $seedContext, false),
+        };
+
+        return $this->render($this->selectTemplate('targeted.confirmation.'.$scenarioKey, $seedContext, $templates), $replacements);
+    }
+
+    /**
+     * @param  array<string, mixed>  $seedContext
+     */
+    public function buildTargetedCoachingTip(string $chosenDaypart, string $timeWindowHintSource, array $seedContext): string
+    {
+        $daypart = mb_strtolower(trim($chosenDaypart));
+        $hint = mb_strtolower(trim($timeWindowHintSource));
+        $key = 'default';
+
+        if (str_contains($hint, 'later')) {
+            $key = 'later';
+        } elseif ($daypart === 'morning') {
+            $key = 'morning';
+        } elseif ($daypart === 'afternoon') {
+            $key = 'afternoon';
+        } elseif ($daypart === 'evening') {
+            $key = 'evening';
+        }
+
+        $templates = match ($key) {
+            'later' => $this->forFlowMany([
+                'Start gently for the first few minutes so this block feels sustainable.',
+                'Begin gently for the first few minutes so this block feels sustainable.',
+                'Ease into the first few minutes so this block feels sustainable.',
+                'Start with a gentle opening so this block feels sustainable.',
+                'Take a gentle first few minutes so this block feels sustainable.',
+            ], $seedContext, false),
+            'morning' => $this->forFlowMany([
+                'Try a quick 5-minute setup first so momentum starts early.',
+                'Begin with a quick 5-minute setup so momentum starts early.',
+                'Start with a short 5-minute setup so momentum starts early.',
+                'Open with a quick 5-minute setup so momentum starts early.',
+                'Do a brief 5-minute setup first so momentum starts early.',
+            ], $seedContext, false),
+            'afternoon' => $this->forFlowMany([
+                'Use a short reset before this block so you can re-focus quickly.',
+                'Take a short reset before this block so you can re-focus quickly.',
+                'Use a brief reset before this block so you can re-focus quickly.',
+                'Take a brief reset before this block so you can re-focus quickly.',
+                'Use a quick reset before this block so you can re-focus quickly.',
+            ], $seedContext, false),
+            'evening' => $this->forFlowMany([
+                'Set a clear stopping point so you finish with energy left for tomorrow.',
+                'Set a clear stopping point so you finish with energy for tomorrow.',
+                'Keep a clear stopping point so you finish with energy left for tomorrow.',
+                'Use a clear stopping point so you finish with energy left for tomorrow.',
+                'Pick a clear stopping point so you finish with energy left for tomorrow.',
+            ], $seedContext, false),
+            default => $this->forFlowMany([
+                'Keep one small next step ready right after this slot to maintain momentum.',
+                'Keep one small next step ready after this slot to maintain momentum.',
+                'Prepare one small next step right after this slot to maintain momentum.',
+                'Have one small next step ready after this slot to maintain momentum.',
+                'Line up one small next step after this slot to maintain momentum.',
+            ], $seedContext, false),
+        };
+
+        return $this->selectTemplate('targeted.coaching.'.$key, $seedContext, $templates);
+    }
+
+    /**
+     * @param  array<string, mixed>  $seedContext
      */
     public function buildWindowSelectionExplanation(array $seedContext, array $replacements = []): string
     {

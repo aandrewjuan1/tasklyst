@@ -263,9 +263,41 @@ it('builds warmer targeted schedule coaching for later windows', function (): vo
     expect((bool) data_get($out, 'explanation_meta.targeted_schedule'))->toBeTrue();
     expect((string) ($out['framing'] ?? ''))->toContain('10KM RUN');
     expect((string) ($out['reasoning'] ?? ''))->toContain('5:30 PM');
-    expect((string) ($out['reasoning'] ?? ''))->toContain('Start gently');
-    expect((string) ($out['reasoning'] ?? ''))->toContain('stopping point');
+    expect((string) ($out['reasoning'] ?? ''))->toMatch('/(Start|Begin|Ease|Take|Set|Keep|Use|Pick)\b/i');
     expect((string) ($out['confirmation'] ?? ''))->toContain('5:30 PM');
+});
+
+it('varies targeted schedule wording across turn seeds while preserving deterministic output per seed', function (): void {
+    $service = app(DeterministicScheduleExplanationService::class);
+
+    $basePayload = [
+        'flow_source' => 'targeted_schedule',
+        'schedule_scope' => 'all_entities',
+        'requested_window_label' => 'today',
+        'requested_count' => 1,
+        'placed_count' => 1,
+        'unplaced_count' => 0,
+        'trigger_list' => [],
+        'strict_window_requested' => false,
+        'explicit_requested_window' => true,
+        'requested_window_honored' => true,
+        'is_targeted_schedule' => true,
+        'targeted_entity_title' => 'Online quiz attempt',
+        'time_window_hint_source' => 'later',
+        'blocking_reasons' => [],
+        'chosen_time_label' => '5:30 PM',
+    ];
+
+    $seedAFirst = $service->composeNormal(array_merge($basePayload, ['turn_seed' => '5101']));
+    $seedASecond = $service->composeNormal(array_merge($basePayload, ['turn_seed' => '5101']));
+    $seedB = $service->composeNormal(array_merge($basePayload, ['turn_seed' => '5102']));
+
+    $combinedAFirst = (string) ($seedAFirst['framing'] ?? '').'|'.(string) ($seedAFirst['reasoning'] ?? '').'|'.(string) ($seedAFirst['confirmation'] ?? '');
+    $combinedASecond = (string) ($seedASecond['framing'] ?? '').'|'.(string) ($seedASecond['reasoning'] ?? '').'|'.(string) ($seedASecond['confirmation'] ?? '');
+    $combinedB = (string) ($seedB['framing'] ?? '').'|'.(string) ($seedB['reasoning'] ?? '').'|'.(string) ($seedB['confirmation'] ?? '');
+
+    expect($combinedAFirst)->toBe($combinedASecond);
+    expect($combinedAFirst)->not->toBe($combinedB);
 });
 
 it('uses the correct article for afternoon start framing', function (): void {

@@ -10,6 +10,7 @@ use Database\Seeders\AndrewJuanFocusHistoryBalancedSeeder;
 use Database\Seeders\AndrewJuanFocusHistoryEveningSeeder;
 use Database\Seeders\AndrewJuanFocusHistoryMorningSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 
 uses(RefreshDatabase::class);
 
@@ -50,6 +51,17 @@ function seedAndrewJuanDemoUserAndHistoryTasks(): User
     return $user->fresh();
 }
 
+function expectFocusHistoryWithinLastWeek(User $user): void
+{
+    $oldestStartedAt = DB::table('focus_sessions')
+        ->where('user_id', $user->id)
+        ->min('started_at');
+
+    expect($oldestStartedAt)->not->toBeNull();
+    expect(CarbonImmutable::parse((string) $oldestStartedAt, 'Asia/Manila')->gte(CarbonImmutable::now('Asia/Manila')->subWeek()))
+        ->toBeTrue();
+}
+
 it('infer morning energy bias from AndrewJuanFocusHistoryMorningSeeder', function (): void {
     $user = seedAndrewJuanDemoUserAndHistoryTasks();
 
@@ -63,6 +75,8 @@ it('infer morning energy bias from AndrewJuanFocusHistoryMorningSeeder', functio
 
     expect($signals['schedule_preferences_override']['energy_bias'])->toBe('morning')
         ->and((float) $signals['energy_bias_confidence'])->toBeGreaterThanOrEqual(0.6);
+
+    expectFocusHistoryWithinLastWeek($user);
 });
 
 it('infer evening energy bias from AndrewJuanFocusHistoryEveningSeeder', function (): void {
@@ -78,6 +92,8 @@ it('infer evening energy bias from AndrewJuanFocusHistoryEveningSeeder', functio
 
     expect($signals['schedule_preferences_override']['energy_bias'])->toBe('evening')
         ->and((float) $signals['energy_bias_confidence'])->toBeGreaterThanOrEqual(0.6);
+
+    expectFocusHistoryWithinLastWeek($user);
 });
 
 it('infer balanced energy bias from AndrewJuanFocusHistoryBalancedSeeder', function (): void {
@@ -92,6 +108,8 @@ it('infer balanced energy bias from AndrewJuanFocusHistoryBalancedSeeder', funct
     );
 
     expect($signals['schedule_preferences_override']['energy_bias'])->toBe('balanced');
+
+    expectFocusHistoryWithinLastWeek($user);
 });
 
 it('infer afternoon energy bias from AndrewJuanFocusHistoryAfternoonSeeder', function (): void {
@@ -107,4 +125,6 @@ it('infer afternoon energy bias from AndrewJuanFocusHistoryAfternoonSeeder', fun
 
     expect($signals['schedule_preferences_override']['energy_bias'])->toBe('afternoon')
         ->and((float) $signals['energy_bias_confidence'])->toBeGreaterThanOrEqual(0.6);
+
+    expectFocusHistoryWithinLastWeek($user);
 });

@@ -1322,6 +1322,29 @@ class TaskAssistantMessageFormatterTest extends TestCase
         $this->assertStringContainsString('morning', mb_strtolower($out));
     }
 
+    public function test_daily_schedule_soft_correction_preserves_coherent_blocker_vs_slot_dayparts(): void
+    {
+        $out = $this->formatter->format('daily_schedule', [
+            'framing' => 'I proposed the next conflict-free slot that still fits this plan.',
+            'reasoning' => 'I proposed this at 1:00 PM. Your morning already has Campus fair booth shift and Capstone team stand-up, so this afternoon slot gives you a cleaner focus window.',
+            'confirmation' => 'Do these times work for you?',
+            'blocks' => [
+                ['start_time' => '13:00', 'end_time' => '15:00'],
+            ],
+            'items' => [[
+                'title' => 'Timed mock exam',
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'start_datetime' => '2026-05-08T13:00:00+08:00',
+                'end_datetime' => '2026-05-08T15:00:00+08:00',
+                'duration_minutes' => 120,
+            ]],
+        ]);
+
+        $this->assertStringContainsString('Your morning already has', $out);
+        $this->assertStringContainsString('this afternoon slot', $out);
+    }
+
     public function test_daily_schedule_start_daypart_claim_aligns_to_first_slot_instead_of_dominant_distribution(): void
     {
         $out = $this->formatter->format('daily_schedule', [

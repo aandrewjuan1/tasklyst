@@ -357,6 +357,7 @@ final class DeterministicScheduleExplanationService
                 chosenDaypart: $chosenDaypart,
                 chosenTimeLabel: $chosenTimeLabel,
                 targetedEntityTitle: $targetedEntityTitle,
+                seedContext: $seedContext,
             );
         }
 
@@ -423,6 +424,7 @@ final class DeterministicScheduleExplanationService
                 chosenDaypart: $chosenDaypart,
                 targetedEntityTitle: $targetedEntityTitle,
                 timeWindowHintSource: $timeWindowHintSource,
+                seedContext: $seedContext,
             );
         }
 
@@ -476,11 +478,16 @@ final class DeterministicScheduleExplanationService
     ): string {
         if ($isTargetedSchedule) {
             $taskLabel = $targetedEntityTitle !== '' ? $targetedEntityTitle : 'this task';
-            if ($chosenTimeLabel !== '') {
-                return "Do you want to keep {$taskLabel} at {$chosenTimeLabel}, or shift it earlier/later?";
-            }
+            $timeContext = $chosenTimeLabel !== '' ? " at {$chosenTimeLabel}" : '';
 
-            return "Do you want to keep this time for {$taskLabel}, or try an earlier/later slot?";
+            return $this->scheduleTemplateService->buildTargetedConfirmation(
+                scenarioKey: $scenarioKey,
+                seedContext: $seedContext,
+                replacements: [
+                    'task_label' => $taskLabel,
+                    'time_context' => $timeContext,
+                ],
+            );
         }
 
         return match ($scenarioKey) {
@@ -528,20 +535,22 @@ final class DeterministicScheduleExplanationService
         string $chosenDaypart,
         string $chosenTimeLabel,
         string $targetedEntityTitle,
+        array $seedContext,
     ): string {
         $taskLabel = $targetedEntityTitle !== '' ? $targetedEntityTitle : 'this task';
         $timePhrase = $chosenTimeLabel !== '' ? " at {$chosenTimeLabel}" : '';
+        $resolvedWindow = $requestedWindowLabel !== '' ? $requestedWindowLabel : 'your requested window';
 
-        return match ($scenarioKey) {
-            'STRICT_WINDOW_NO_FIT' => "I could not keep {$taskLabel} strictly inside {$requestedWindowLabel}, so I held the closest workable option{$timePhrase}.",
-            'REQUESTED_WINDOW_HONORED' => "I scheduled {$taskLabel}{$timePhrase} and kept it inside {$requestedWindowLabel}.",
-            'BLOCKED_WINDOW_SHIFTED', 'MISSING_BLOCKER_TITLES' => "I moved {$taskLabel}{$timePhrase} to the next clean opening.",
-            default => $requestedWindowLabel !== '' && $chosenTimeLabel !== ''
-                ? "I scheduled {$taskLabel} for {$requestedWindowLabel}{$timePhrase}."
-                : ($chosenDaypart !== ''
-                    ? "I scheduled {$taskLabel}{$timePhrase} in a {$chosenDaypart} slot that fit your day."
-                    : "I scheduled {$taskLabel}{$timePhrase} in the closest feasible window."),
-        };
+        return $this->scheduleTemplateService->buildTargetedFraming(
+            scenarioKey: $scenarioKey,
+            seedContext: $seedContext,
+            replacements: [
+                'task_label' => $taskLabel,
+                'requested_window_label' => $resolvedWindow,
+                'time_phrase' => $timePhrase,
+                'chosen_daypart' => $chosenDaypart,
+            ],
+        );
     }
 
     /**
@@ -556,64 +565,31 @@ final class DeterministicScheduleExplanationService
         string $chosenDaypart,
         string $targetedEntityTitle,
         string $timeWindowHintSource,
+        array $seedContext,
     ): string {
         $taskLabel = $targetedEntityTitle !== '' ? $targetedEntityTitle : 'this task';
-        $blockersText = $this->joinBlockersWithWindows($selectedBlockers);
+        $blockersText = $hasBlockerTitles
+            ? $this->joinBlockersWithWindows($selectedBlockers)
+            : 'your earlier commitments';
         $timeContext = $chosenTimeLabel !== '' ? " at {$chosenTimeLabel}" : '';
-        $tips = $this->targetedCoachingTips($chosenDaypart, $timeWindowHintSource);
-        $tipsText = $tips !== [] ? ' '.implode(' ', array_slice($tips, 0, 2)) : '';
+        $resolvedWindow = $requestedWindowLabel !== '' ? $requestedWindowLabel : 'your requested window';
+        $base = $this->scheduleTemplateService->buildTargetedReasoning(
+            scenarioKey: $scenarioKey,
+            seedContext: $seedContext,
+            replacements: [
+                'task_label' => $taskLabel,
+                'requested_window_label' => $resolvedWindow,
+                'blockers_text' => $blockersText,
+                'time_context' => $timeContext,
+            ],
+        );
+        $coachingTip = $this->scheduleTemplateService->buildTargetedCoachingTip(
+            chosenDaypart: $chosenDaypart,
+            timeWindowHintSource: $timeWindowHintSource,
+            seedContext: $seedContext,
+        );
 
-        $base = match ($scenarioKey) {
-            'STRICT_WINDOW_NO_FIT' => $hasBlockerTitles
-                ? "Your original {$requestedWindowLabel} request was blocked by {$blockersText}, so I used the nearest open slot{$timeContext} for {$taskLabel}."
-                : "Your original {$requestedWindowLabel} request was too tight, so I used the nearest open slot{$timeContext} for {$taskLabel}.",
-            'BLOCKED_WINDOW_SHIFTED', 'MISSING_BLOCKER_TITLES' => $hasBlockerTitles
-                ? "I placed {$taskLabel}{$timeContext} where it avoids conflicts with {$blockersText}."
-                : "I placed {$taskLabel}{$timeContext} where your earlier window is no longer crowded.",
-            'REQUESTED_WINDOW_HONORED' => "That window stayed open, so {$taskLabel} could stay{$timeContext} without adding pressure.",
-            default => "This slot{$timeContext} gives {$taskLabel} a focused block that is realistic for the rest of your day.",
-        };
-
-        return trim($base.$tipsText);
-    }
-
-    /**
-     * @return list<string>
-     */
-    private function targetedCoachingTips(string $chosenDaypart, string $timeWindowHintSource): array
-    {
-        $daypart = mb_strtolower(trim($chosenDaypart));
-        $hint = mb_strtolower(trim($timeWindowHintSource));
-
-        if (str_contains($hint, 'later')) {
-            return [
-                'Start gently for the first few minutes so this block feels sustainable.',
-                'Set a clear stopping point so you finish with energy left for tomorrow.',
-            ];
-        }
-        if ($daypart === 'morning') {
-            return [
-                'Try a quick 5-minute setup first so momentum starts early.',
-                'Leave a short buffer after this block so delays do not spill into the rest of your morning.',
-            ];
-        }
-        if ($daypart === 'afternoon') {
-            return [
-                'Use a short reset before this block so you can re-focus quickly.',
-                'Keep one small next step ready right after this slot to maintain momentum.',
-            ];
-        }
-        if ($daypart === 'evening') {
-            return [
-                'Start gently for the first few minutes so this block feels sustainable.',
-                'Set a clear stopping point so you finish with energy left for tomorrow.',
-            ];
-        }
-
-        return [
-            'Treat this as a protected focus block and avoid context switching during it.',
-            'If it runs long, trim scope instead of extending the block so your day stays realistic.',
-        ];
+        return trim($base.' '.$coachingTip);
     }
 
     /**

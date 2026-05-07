@@ -22,9 +22,10 @@ use Illuminate\Support\Str;
 use RuntimeException;
 
 /**
- * Append-only, idempotent demo dataset for professor presentation (anchor: May 5, 2026, Asia/Manila).
+ * Append-only, idempotent demo dataset for professor presentation.
  *
- * Calendar intent: leave open bands on May 5 after classes (late afternoon / evening) and slack on May 6
+ * Calendar intent: leave open bands on the anchor day after classes (late afternoon / evening) and slack on
+ * the following day
  * so live Task Assistant scheduling demos can place top tasks without hitting tight fallback confirmation.
  * Most tasks omit start_datetime (due dates kept); the in-progress capstone task and recurring anchors keep starts.
  *
@@ -40,6 +41,18 @@ class AndrewJuanPresentationSeeder extends Seeder
     public const TARGET_EMAIL = 'andrew.juan.cvt@eac.edu.ph';
 
     private const TIMEZONE = 'Asia/Manila';
+
+    private const LEGACY_ANCHOR_YEAR = 2026;
+
+    private const LEGACY_ANCHOR_MONTH = 5;
+
+    private const LEGACY_ANCHOR_DAY = 5;
+
+    private const LEGACY_ANCHOR_HOUR = 10;
+
+    private const LEGACY_ANCHOR_MINUTE = 0;
+
+    private const INTENDED_OVERDUE_SOURCE_ID = 'pres-demo-overdue-reading';
 
     /**
      * Stable names for tests; no user-visible demo prefix.
@@ -86,16 +99,37 @@ class AndrewJuanPresentationSeeder extends Seeder
         $user = $this->resolveTargetUser();
 
         DB::transaction(function () use ($user): void {
-            $may = fn (int $day, int $hour = 0, int $minute = 0): CarbonImmutable => CarbonImmutable::create(2026, 5, $day, $hour, $minute, 0, self::TIMEZONE);
+            $referenceNow = CarbonImmutable::now(self::TIMEZONE);
+            $anchorNow = $referenceNow->setTime(
+                self::LEGACY_ANCHOR_HOUR,
+                self::LEGACY_ANCHOR_MINUTE,
+                0
+            );
+            $legacyAnchor = CarbonImmutable::create(
+                self::LEGACY_ANCHOR_YEAR,
+                self::LEGACY_ANCHOR_MONTH,
+                self::LEGACY_ANCHOR_DAY,
+                self::LEGACY_ANCHOR_HOUR,
+                self::LEGACY_ANCHOR_MINUTE,
+                0,
+                self::TIMEZONE
+            );
+            $atAnchorOffset = fn (int $day, int $hour = 0, int $minute = 0): CarbonImmutable => $this->toAnchorOffset(
+                anchorNow: $anchorNow,
+                legacyAnchor: $legacyAnchor,
+                day: $day,
+                hour: $hour,
+                minute: $minute,
+            );
 
-            $recurrenceEnd = $may(31, 23, 59)->endOfMinute();
+            $recurrenceEnd = $referenceNow->addWeeks(8)->endOfMinute();
 
             $tagsByName = $this->seedTags($user);
-            $projects = $this->seedProjects($user, $may);
-            $schoolClasses = $this->seedSchoolClasses($user, $may, $recurrenceEnd);
-            $events = $this->seedEvents($user, $may);
+            $projects = $this->seedProjects($user, $atAnchorOffset, $referenceNow);
+            $schoolClasses = $this->seedSchoolClasses($user, $atAnchorOffset, $recurrenceEnd, $referenceNow);
+            $events = $this->seedEvents($user, $atAnchorOffset, $referenceNow);
 
-            $taskSpecs = $this->taskSpecs($projects, $schoolClasses, $events, $may);
+            $taskSpecs = $this->taskSpecs($projects, $schoolClasses, $events, $atAnchorOffset, $referenceNow);
             $createdTasks = [];
 
             foreach ($taskSpecs as $spec) {
@@ -161,6 +195,100 @@ class AndrewJuanPresentationSeeder extends Seeder
         });
     }
 
+    private function toAnchorOffset(
+        CarbonImmutable $anchorNow,
+        CarbonImmutable $legacyAnchor,
+        int $day,
+        int $hour = 0,
+        int $minute = 0,
+    ): CarbonImmutable {
+        $legacyDate = CarbonImmutable::create(
+            self::LEGACY_ANCHOR_YEAR,
+            self::LEGACY_ANCHOR_MONTH,
+            $day,
+            $hour,
+            $minute,
+            0,
+            self::TIMEZONE
+        );
+
+        return $anchorNow->addSeconds($legacyAnchor->diffInSeconds($legacyDate, false));
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $taskSpecs
+     * @return list<array<string, mixed>>
+     */
+    private function normalizeTaskSpecDates(array $taskSpecs, CarbonImmutable $anchorNow): array
+    {
+        $normalized = [];
+        $isOverdueAssigned = false;
+
+        foreach ($taskSpecs as $spec) {
+            $isIntendedOverdue = ($spec['source_id'] ?? null) === self::INTENDED_OVERDUE_SOURCE_ID && ! $isOverdueAssigned;
+
+            if ($isIntendedOverdue) {
+                if (($spec['end_datetime'] ?? null) instanceof CarbonImmutable) {
+                    $spec['end_datetime'] = $anchorNow->subHours(2);
+                }
+                $isOverdueAssigned = true;
+            } else {
+                if (($spec['end_datetime'] ?? null) instanceof CarbonImmutable) {
+                    $spec['end_datetime'] = $this->nextFutureSlot($spec['end_datetime'], $anchorNow);
+                }
+            }
+
+            if (($spec['start_datetime'] ?? null) instanceof CarbonImmutable && ($spec['end_datetime'] ?? null) instanceof CarbonImmutable) {
+                if ($spec['start_datetime']->gte($spec['end_datetime'])) {
+                    $spec['start_datetime'] = $spec['end_datetime']->subMinutes((int) ($spec['duration'] ?? 30));
+                }
+            }
+
+            if (is_array($spec['recurring'] ?? null)) {
+                if (($spec['recurring']['start_datetime'] ?? null) instanceof CarbonImmutable) {
+                    $spec['recurring']['start_datetime'] = $this->nextFutureSlot($spec['recurring']['start_datetime'], $anchorNow);
+                }
+                if (($spec['recurring']['end_datetime'] ?? null) instanceof CarbonImmutable) {
+                    $spec['recurring']['end_datetime'] = $this->nextFutureSlot($spec['recurring']['end_datetime'], $anchorNow)->addWeeks(4);
+                }
+            }
+
+            $normalized[] = $spec;
+        }
+
+        return $normalized;
+    }
+
+    private function nextFutureSlot(CarbonImmutable $date, CarbonImmutable $anchorNow): CarbonImmutable
+    {
+        $candidate = $date;
+
+        while ($candidate->lte($anchorNow)) {
+            $candidate = $candidate->addWeek();
+        }
+
+        return $candidate;
+    }
+
+    /**
+     * @return array{start: CarbonImmutable, end: CarbonImmutable}
+     */
+    private function shiftWindowToCurrentOrFuture(CarbonImmutable $start, CarbonImmutable $end, CarbonImmutable $anchorNow): array
+    {
+        $shiftedStart = $start;
+        $shiftedEnd = $end;
+
+        while ($shiftedEnd->lte($anchorNow)) {
+            $shiftedStart = $shiftedStart->addWeek();
+            $shiftedEnd = $shiftedEnd->addWeek();
+        }
+
+        return [
+            'start' => $shiftedStart,
+            'end' => $shiftedEnd,
+        ];
+    }
+
     private function resolveTargetUser(): User
     {
         $configured = config('tasklyst.presentation_seeder_target_email');
@@ -208,7 +336,7 @@ class AndrewJuanPresentationSeeder extends Seeder
     /**
      * @return array<string, Project>
      */
-    private function seedProjects(User $user, callable $may): array
+    private function seedProjects(User $user, callable $may, CarbonImmutable $anchorNow): array
     {
         $defs = [
             'capstone' => [
@@ -245,6 +373,8 @@ class AndrewJuanPresentationSeeder extends Seeder
 
         $projects = [];
         foreach ($defs as $key => $def) {
+            $window = $this->shiftWindowToCurrentOrFuture($def['start'], $def['end'], $anchorNow);
+
             $projects[$key] = Project::query()->updateOrCreate(
                 [
                     'user_id' => $user->id,
@@ -252,8 +382,8 @@ class AndrewJuanPresentationSeeder extends Seeder
                 ],
                 [
                     'description' => $def['description'],
-                    'start_datetime' => $def['start'],
-                    'end_datetime' => $def['end'],
+                    'start_datetime' => $window['start'],
+                    'end_datetime' => $window['end'],
                 ]
             );
         }
@@ -264,7 +394,7 @@ class AndrewJuanPresentationSeeder extends Seeder
     /**
      * @return array<string, SchoolClass>
      */
-    private function seedSchoolClasses(User $user, callable $may, CarbonImmutable $recurrenceEnd): array
+    private function seedSchoolClasses(User $user, callable $may, CarbonImmutable $recurrenceEnd, CarbonImmutable $anchorNow): array
     {
         $classes = [
             'discrete' => [
@@ -308,18 +438,19 @@ class AndrewJuanPresentationSeeder extends Seeder
 
         foreach ($classes as $key => $class) {
             $teacher = Teacher::firstOrCreateByDisplayName($user->id, $class['teacher_name']);
+            $window = $this->shiftWindowToCurrentOrFuture($class['start_datetime'], $class['end_datetime'], $anchorNow);
 
             $seeded[$key] = SchoolClass::query()->updateOrCreate(
                 [
                     'user_id' => $user->id,
                     'subject_name' => $class['subject_name'],
-                    'start_datetime' => $class['start_datetime'],
+                    'start_datetime' => $window['start'],
                 ],
                 [
                     'teacher_id' => $teacher->id,
-                    'start_time' => $class['start_datetime']->format('H:i:s'),
-                    'end_time' => $class['end_datetime']->format('H:i:s'),
-                    'end_datetime' => $class['end_datetime'],
+                    'start_time' => $window['start']->format('H:i:s'),
+                    'end_time' => $window['end']->format('H:i:s'),
+                    'end_datetime' => $window['end'],
                 ]
             );
 
@@ -330,7 +461,7 @@ class AndrewJuanPresentationSeeder extends Seeder
                     [
                         'recurrence_type' => TaskRecurrenceType::Weekly,
                         'interval' => 1,
-                        'start_datetime' => $class['start_datetime'],
+                        'start_datetime' => $window['start'],
                         'end_datetime' => $recurrenceEnd,
                         'days_of_week' => json_encode(array_values($days)),
                     ]
@@ -346,7 +477,7 @@ class AndrewJuanPresentationSeeder extends Seeder
     /**
      * @return array<string, Event>
      */
-    private function seedEvents(User $user, callable $may): array
+    private function seedEvents(User $user, callable $may, CarbonImmutable $anchorNow): array
     {
         $defs = [
             'org_sync' => [
@@ -410,6 +541,8 @@ class AndrewJuanPresentationSeeder extends Seeder
         $events = [];
 
         foreach ($defs as $key => $event) {
+            $window = $this->shiftWindowToCurrentOrFuture($event['start'], $event['end'], $anchorNow);
+
             // Match on title only so changing start/end times stays idempotent across re-seeds.
             $events[$key] = Event::query()->updateOrCreate(
                 [
@@ -418,8 +551,8 @@ class AndrewJuanPresentationSeeder extends Seeder
                 ],
                 [
                     'description' => $event['description'],
-                    'start_datetime' => $event['start'],
-                    'end_datetime' => $event['end'],
+                    'start_datetime' => $window['start'],
+                    'end_datetime' => $window['end'],
                     'all_day' => $event['all_day'],
                     'status' => EventStatus::Scheduled,
                 ]
@@ -435,7 +568,7 @@ class AndrewJuanPresentationSeeder extends Seeder
      * @param  array<string, Event>  $events
      * @return list<array<string, mixed>>
      */
-    private function taskSpecs(array $projects, array $schoolClasses, array $events, callable $may): array
+    private function taskSpecs(array $projects, array $schoolClasses, array $events, callable $may, CarbonImmutable $anchorNow): array
     {
         $p = static fn (string $key): ?int => $projects[$key]->id ?? null;
         $c = static fn (string $key): ?int => $schoolClasses[$key]->id ?? null;
@@ -443,7 +576,7 @@ class AndrewJuanPresentationSeeder extends Seeder
 
         $weekEnd = $may(31, 23, 0);
 
-        return [
+        $taskSpecs = [
             [
                 'source_id' => 'pres-demo-capstone-integration',
                 'source_type' => TaskSourceType::Manual,
@@ -983,5 +1116,7 @@ class AndrewJuanPresentationSeeder extends Seeder
                 'tags' => ['school'],
             ],
         ];
+
+        return $this->normalizeTaskSpecDates($taskSpecs, $anchorNow);
     }
 }

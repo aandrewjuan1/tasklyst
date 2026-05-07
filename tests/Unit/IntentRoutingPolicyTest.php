@@ -445,7 +445,7 @@ test('prioritize my tasks routes to prioritize with default multi count', functi
     expect($decision->reasonCodes)->toContain('prioritize_first_shortcircuit');
 });
 
-test('schedule my top tasks for tomorrow afternoon over prior listing targets all top tasks', function (): void {
+test('schedule my top tasks for tomorrow afternoon over prior listing stays fresh for prioritize_schedule constraints', function (): void {
     config()->set('task-assistant.intent.use_llm', false);
 
     $user = User::factory()->create();
@@ -465,7 +465,7 @@ test('schedule my top tasks for tomorrow afternoon over prior listing targets al
     $decision = app(IntentRoutingPolicy::class)->decide($thread, 'schedule my top tasks for tomorrow afternoon');
 
     expect($decision->flow)->toBe('prioritize_schedule');
-    expect($decision->constraints['target_entities'])->toHaveCount(3);
+    expect($decision->constraints['target_entities'])->toBe([]);
     expect($decision->constraints['count_limit'])->toBe(3);
 });
 
